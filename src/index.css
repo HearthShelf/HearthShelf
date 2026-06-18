@@ -1,5 +1,23 @@
 @import 'tailwindcss';
 
+/* Brand font - self-hosted (no external CDN, keeps the app self-contained). */
+@font-face {
+  font-family: 'Libre Baskerville';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/LibreBaskerville-VariableFont_wght.ttf')
+    format('truetype');
+}
+
+/* Tailwind v4 theme tokens. Exposes the brand font + wordmark colors as
+   utilities (font-brand, text-hearth, text-shelf, etc.). */
+@theme {
+  --font-brand: 'Libre Baskerville', Georgia, serif;
+  --color-hearth: #c68e3b;
+  --color-shelf: #36ddcc;
+}
+
 /* HearthShelf design tokens. Dark by default in v0.1.
    The custom design system will expand these once finalized. */
 :root {
