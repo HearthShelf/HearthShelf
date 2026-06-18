@@ -2,9 +2,14 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { absRequest } from '@/api/client'
-import { openIdLoginUrl } from '@/api/auth'
+import { openIdInitUrl } from '@/api/auth'
+import { createPkcePair, createState } from '@/lib/pkce'
 import { useAuth } from '@/hooks/useAuth'
 import type { ABSStatusResponse } from '@/api/types'
+
+// Survives the provider round-trip (the callback page reads these back).
+export const OIDC_VERIFIER_KEY = 'hearthshelf.oidc.verifier'
+export const OIDC_STATE_KEY = 'hearthshelf.oidc.state'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,12 +44,23 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       await signIn(username, password)
-      navigate('/library', { replace: true })
+      navigate('/', { replace: true })
     } catch {
       setError('Login failed. Check your username and password.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // Start the OpenID PKCE flow: stash the verifier + state, then full-navigate
+  // to ABS so it can set its session cookies and redirect to the provider.
+  async function startOpenId() {
+    setError(null)
+    const { verifier, challenge } = await createPkcePair()
+    const state = createState()
+    sessionStorage.setItem(OIDC_VERIFIER_KEY, verifier)
+    sessionStorage.setItem(OIDC_STATE_KEY, state)
+    window.location.href = openIdInitUrl(challenge, state)
   }
 
   return (
@@ -91,8 +107,13 @@ export function LoginPage() {
 
           {openIdEnabled && (
             <div className="mt-4">
-              <Button asChild variant="outline" className="w-full">
-                <a href={openIdLoginUrl()}>{openIdLabel}</a>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => void startOpenId()}
+              >
+                {openIdLabel}
               </Button>
             </div>
           )}
