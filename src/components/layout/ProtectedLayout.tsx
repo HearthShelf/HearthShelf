@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { AppShell } from '@/components/layout/AppShell'
 
 export function ProtectedLayout() {
   const { isAuthenticated, isHydrating, hydrate } = useAuth()
@@ -21,5 +22,5 @@ export function ProtectedLayout() {
     return <Navigate to="/login" replace />
   }
 
-  return <Outlet />
+  return <AppShell />
 }

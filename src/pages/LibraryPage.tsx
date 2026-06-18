@@ -1,18 +1,10 @@
-import { useAuth } from '@/hooks/useAuth'
-import { Button } from '@/components/ui/button'
-import { Wordmark } from '@/components/common/Wordmark'
-
 export function LibraryPage() {
-  const { user, signOut } = useAuth()
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-      <Wordmark className="text-4xl" />
-      <p className="text-muted-foreground">
-        Signed in as {user?.username}. Library grid lands in the next phase.
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold">Library</h1>
+      <p className="mt-2 text-muted-foreground">
+        The book grid lands in the next phase.
       </p>
-      <Button variant="outline" onClick={signOut}>
-        Sign out
-      </Button>
     </div>
   )
 }
