@@ -10,6 +10,7 @@ import type {
   ABSCollectionsResponse,
   ABSCollection,
   ABSPlaylistsResponse,
+  ABSPlaylist,
 } from '@/api/types'
 
 export const libraryKeys = {
@@ -94,6 +95,10 @@ export function getPlaylists(libraryId: string): Promise<ABSPlaylistsResponse> {
   return absRequest<ABSPlaylistsResponse>(
     `/api/libraries/${libraryId}/playlists`
   )
+}
+
+export function getPlaylist(playlistId: string): Promise<ABSPlaylist> {
+  return absRequest<ABSPlaylist>(`/api/playlists/${playlistId}`)
 }
 
 export function getLibraryItems(
