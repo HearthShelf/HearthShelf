@@ -24,6 +24,7 @@ import { PodcastDetailPage } from '@/pages/PodcastDetailPage'
 import { PodcastLatestPage } from '@/pages/PodcastLatestPage'
 import { PodcastSearchPage } from '@/pages/PodcastSearchPage'
 import { PodcastQueuePage } from '@/pages/PodcastQueuePage'
+import { ConfigShell, ConfigIndexRedirect } from '@/pages/config/ConfigShell'
 
 export const router = createBrowserRouter([
   {
@@ -64,7 +65,9 @@ export const router = createBrowserRouter([
       { path: 'player', element: <PlayerPage /> },
       { path: 'account', element: <ComingSoonPage title="Account" eyebrow="Your account" icon="person" /> },
       { path: 'upload', element: <ComingSoonPage title="Upload" eyebrow="Add to library" icon="upload" /> },
-      { path: 'config', element: <ComingSoonPage title="Server & admin" eyebrow="Administration" icon="dns" /> },
+      { path: 'config', element: <ConfigIndexRedirect /> },
+      { path: 'config/users/:userId', element: <ConfigShell /> },
+      { path: 'config/:section', element: <ConfigShell /> },
       { path: '*', element: <ComingSoonPage title="Not found" eyebrow="404" icon="explore_off" /> },
     ],
   },

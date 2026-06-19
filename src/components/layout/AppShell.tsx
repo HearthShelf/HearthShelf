@@ -12,7 +12,11 @@ import { useSettingsStore } from '@/store/settingsStore'
 // playback never interrupts on route change.
 export function AppShell() {
   const appRef = useRef<HTMLDivElement>(null)
-  const isPlayerRoute = useLocation().pathname === '/player'
+  const { pathname } = useLocation()
+  const isPlayerRoute = pathname === '/player'
+  // Config replaces the main sidebar with its own side-nav (rendered by the
+  // config pages); the player bar + audio engine still persist underneath.
+  const isConfigRoute = pathname.startsWith('/config')
   const coverStyle = useSettingsStore((s) => s.coverStyle)
 
   useApplySettings(appRef, isPlayerRoute)
@@ -23,13 +27,14 @@ export function AppShell() {
       className={
         'app' +
         (coverStyle === 'cards' ? ' cards' : '') +
-        (isPlayerRoute ? ' player-mode' : '')
+        (isPlayerRoute ? ' player-mode' : '') +
+        (isConfigRoute ? ' config-mode' : '')
       }
     >
       <div className="app-glow" />
-      <Sidebar />
+      {!isConfigRoute && <Sidebar />}
       <div className="main">
-        {!isPlayerRoute && <AppBar />}
+        {!isPlayerRoute && !isConfigRoute && <AppBar />}
         <div className="content">
           <Outlet />
         </div>

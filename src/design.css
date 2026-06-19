@@ -2558,3 +2558,7 @@ select.fld { appearance: none; cursor: pointer; background-image: url("data:imag
 
 /* ---- Batch edit: dimmed (unticked) field rows ---- */
 .field.bf-off label { color: var(--text-faint); }
+
+/* ---- Config mode: side-nav replaces the app sidebar; single content column ---- */
+.app.config-mode { grid-template-columns: 1fr; }
+.app.config-mode .app-glow { inset: 0 0 auto 0; }

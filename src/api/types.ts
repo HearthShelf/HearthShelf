@@ -261,6 +261,54 @@ export interface ABSRecentEpisodesResponse {
   episodes: ABSRecentEpisode[]
 }
 
+// --- Admin / config (admin-only) ---
+
+export interface ABSAdminUser {
+  id: string
+  username: string
+  email: string | null
+  type: string
+  isActive: boolean
+  isLocked: boolean
+  lastSeen: number | null
+  createdAt: number
+  permissions?: Record<string, boolean>
+  librariesAccessible?: string[]
+}
+
+export interface ABSUsersResponse {
+  users: ABSAdminUser[]
+}
+
+export interface ABSApiKey {
+  id: string
+  name: string
+  description: string | null
+  expiresAt: number | null
+  lastUsedAt: number | null
+  isActive: boolean
+  createdAt: string
+  userId: string
+}
+
+export interface ABSApiKeysResponse {
+  apiKeys: ABSApiKey[]
+}
+
+export interface ABSBackup {
+  id: string
+  datePretty: string
+  filename: string
+  fileSize: number
+  createdAt: number
+  serverVersion: string
+}
+
+export interface ABSBackupsResponse {
+  backups: ABSBackup[]
+  backupLocation: string
+}
+
 // --- Collections (/api/libraries/:id/collections) ---
 
 export interface ABSCollection {
