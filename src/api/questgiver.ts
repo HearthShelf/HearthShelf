@@ -10,10 +10,12 @@ import {
   type QgAnswers,
   type QgCandidate,
   type QgResult,
+  type QgRenderedPick,
 } from '@/lib/questgiver'
 
 export interface QgConfig {
-  enabled: boolean // AI provider configured server-side
+  featureEnabled: boolean // admin gate; when false the SPA hides QuestGiver
+  enabled: boolean // AI provider configured server-side (heuristic works either way)
   provider: string | null
   model: string | null
   limit: number | null // per-period cap, null = unlimited
@@ -40,7 +42,16 @@ export async function getQgConfig(): Promise<QgConfig> {
     return await qgFetch<QgConfig>('/config')
   } catch {
     // Backend unreachable (e.g. local dev without the node service running).
-    return { enabled: false, provider: null, model: null, limit: null, remaining: null, period: null }
+    // Keep the feature on so the heuristic flow still works; AI is just off.
+    return {
+      featureEnabled: true,
+      enabled: false,
+      provider: null,
+      model: null,
+      limit: null,
+      remaining: null,
+      period: null,
+    }
   }
 }
 
@@ -78,10 +89,12 @@ export async function qgRecommend(
 // --- Client-only persistence (run history, feedback, usage display) ---
 
 export interface QgRun {
+  id: string
   label: string
+  when: string // human-readable timestamp, stamped at save time
   engine: 'ai' | 'heuristic'
-  ts: number
-  result: QgResult
+  intro: string
+  picks: QgRenderedPick[]
 }
 export interface QgFeedback {
   vote?: 1 | -1

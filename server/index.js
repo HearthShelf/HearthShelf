@@ -15,6 +15,10 @@ import { check, consume } from './ratelimit.js'
 
 const PORT = process.env.QG_PORT || 8080
 const ABS_URL = process.env.ABS_SERVER_URL || ''
+// Feature gate, independent of AI config: the admin can turn QuestGiver off
+// entirely. When off, the SPA hides the route and nav. Default on (the
+// heuristic recommender works even with no AI provider). "0"/"false"/"off" = off.
+const FEATURE_ENABLED = !/^(0|false|off|no)$/i.test(process.env.QG_ENABLED ?? 'true')
 
 function json(res, status, body) {
   const data = JSON.stringify(body)
@@ -82,6 +86,7 @@ const server = http.createServer(async (req, res) => {
     const info = providerInfo()
     const rate = userId ? check(userId) : { limit: null, remaining: null, period: null }
     return json(res, 200, {
+      featureEnabled: FEATURE_ENABLED,
       enabled: info.configured,
       provider: info.provider,
       model: info.model,
@@ -94,6 +99,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/qg/recommend') {
     const userId = await authUser(req)
     if (!userId) return json(res, 401, { error: 'unauthorized' })
+
+    if (!FEATURE_ENABLED) return json(res, 403, { error: 'feature_disabled' })
 
     if (!isProviderConfigured()) {
       // No AI configured — the client runs its heuristic fallback.

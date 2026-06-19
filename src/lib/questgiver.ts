@@ -79,6 +79,20 @@ export interface QgResult {
   engine: 'ai' | 'heuristic'
 }
 
+// A pick resolved against the real library, ready to render. `kind` is always
+// 'library' today; 'request'/'new' light up with the ReadMeABook backend.
+export interface QgRenderedPick {
+  key: string // title|author lowercase - feedback + repeat detection
+  kind: 'library' | 'request' | 'new'
+  itemId?: string
+  title: string
+  author: string
+  genre: string
+  hours: number
+  reason: string
+  priorCount: number
+}
+
 // Genres surfaced as "explore" sliders when RMAB request is enabled - things the
 // listener may not own yet.
 export const QG_EXPLORE_GENRES = [

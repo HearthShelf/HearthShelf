@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
+import { useQuestGiverEnabled } from '@/hooks/useQuestGiver'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Icon } from '@/components/common/Icon'
 
-// Which nav group a given path lights up. Browse surfaces (series, search, item
-// detail) keep the unified Library entry active, matching the design reference.
+// Browse surfaces (series, authors, narrators, search, item detail) keep the
+// Library entry lit, matching the design reference.
 function groupForPath(path: string): string {
   if (path === '/') return 'home'
   if (
@@ -15,15 +16,16 @@ function groupForPath(path: string): string {
     path.startsWith('/book') ||
     path.startsWith('/authors') ||
     path.startsWith('/narrators') ||
-    path.startsWith('/search')
+    path.startsWith('/search') ||
+    path.startsWith('/podcast/')
   )
     return 'library'
   if (path.startsWith('/collections')) return 'collections'
   if (path.startsWith('/playlists')) return 'playlists'
-  if (path.startsWith('/podcast/')) return 'library'
   if (path.startsWith('/podcasts/latest')) return 'podcastLatest'
   if (path.startsWith('/podcasts/add')) return 'podcastAdd'
   if (path.startsWith('/podcasts/queue')) return 'podcastQueue'
+  if (path.startsWith('/questgiver')) return 'questgiver'
   if (path.startsWith('/stats')) return 'stats'
   if (path.startsWith('/sessions')) return 'sessions'
   if (path.startsWith('/player')) return 'player'
@@ -88,7 +90,7 @@ function UserMenu() {
         <span className="sb-avatar">{initial}</span>
         <span className="u-meta">
           <span className="u-name">{user?.username}</span>
-          <span className="u-sub">{user?.type}</span>
+          <span className="u-sub">{window.location.host}</span>
         </span>
         <Icon name="expand_less" className="u-chev" />
       </button>
@@ -104,6 +106,7 @@ export function Sidebar() {
   const group = groupForPath(pathname)
   const isAdmin = user?.type === 'admin' || user?.type === 'root'
   const isPodcast = activeLib?.mediaType === 'podcast'
+  const qgEnabled = useQuestGiverEnabled()
 
   const Item = ({ id, icon, label, to, badge, badgeWarn }: NavItemDef) => {
     const active = group === id
@@ -138,52 +141,28 @@ export function Sidebar() {
           badge={itemCount}
         />
 
-        {isPodcast ? (
+        {!isPodcast ? (
           <>
-            <div className="nav-label">Podcasts</div>
-            <Item
-              id="podcastLatest"
-              icon="podcasts"
-              label="Latest"
-              to="/podcasts/latest"
-            />
-            {isAdmin && (
-              <>
-                <Item
-                  id="podcastAdd"
-                  icon="add_circle"
-                  label="Add podcast"
-                  to="/podcasts/add"
-                />
-                <Item
-                  id="podcastQueue"
-                  icon="download"
-                  label="Download queue"
-                  to="/podcasts/queue"
-                />
-              </>
-            )}
+            <div className="nav-label">Shelves</div>
+            <Item id="collections" icon="folder_special" label="Collections" to="/collections" />
+            <Item id="playlists" icon="queue_music" label="Playlists" to="/playlists" />
           </>
         ) : (
           <>
-            <div className="nav-label">Shelves</div>
-            <Item id="series" icon="auto_stories" label="Series" to="/series" />
-            <Item
-              id="collections"
-              icon="folder_special"
-              label="Collections"
-              to="/collections"
-            />
-            <Item
-              id="playlists"
-              icon="queue_music"
-              label="Playlists"
-              to="/playlists"
-            />
+            <Item id="podcastLatest" icon="podcasts" label="Latest" to="/podcasts/latest" />
+            {isAdmin && (
+              <>
+                <Item id="podcastAdd" icon="add_circle" label="Add podcast" to="/podcasts/add" />
+                <Item id="podcastQueue" icon="download" label="Download queue" to="/podcasts/queue" />
+              </>
+            )}
           </>
         )}
 
         <div className="nav-label">Insights</div>
+        {qgEnabled && !isPodcast && (
+          <Item id="questgiver" icon="explore" label="QuestGiver" to="/questgiver" />
+        )}
         <Item id="stats" icon="insights" label="Stats" to="/stats" />
         <Item id="sessions" icon="history" label="History" to="/sessions" />
         <Item id="player" icon="graphic_eq" label="Now playing" to="/player" />
@@ -192,7 +171,7 @@ export function Sidebar() {
         {isAdmin && (
           <Item id="config" icon="dns" label="Server" to="/config" />
         )}
-        <Item id="settings" icon="settings" label="Settings" to="/settings" />
+        <Item id="settings" icon="tune" label="Settings" to="/settings" />
       </nav>
 
       <UserMenu />
