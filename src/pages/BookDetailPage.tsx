@@ -15,6 +15,7 @@ import { Dropdown, MItem } from '@/components/common/Dropdown'
 import { ItemEditModal } from '@/components/library/ItemEditModal'
 import { AddToListModal } from '@/components/library/AddToListModal'
 import { useToast } from '@/hooks/useToast'
+import { useQueueStore } from '@/store/queueStore'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -73,6 +74,7 @@ export function BookDetailPage() {
   const [editing, setEditing] = useState(false)
   const [addingToList, setAddingToList] = useState(false)
   const { toast, show } = useToast()
+  const addToQueue = useQueueStore((s) => s.add)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.item(itemId ?? ''),
@@ -239,6 +241,18 @@ export function BookDetailPage() {
               <Icon name="edit" /> Edit
             </button>
             <Dropdown icon="more_horiz" label="">
+              <MItem
+                icon="reorder"
+                label="Add to queue"
+                onClick={() => {
+                  addToQueue({
+                    libraryItemId: data.id,
+                    title: title,
+                    author: author,
+                  })
+                  show('Added to queue')
+                }}
+              />
               <MItem
                 icon="download"
                 label="Download"

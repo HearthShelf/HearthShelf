@@ -5,6 +5,7 @@ import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useSleepTimer, type SleepCtl } from '@/hooks/useSleepTimer'
 import { useBookmarks } from '@/hooks/useBookmarks'
+import { useQueueStore } from '@/store/queueStore'
 import { formatTimestamp } from '@/lib/format'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
@@ -92,6 +93,88 @@ function ChaptersPanel({
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function QueuePanel({
+  nowId,
+  nowTitle,
+  nowAuthor,
+  onClose,
+  onPlay,
+}: {
+  nowId: string
+  nowTitle: string
+  nowAuthor: string
+  onClose: () => void
+  onPlay: (id: string) => void
+}) {
+  const items = useQueueStore((s) => s.items)
+  const remove = useQueueStore((s) => s.remove)
+  const reorder = useQueueStore((s) => s.reorder)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+
+  return (
+    <div className="pp-inner">
+      <PanelHead
+        icon="reorder"
+        title="Up next"
+        sub={`${items.length + 1} in queue · drag to reorder`}
+        onClose={onClose}
+      />
+      <div className="pp-scroll">
+        <div className="queue-row now">
+          <span className="q-handle" style={{ opacity: 0.35, cursor: 'default' }}>
+            <Icon name="graphic_eq" fill />
+          </span>
+          <Cover itemId={nowId} title={nowTitle} fs={3} />
+          <div className="q-meta">
+            <div className="q-t">{nowTitle}</div>
+            <div className="q-s">Now playing · {nowAuthor}</div>
+          </div>
+        </div>
+        {items.length === 0 ? (
+          <div className="pop-empty" style={{ marginTop: 12 }}>
+            Nothing queued. Add books with "Add to queue".
+          </div>
+        ) : (
+          items.map((q, i) => (
+            <div
+              className={'queue-row' + (dragIdx === i ? ' dragging' : '')}
+              key={q.libraryItemId}
+              draggable
+              onDragStart={() => setDragIdx(i)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => {
+                if (dragIdx !== null && dragIdx !== i) reorder(dragIdx, i)
+                setDragIdx(null)
+              }}
+              onDragEnd={() => setDragIdx(null)}
+            >
+              <span className="q-handle" title="Drag to reorder">
+                <Icon name="drag_indicator" />
+              </span>
+              <Cover itemId={q.libraryItemId} title={q.title} fs={3} />
+              <div
+                className="q-meta"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onPlay(q.libraryItemId)}
+              >
+                <div className="q-t">{q.title}</div>
+                <div className="q-s">{q.author}</div>
+              </div>
+              <span
+                className="bm-x"
+                title="Remove"
+                onClick={() => remove(q.libraryItemId)}
+              >
+                <Icon name="close" />
+              </span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )
@@ -379,7 +462,7 @@ export function PlayerPage() {
   const chapters = usePlayerStore((s) => s.chapters)
   const speed = usePlayerStore((s) => s.playbackSpeed)
   const sessionId = usePlayerStore((s) => s.sessionId)
-  const { togglePlaying, seek } = usePlayer()
+  const { togglePlaying, seek, playItem } = usePlayer()
   const setSpeed = usePlayerStore((s) => s.setSpeed)
 
   const skipFwd = useSettingsStore((s) => s.skipForward)
@@ -833,32 +916,13 @@ export function PlayerPage() {
           </div>
         )}
         {panel === 'queue' && (
-          <div className="pp-inner">
-            <PanelHead
-              icon="reorder"
-              title="Up next"
-              sub="1 in queue"
-              onClose={() => setPanel(null)}
-            />
-            <div className="pp-scroll">
-              <div className="queue-row now">
-                <span
-                  className="q-handle"
-                  style={{ opacity: 0.35, cursor: 'default' }}
-                >
-                  <Icon name="graphic_eq" fill />
-                </span>
-                <Cover itemId={libraryItemId} title={title} fs={3} />
-                <div className="q-meta">
-                  <div className="q-t">{title}</div>
-                  <div className="q-s">Now playing · {author}</div>
-                </div>
-              </div>
-              <div className="pop-empty" style={{ marginTop: 12 }}>
-                Up-next queue is coming soon.
-              </div>
-            </div>
-          </div>
+          <QueuePanel
+            nowId={libraryItemId}
+            nowTitle={title}
+            nowAuthor={author ?? ''}
+            onClose={() => setPanel(null)}
+            onPlay={(id) => void playItem(id)}
+          />
         )}
       </div>
 
