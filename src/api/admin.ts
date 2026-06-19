@@ -48,7 +48,8 @@ export function createApiKey(
     '/api/api-keys',
     {
       method: 'POST',
-      body: JSON.stringify({ name, userId }),
+      // isActive defaults to false server-side (!!req.body.isActive) - pass true.
+      body: JSON.stringify({ name, userId, isActive: true }),
     }
   )
 }
