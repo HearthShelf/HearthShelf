@@ -8,6 +8,7 @@ import { SeriesPage } from '@/pages/SeriesPage'
 import { SeriesDetailPage } from '@/pages/SeriesDetailPage'
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage'
 import { ComingSoonPage } from '@/pages/ComingSoonPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 
 export const router = createBrowserRouter([
   {
@@ -31,7 +32,7 @@ export const router = createBrowserRouter([
       // Stub routes for the full sidebar nav - replaced by real pages as each
       // build phase lands. Keeps the nav graceful instead of 404-ing.
       { path: 'search', element: <ComingSoonPage title="Search" eyebrow="Find anything" icon="search" /> },
-      { path: 'settings', element: <ComingSoonPage title="Settings" eyebrow="Make it yours" icon="settings" /> },
+      { path: 'settings', element: <SettingsPage /> },
       { path: 'collections', element: <ComingSoonPage title="Collections" eyebrow="Hand-built shelves" icon="folder_special" /> },
       { path: 'playlists', element: <ComingSoonPage title="Playlists" eyebrow="Your queues" icon="queue_music" /> },
       { path: 'stats', element: <ComingSoonPage title="Stats" eyebrow="Your listening" icon="insights" /> },

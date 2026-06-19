@@ -133,6 +133,21 @@
   --shadow-lift: 0 18px 48px rgba(0, 0, 0, 0.7);
   --glow-strength: 0;
   color-scheme: dark;
+
+  /* shadcn role tokens follow the surface vars so body + shadcn re-theme too */
+  --background: var(--scaffold);
+  --foreground: var(--text);
+  --card: var(--c-high);
+  --card-foreground: var(--text);
+  --popover: var(--c);
+  --popover-foreground: var(--text);
+  --secondary: var(--c-highest);
+  --secondary-foreground: var(--text);
+  --muted: var(--c-highest);
+  --muted-foreground: var(--text-muted);
+  --accent-foreground: var(--text);
+  --border: var(--hairline);
+  --input: var(--hairline);
 }
 
 [data-theme='light'] {
@@ -153,6 +168,21 @@
   --shadow-lift: 0 18px 48px rgba(60, 50, 40, 0.18);
   --glow-strength: 14;
   color-scheme: light;
+
+  /* shadcn role tokens follow the surface vars so body + shadcn re-theme too */
+  --background: var(--scaffold);
+  --foreground: var(--text);
+  --card: var(--c-high);
+  --card-foreground: var(--text);
+  --popover: var(--c);
+  --popover-foreground: var(--text);
+  --secondary: var(--c-highest);
+  --secondary-foreground: var(--text);
+  --muted: var(--c-highest);
+  --muted-foreground: var(--text-muted);
+  --accent-foreground: var(--text);
+  --border: var(--hairline);
+  --input: var(--hairline);
 }
 
 /* =====================================================================

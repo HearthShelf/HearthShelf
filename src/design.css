@@ -2539,3 +2539,12 @@ textarea.fld { resize: vertical; min-height: 92px; line-height: 1.55; }
 
 select.fld { appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'><path fill='%23aba498' d='M0 0h12L6 7z'/></svg>"); background-repeat: no-repeat; background-position: right 13px center; padding-right: 34px; }
 
+
+/* ---- Settings page control layouts (extracted from reference inline styles) ---- */
+.num-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.num-pick .num-field { width: 58px; background: var(--fill); border: 1px solid var(--hairline); border-radius: 9px; padding: 7px 9px; color: var(--text); font: inherit; font-size: 13.5px; font-family: var(--font-mono); text-align: right; outline: none; }
+.num-pick .num-unit { font-size: 12.5px; color: var(--text-muted); }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { width: 170px; accent-color: var(--accent); }
+.time-row { display: flex; align-items: center; gap: 8px; }
+.time-row .fld { width: 120px; }
