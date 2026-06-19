@@ -2548,3 +2548,10 @@ select.fld { appearance: none; cursor: pointer; background-image: url("data:imag
 .range-row input[type="range"] { width: 170px; accent-color: var(--accent); }
 .time-row { display: flex; align-items: center; gap: 8px; }
 .time-row .fld { width: 120px; }
+
+/* ---- Home resume hero (reference used inline styles; class-ified here) ---- */
+.hero-resume-card { display: flex; gap: 32px; align-items: center; background: var(--c-high); border-radius: 20px; padding: 28px; margin-bottom: 8px; }
+@media (max-width: 820px) {
+  .hero-resume-card { flex-wrap: wrap; }
+  .hero-resume-card > .cover { width: 160px !important; height: 160px !important; }
+}
