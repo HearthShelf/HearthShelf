@@ -13,6 +13,8 @@ import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { Dropdown, MItem } from '@/components/common/Dropdown'
 import { ItemEditModal } from '@/components/library/ItemEditModal'
+import { AddToListModal } from '@/components/library/AddToListModal'
+import { useToast } from '@/hooks/useToast'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -69,6 +71,8 @@ export function BookDetailPage() {
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<DetailTab>('chapters')
   const [editing, setEditing] = useState(false)
+  const [addingToList, setAddingToList] = useState(false)
+  const { toast, show } = useToast()
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.item(itemId ?? ''),
@@ -219,6 +223,9 @@ export function BookDetailPage() {
           <div className="detail-actions">
             <button className="btn btn-primary" onClick={() => void playItem(data.id)}>
               <Icon name="play_arrow" fill /> {playLabel}
+            </button>
+            <button className="pill" onClick={() => setAddingToList(true)}>
+              <Icon name="playlist_add" /> Add to list
             </button>
             <button
               className={'pill' + (finished ? ' on' : '')}
@@ -386,6 +393,19 @@ export function BookDetailPage() {
 
       {editing && (
         <ItemEditModal item={data} onClose={() => setEditing(false)} />
+      )}
+      {addingToList && (
+        <AddToListModal
+          libraryItemId={data.id}
+          libraryId={data.libraryId}
+          onClose={() => setAddingToList(false)}
+          onToast={show}
+        />
+      )}
+      {toast && (
+        <div className="p-toast">
+          <Icon name="check_circle" fill /> {toast}
+        </div>
       )}
     </div>
   )

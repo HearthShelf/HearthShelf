@@ -145,6 +145,29 @@ export function deleteCollection(collectionId: string): Promise<void> {
   })
 }
 
+// Create a collection. ABS requires at least one book id (validated server-side).
+export function createCollection(
+  libraryId: string,
+  name: string,
+  books: string[]
+): Promise<ABSCollection> {
+  return absRequest<ABSCollection>('/api/collections', {
+    method: 'POST',
+    body: JSON.stringify({ libraryId, name, books }),
+  })
+}
+
+// Add a book to a collection. The body field is `id` (the libraryItemId).
+export function addBookToCollection(
+  collectionId: string,
+  libraryItemId: string
+): Promise<ABSCollection> {
+  return absRequest<ABSCollection>(`/api/collections/${collectionId}/book`, {
+    method: 'POST',
+    body: JSON.stringify({ id: libraryItemId }),
+  })
+}
+
 export function getPlaylists(libraryId: string): Promise<ABSPlaylistsResponse> {
   return absRequest<ABSPlaylistsResponse>(
     `/api/libraries/${libraryId}/playlists`
@@ -153,6 +176,28 @@ export function getPlaylists(libraryId: string): Promise<ABSPlaylistsResponse> {
 
 export function getPlaylist(playlistId: string): Promise<ABSPlaylist> {
   return absRequest<ABSPlaylist>(`/api/playlists/${playlistId}`)
+}
+
+export function createPlaylist(
+  libraryId: string,
+  name: string,
+  items: { libraryItemId: string; episodeId?: string }[]
+): Promise<ABSPlaylist> {
+  return absRequest<ABSPlaylist>('/api/playlists', {
+    method: 'POST',
+    body: JSON.stringify({ libraryId, name, items }),
+  })
+}
+
+export function addItemToPlaylist(
+  playlistId: string,
+  libraryItemId: string,
+  episodeId?: string
+): Promise<ABSPlaylist> {
+  return absRequest<ABSPlaylist>(`/api/playlists/${playlistId}/item`, {
+    method: 'POST',
+    body: JSON.stringify(episodeId ? { libraryItemId, episodeId } : { libraryItemId }),
+  })
 }
 
 export function getAuthors(libraryId: string): Promise<ABSAuthorsResponse> {
