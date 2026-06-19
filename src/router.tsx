@@ -27,6 +27,7 @@ import { PodcastQueuePage } from '@/pages/PodcastQueuePage'
 import { ConfigShell, ConfigIndexRedirect } from '@/pages/config/ConfigShell'
 import { AccountPage } from '@/pages/AccountPage'
 import { QuestGiverGate } from '@/pages/QuestGiverGate'
+import { RequestsGate } from '@/pages/RequestsGate'
 
 export const router = createBrowserRouter([
   {
@@ -65,6 +66,7 @@ export const router = createBrowserRouter([
       { path: 'podcasts/queue', element: <PodcastQueuePage /> },
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'questgiver', element: <QuestGiverGate /> },
+      { path: 'requests', element: <RequestsGate /> },
       { path: 'player', element: <PlayerPage /> },
       { path: 'account', element: <AccountPage /> },
       { path: 'upload', element: <ComingSoonPage title="Upload" eyebrow="Add to library" icon="upload" /> },

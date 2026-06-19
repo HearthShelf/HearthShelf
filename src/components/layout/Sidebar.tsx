@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useQuestGiverEnabled } from '@/hooks/useQuestGiver'
+import { useRmabEnabled } from '@/hooks/useRmab'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Icon } from '@/components/common/Icon'
 
@@ -26,6 +27,7 @@ function groupForPath(path: string): string {
   if (path.startsWith('/podcasts/add')) return 'podcastAdd'
   if (path.startsWith('/podcasts/queue')) return 'podcastQueue'
   if (path.startsWith('/questgiver')) return 'questgiver'
+  if (path.startsWith('/requests')) return 'requests'
   if (path.startsWith('/stats')) return 'stats'
   if (path.startsWith('/sessions')) return 'sessions'
   if (path.startsWith('/player')) return 'player'
@@ -107,6 +109,7 @@ export function Sidebar() {
   const isAdmin = user?.type === 'admin' || user?.type === 'root'
   const isPodcast = activeLib?.mediaType === 'podcast'
   const qgEnabled = useQuestGiverEnabled()
+  const rmabEnabled = useRmabEnabled()
 
   const Item = ({ id, icon, label, to, badge, badgeWarn }: NavItemDef) => {
     const active = group === id
@@ -146,6 +149,9 @@ export function Sidebar() {
             <div className="nav-label">Shelves</div>
             <Item id="collections" icon="folder_special" label="Collections" to="/collections" />
             <Item id="playlists" icon="queue_music" label="Playlists" to="/playlists" />
+            {rmabEnabled && (
+              <Item id="requests" icon="cloud_download" label="Requests" to="/requests" />
+            )}
           </>
         ) : (
           <>
