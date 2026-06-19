@@ -384,3 +384,19 @@ export interface ABSListeningSessionsResponse {
   itemsPerPage: number
   sessions: ABSListeningSession[]
 }
+
+// --- Listening stats (/api/me/listening-stats) ---
+
+export interface ABSStatsItem {
+  id: string
+  mediaMetadata: ABSBookMetadataDetail
+  timeListening: number
+}
+
+export interface ABSListeningStats {
+  totalTime: number
+  items: Record<string, ABSStatsItem>
+  days: Record<string, number>
+  dayOfWeek: Record<string, number>
+  today: number
+}

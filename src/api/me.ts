@@ -5,6 +5,7 @@ import type {
   ABSMediaProgress,
   ABSBookmark,
   ABSListeningSessionsResponse,
+  ABSListeningStats,
 } from '@/api/types'
 
 export const meKeys = {
@@ -21,6 +22,10 @@ export function getListeningSessions(
   return absRequest<ABSListeningSessionsResponse>(
     `/api/me/listening-sessions?page=${page}&itemsPerPage=${itemsPerPage}`
   )
+}
+
+export function getListeningStats(): Promise<ABSListeningStats> {
+  return absRequest<ABSListeningStats>('/api/me/listening-stats')
 }
 
 // Full user payload including mediaProgress[] and bookmarks[].

@@ -19,6 +19,7 @@ import { SessionsPage } from '@/pages/SessionsPage'
 import { AuthorsPage } from '@/pages/AuthorsPage'
 import { AuthorDetailPage } from '@/pages/AuthorDetailPage'
 import { NarratorsPage } from '@/pages/NarratorsPage'
+import { StatsPage } from '@/pages/StatsPage'
 
 export const router = createBrowserRouter([
   {
@@ -50,7 +51,7 @@ export const router = createBrowserRouter([
       { path: 'collections/:collectionId', element: <CollectionDetailPage /> },
       { path: 'playlists', element: <PlaylistsPage /> },
       { path: 'playlists/:playlistId', element: <PlaylistDetailPage /> },
-      { path: 'stats', element: <ComingSoonPage title="Stats" eyebrow="Your listening" icon="insights" /> },
+      { path: 'stats', element: <StatsPage /> },
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'player', element: <PlayerPage /> },
       { path: 'account', element: <ComingSoonPage title="Account" eyebrow="Your account" icon="person" /> },
