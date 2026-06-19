@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { streamUrl } from '@/api/playback'
 import { useProgress } from '@/hooks/useProgress'
+import { setAudioElement } from '@/lib/audioRef'
 
 // The single, persistent <audio> element. Mounted once by AppShell and never
 // unmounted, so playback survives route changes. It bridges the DOM media
@@ -19,6 +20,12 @@ export function AudioEngine() {
   const setPlaying = usePlayerStore((s) => s.setPlaying)
 
   useProgress()
+
+  // Publish the element so the sleep-timer fade can reach its volume.
+  useEffect(() => {
+    setAudioElement(ref.current)
+    return () => setAudioElement(null)
+  }, [])
 
   // v0.1 books are single-file; use the first track. Multi-track stitching is
   // a later concern.

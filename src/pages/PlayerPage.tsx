@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayerStore } from '@/store/playerStore'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useSleepTimer, type SleepCtl } from '@/hooks/useSleepTimer'
 import { formatTimestamp } from '@/lib/format'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
@@ -131,6 +132,12 @@ function SpeedPopover({
         value={speed}
         onChange={(e) => setSpeed(Number(Number(e.target.value).toFixed(2)))}
       />
+      <div className="speed-ticks">
+        <span>0.5×</span>
+        <span>1×</span>
+        <span>2×</span>
+        <span>3×</span>
+      </div>
       <div className="sleep-grid">
         {SPEED_PRESETS.map((s) => (
           <button
@@ -146,15 +153,8 @@ function SpeedPopover({
   )
 }
 
-interface SleepCtl {
-  sleeping: boolean
-  left: number
-  start: (mins: number) => void
-  extend: () => void
-  cancel: () => void
-}
-
 function SleepPopover({ ctl, onClose }: { ctl: SleepCtl; onClose: () => void }) {
+  const { curIdx, bounds } = ctl
   return (
     <>
       <div className="pop-head">
@@ -163,28 +163,211 @@ function SleepPopover({ ctl, onClose }: { ctl: SleepCtl; onClose: () => void }) 
           <Icon name="close" style={{ fontSize: 18 }} />
         </span>
       </div>
-      {ctl.sleeping ? (
+
+      <div className="seg seg-full" style={{ marginBottom: 14 }}>
+        <button
+          className={ctl.tab === 'duration' ? 'on' : ''}
+          onClick={() => ctl.setTab('duration')}
+        >
+          Duration
+        </button>
+        <button
+          className={ctl.tab === 'chapter' ? 'on' : ''}
+          onClick={() => ctl.setTab('chapter')}
+        >
+          Chapter
+        </button>
+        <button
+          className={ctl.tab === 'time' ? 'on' : ''}
+          onClick={() => ctl.setTab('time')}
+        >
+          Time
+        </button>
+      </div>
+
+      <div className="sleep-tab-body">
+        {ctl.tab === 'duration' && (
+          <div className="sleep-grid">
+            {SLEEP_PRESETS.map((m) => (
+              <button
+                key={m}
+                className={
+                  ctl.sleeping && Math.abs(ctl.left - m * 60) < 30 ? 'on' : ''
+                }
+                onClick={() => ctl.setDuration(m)}
+              >
+                {m}m
+              </button>
+            ))}
+          </div>
+        )}
+        {ctl.tab === 'chapter' && (
+          <>
+            <select
+              className="fld"
+              style={{ marginBottom: 10 }}
+              value={ctl.eoc ? ctl.eoc.idx : curIdx}
+              onChange={(e) =>
+                ctl.setChapter(Number(e.target.value), ctl.eoc ? ctl.eoc.at : 'end')
+              }
+            >
+              {bounds.map((c, i) =>
+                i >= curIdx ? (
+                  <option key={c.id} value={i}>
+                    {c.title}
+                  </option>
+                ) : null
+              )}
+            </select>
+            <div className="seg seg-full">
+              <button
+                className={ctl.eoc && ctl.eoc.at === 'start' ? 'on' : ''}
+                onClick={() =>
+                  ctl.setChapter(ctl.eoc ? ctl.eoc.idx : curIdx, 'start')
+                }
+              >
+                Chapter start
+              </button>
+              <button
+                className={ctl.eoc && ctl.eoc.at === 'end' ? 'on' : ''}
+                onClick={() =>
+                  ctl.setChapter(ctl.eoc ? ctl.eoc.idx : curIdx, 'end')
+                }
+              >
+                Chapter end
+              </button>
+            </div>
+          </>
+        )}
+        {ctl.tab === 'time' && (
+          <>
+            <input
+              type="time"
+              className="fld"
+              onChange={(e) => ctl.setClock(e.target.value)}
+            />
+            <div className="pr-d" style={{ marginTop: 8 }}>
+              Playback stops at the clock time you pick.
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="pop-divider" />
+      <div className="pop-label">When it stops</div>
+
+      <div
+        className="pop-row"
+        onClick={() => ctl.setRewind(!ctl.rewind)}
+        style={{ cursor: 'pointer' }}
+      >
+        <div className="pr-t">
+          Rewind 30s when it stops
+          <div className="pr-d">Pick up with a little context</div>
+        </div>
+        <div className={'toggle' + (ctl.rewind ? ' on' : '')}>
+          <i />
+        </div>
+      </div>
+      {ctl.rewind && (
+        <div
+          className="pop-row"
+          onClick={() => ctl.setBarrier(!ctl.chapterBarrier)}
+          style={{ cursor: 'pointer', marginTop: 8, paddingLeft: 14 }}
+        >
+          <div className="pr-t">
+            Keep within chapter
+            <div className="pr-d">Don't rewind past the chapter start</div>
+          </div>
+          <div className={'toggle' + (ctl.chapterBarrier ? ' on' : '')}>
+            <i />
+          </div>
+        </div>
+      )}
+
+      <div
+        className="pop-row"
+        onClick={() => ctl.setFade(!ctl.fade)}
+        style={{ cursor: 'pointer', marginTop: 12 }}
+      >
+        <div className="pr-t">
+          Fade volume out
+          <div className="pr-d">
+            {ctl.fade ? `Eases down over ${ctl.fadeLen}s` : 'Stops abruptly'}
+          </div>
+        </div>
+        <div className={'toggle' + (ctl.fade ? ' on' : '')}>
+          <i />
+        </div>
+      </div>
+      {ctl.fade && (
+        <div className="pop-row" style={{ marginTop: 8 }}>
+          <Icon
+            name="volume_down"
+            style={{ fontSize: 18, color: 'var(--text-muted)' }}
+          />
+          <input
+            type="range"
+            min={3}
+            max={60}
+            value={ctl.fadeLen}
+            onChange={(e) => ctl.setFadeLen(Number(e.target.value))}
+            style={{ flex: 1, accentColor: 'var(--accent)' }}
+          />
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12.5,
+              color: 'var(--text-muted)',
+              width: 30,
+              textAlign: 'right',
+            }}
+          >
+            {ctl.fadeLen}s
+          </span>
+        </div>
+      )}
+
+      <div
+        className="pop-row"
+        onClick={() => ctl.setChime(!ctl.chime)}
+        style={{ cursor: 'pointer', marginTop: 12 }}
+      >
+        <div className="pr-t">
+          Warning chime
+          <div className="pr-d">A soft chime a minute before sleep</div>
+        </div>
+        <div className={'toggle' + (ctl.chime ? ' on' : '')}>
+          <i />
+        </div>
+      </div>
+
+      {ctl.active && (
         <>
           <div className="sleep-ends">
-            Stops in {formatTimestamp(ctl.left)}
+            <Icon
+              name="schedule"
+              style={{ fontSize: 17, color: 'var(--text-muted)' }}
+            />{' '}
+            Stops at <b>{ctl.endsAt}</b>
+            {ctl.sleeping && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {' '}
+                · in {formatTimestamp(ctl.left)}
+              </span>
+            )}
           </div>
           <div className="add-cancel">
-            <button className="btn-sm btn-ghost" onClick={ctl.extend}>
-              +5 min
-            </button>
-            <button className="btn-sm btn-danger" onClick={ctl.cancel}>
-              Cancel
+            {ctl.sleeping && (
+              <button className="btn-sm btn-ghost" onClick={() => ctl.addTime(5)}>
+                <Icon name="add" /> 5 min
+              </button>
+            )}
+            <button className="btn-sm btn-ghost" onClick={ctl.cancel}>
+              <Icon name="close" /> Cancel
             </button>
           </div>
         </>
-      ) : (
-        <div className="sleep-grid">
-          {SLEEP_PRESETS.map((m) => (
-            <button key={m} onClick={() => ctl.start(m)}>
-              {m}m
-            </button>
-          ))}
-        </div>
       )}
     </>
   )
@@ -203,22 +386,19 @@ export function PlayerPage() {
   const sessionId = usePlayerStore((s) => s.sessionId)
   const { togglePlaying, seek } = usePlayer()
   const setSpeed = usePlayerStore((s) => s.setSpeed)
-  const setPlaying = usePlayerStore((s) => s.setPlaying)
 
   const skipFwd = useSettingsStore((s) => s.skipForward)
   const skipBack = useSettingsStore((s) => s.skipBack)
   const scrubber = useSettingsStore((s) => s.scrubber)
+
+  // Full sleep-timer controller (three modes + stop behaviours from Settings).
+  const sleepCtl = useSleepTimer()
 
   const [panel, setPanel] = useState<Panel>(null)
   const [pop, setPop] = useState<Pop>(null)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
   const [lists, setLists] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState<string | null>(null)
-
-  // Sleep timer (client-only)
-  const [sleepLeft, setSleepLeft] = useState(0)
-  const sleeping = sleepLeft > 0
-  const sleepRef = useRef<number | null>(null)
 
   // Reset player-only UI when the book changes (not the sleep timer).
   useEffect(() => {
@@ -234,23 +414,6 @@ export function PlayerPage() {
     const id = window.setTimeout(() => setToast(null), 2200)
     return () => window.clearTimeout(id)
   }, [toast])
-
-  // Sleep countdown
-  useEffect(() => {
-    if (!sleeping) return
-    sleepRef.current = window.setInterval(() => {
-      setSleepLeft((l) => {
-        if (l <= 1) {
-          setPlaying(false)
-          return 0
-        }
-        return l - 1
-      })
-    }, 1000)
-    return () => {
-      if (sleepRef.current) window.clearInterval(sleepRef.current)
-    }
-  }, [sleeping, setPlaying])
 
   // Derived chapter position
   const { ci, cur } = useMemo(() => {
@@ -338,21 +501,6 @@ export function PlayerPage() {
     })
   }
   const listCount = Object.values(lists).filter(Boolean).length
-
-  const sleepCtl: SleepCtl = {
-    sleeping,
-    left: sleepLeft,
-    start: (mins) => {
-      setSleepLeft(mins * 60)
-      setPop(null)
-      setToast(`Sleep timer set for ${mins} min`)
-    },
-    extend: () => setSleepLeft((l) => l + 5 * 60),
-    cancel: () => {
-      setSleepLeft(0)
-      setToast('Sleep timer cancelled')
-    },
-  }
 
   return (
     <div className={'player' + (open ? ' with-panel' : '')}>
@@ -612,11 +760,15 @@ export function PlayerPage() {
               <Icon name="speed" /> {speed}×
             </button>
             <button
-              className={'pill' + (pop === 'sleep' || sleeping ? ' on' : '')}
+              className={'pill' + (pop === 'sleep' || sleepCtl.active ? ' on' : '')}
               onClick={() => togglePop('sleep')}
             >
               <Icon name="bedtime" />{' '}
-              {sleeping ? `Sleep · ${formatTimestamp(sleepLeft)}` : 'Sleep timer'}
+              {sleepCtl.sleeping
+                ? `Sleep · ${formatTimestamp(sleepCtl.left)}`
+                : sleepCtl.active
+                  ? `Sleep · ${sleepCtl.endsAt}`
+                  : 'Sleep timer'}
             </button>
             <button
               className={'pill' + (pop === 'bookmark' ? ' on' : '')}
