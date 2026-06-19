@@ -15,6 +15,7 @@ import {
 
 export interface QgConfig {
   featureEnabled: boolean // admin gate; when false the SPA hides QuestGiver
+  discoverEnabled: boolean // admin gate for the history-driven Discover surface
   enabled: boolean // AI provider configured server-side (heuristic works either way)
   provider: string | null
   model: string | null
@@ -45,6 +46,7 @@ export async function getQgConfig(): Promise<QgConfig> {
     // Keep the feature on so the heuristic flow still works; AI is just off.
     return {
       featureEnabled: true,
+      discoverEnabled: true,
       enabled: false,
       provider: null,
       model: null,

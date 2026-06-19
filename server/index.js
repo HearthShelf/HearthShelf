@@ -20,6 +20,9 @@ const ABS_URL = process.env.ABS_SERVER_URL || ''
 // entirely. When off, the SPA hides the route and nav. Default on (the
 // heuristic recommender works even with no AI provider). "0"/"false"/"off" = off.
 const FEATURE_ENABLED = !/^(0|false|off|no)$/i.test(process.env.QG_ENABLED ?? 'true')
+// Discover (history-driven ambient shelves) - a separate pure-client feature,
+// gated independently of QuestGiver. Default on. "0"/"false"/"off" = off.
+const DISCOVER_ENABLED = !/^(0|false|off|no)$/i.test(process.env.DISCOVER_ENABLED ?? 'true')
 
 function json(res, status, body) {
   const data = JSON.stringify(body)
@@ -88,6 +91,7 @@ const server = http.createServer(async (req, res) => {
     const rate = userId ? check(userId) : { limit: null, remaining: null, period: null }
     return json(res, 200, {
       featureEnabled: FEATURE_ENABLED,
+      discoverEnabled: DISCOVER_ENABLED,
       enabled: info.configured,
       provider: info.provider,
       model: info.model,

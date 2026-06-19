@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
-import { useQuestGiverEnabled } from '@/hooks/useQuestGiver'
+import { useQuestGiverEnabled, useDiscoverEnabled } from '@/hooks/useQuestGiver'
 import { useRmabEnabled } from '@/hooks/useRmab'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Icon } from '@/components/common/Icon'
@@ -27,6 +27,7 @@ function groupForPath(path: string): string {
   if (path.startsWith('/podcasts/add')) return 'podcastAdd'
   if (path.startsWith('/podcasts/queue')) return 'podcastQueue'
   if (path.startsWith('/questgiver')) return 'questgiver'
+  if (path.startsWith('/discover')) return 'discover'
   if (path.startsWith('/requests')) return 'requests'
   if (path.startsWith('/stats')) return 'stats'
   if (path.startsWith('/sessions')) return 'sessions'
@@ -109,6 +110,7 @@ export function Sidebar() {
   const isAdmin = user?.type === 'admin' || user?.type === 'root'
   const isPodcast = activeLib?.mediaType === 'podcast'
   const qgEnabled = useQuestGiverEnabled()
+  const discoverEnabled = useDiscoverEnabled()
   const rmabEnabled = useRmabEnabled()
 
   const Item = ({ id, icon, label, to, badge, badgeWarn }: NavItemDef) => {
@@ -166,6 +168,9 @@ export function Sidebar() {
         )}
 
         <div className="nav-label">Insights</div>
+        {discoverEnabled && !isPodcast && (
+          <Item id="discover" icon="travel_explore" label="Discover" to="/discover" />
+        )}
         {qgEnabled && !isPodcast && (
           <Item id="questgiver" icon="explore" label="QuestGiver" to="/questgiver" />
         )}

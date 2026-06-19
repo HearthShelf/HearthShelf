@@ -18,3 +18,10 @@ export function useQuestGiverEnabled(): boolean {
   const { data } = useQgConfig()
   return data?.featureEnabled !== false
 }
+
+// Discover shares the same config payload. Like QuestGiver it defaults to enabled
+// until the backend explicitly says otherwise, so it works in local dev too.
+export function useDiscoverEnabled(): boolean {
+  const { data } = useQgConfig()
+  return data?.discoverEnabled !== false
+}

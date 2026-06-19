@@ -20,6 +20,7 @@ services:
       - QG_BASE_URL=${QG_BASE_URL:-}
       - QG_LIMIT=${QG_LIMIT:-off}
       - QG_ENABLED=${QG_ENABLED:-true}
+      - DISCOVER_ENABLED=${DISCOVER_ENABLED:-true}
       # ReadMeABook acquisition (optional - leave RMAB_URL empty to hide request
       # UI). RMAB stays on the internal network; only HearthShelf reaches it.
       - RMAB_URL=${RMAB_URL:-}

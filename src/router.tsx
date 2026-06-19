@@ -28,6 +28,7 @@ import { ConfigShell, ConfigIndexRedirect } from '@/pages/config/ConfigShell'
 import { AccountPage } from '@/pages/AccountPage'
 import { QuestGiverGate } from '@/pages/QuestGiverGate'
 import { RequestsGate } from '@/pages/RequestsGate'
+import { DiscoverGate } from '@/pages/DiscoverGate'
 
 export const router = createBrowserRouter([
   {
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
       { path: 'podcasts/queue', element: <PodcastQueuePage /> },
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'questgiver', element: <QuestGiverGate /> },
+      { path: 'discover', element: <DiscoverGate /> },
       { path: 'requests', element: <RequestsGate /> },
       { path: 'player', element: <PlayerPage /> },
       { path: 'account', element: <AccountPage /> },
