@@ -12,6 +12,7 @@ import type { ABSLibraryItemDetail } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { Dropdown, MItem } from '@/components/common/Dropdown'
+import { ItemEditModal } from '@/components/library/ItemEditModal'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -67,6 +68,7 @@ export function BookDetailPage() {
   const token = useAuthStore((s) => s.token)
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<DetailTab>('chapters')
+  const [editing, setEditing] = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.item(itemId ?? ''),
@@ -226,6 +228,9 @@ export function BookDetailPage() {
               <Icon name={finished ? 'task_alt' : 'check'} fill={finished} />{' '}
               {finished ? 'Finished' : 'Mark finished'}
             </button>
+            <button className="pill" onClick={() => setEditing(true)}>
+              <Icon name="edit" /> Edit
+            </button>
             <Dropdown icon="more_horiz" label="">
               <MItem
                 icon="download"
@@ -378,6 +383,10 @@ export function BookDetailPage() {
           )}
         </div>
       </div>
+
+      {editing && (
+        <ItemEditModal item={data} onClose={() => setEditing(false)} />
+      )}
     </div>
   )
 }

@@ -37,6 +37,35 @@ export function getItem(itemId: string): Promise<ABSLibraryItemDetail> {
   return absRequest<ABSLibraryItemDetail>(`/api/items/${itemId}`)
 }
 
+// Editable subset of an item's metadata. PATCH /api/items/:id/media accepts a
+// partial { metadata } payload and returns the updated libraryItem.
+export interface ItemMetadataPatch {
+  title?: string | null
+  subtitle?: string | null
+  description?: string | null
+  publishedYear?: string | null
+  publisher?: string | null
+  language?: string | null
+  isbn?: string | null
+  asin?: string | null
+  genres?: string[]
+  explicit?: boolean
+  abridged?: boolean
+}
+
+export function updateItemMetadata(
+  itemId: string,
+  metadata: ItemMetadataPatch,
+  tags?: string[]
+): Promise<void> {
+  const body: { metadata: ItemMetadataPatch; tags?: string[] } = { metadata }
+  if (tags) body.tags = tags
+  return absRequest<void>(`/api/items/${itemId}/media`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}
+
 export function getPersonalized(libraryId: string): Promise<ABSShelf[]> {
   return absRequest<ABSShelf[]>(`/api/libraries/${libraryId}/personalized`)
 }
