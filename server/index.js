@@ -12,6 +12,7 @@
 import http from 'node:http'
 import { complete, isProviderConfigured, providerInfo } from './providers.js'
 import { check, consume } from './ratelimit.js'
+import { isRmabConfigured, rmabFetch } from './rmab.js'
 
 const PORT = process.env.QG_PORT || 8080
 const ABS_URL = process.env.ABS_SERVER_URL || ''
@@ -146,6 +147,63 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/qg/health') {
     return json(res, 200, { ok: true })
+  }
+
+  // --- ReadMeABook acquisition proxy (all require a valid ABS caller) ---
+
+  if (url.pathname === '/qg/rmab/config') {
+    const userId = await authUser(req)
+    if (!userId) return json(res, 401, { error: 'unauthorized' })
+    return json(res, 200, { configured: isRmabConfigured() })
+  }
+
+  if (url.pathname.startsWith('/qg/rmab/')) {
+    const userId = await authUser(req)
+    if (!userId) return json(res, 401, { error: 'unauthorized' })
+    if (!isRmabConfigured()) return json(res, 503, { error: 'rmab_unavailable' })
+
+    try {
+      // Catalog search: GET /qg/rmab/search?q=...
+      if (req.method === 'GET' && url.pathname === '/qg/rmab/search') {
+        const q = url.searchParams.get('q') ?? url.searchParams.get('query') ?? ''
+        const page = url.searchParams.get('page') ?? '1'
+        const r = await rmabFetch(
+          'GET',
+          `/api/audiobooks/search?q=${encodeURIComponent(q)}&page=${encodeURIComponent(page)}`
+        )
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Submit a request: POST /qg/rmab/requests
+      if (req.method === 'POST' && url.pathname === '/qg/rmab/requests') {
+        let payload
+        try {
+          payload = JSON.parse(await readBody(req))
+        } catch {
+          return json(res, 400, { error: 'invalid_body' })
+        }
+        const r = await rmabFetch('POST', '/api/requests', payload)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // List requests: GET /qg/rmab/requests?status=&take=&cursor=
+      if (req.method === 'GET' && url.pathname === '/qg/rmab/requests') {
+        const qs = url.search ? url.search : ''
+        const r = await rmabFetch('GET', `/api/requests${qs}`)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Single request status: GET /qg/rmab/requests/:id
+      const m = url.pathname.match(/^\/qg\/rmab\/requests\/([^/]+)$/)
+      if (req.method === 'GET' && m) {
+        const r = await rmabFetch('GET', `/api/requests/${encodeURIComponent(m[1])}`)
+        return json(res, r.status, r.body ?? {})
+      }
+    } catch (err) {
+      return json(res, 502, { error: 'rmab_error', detail: String(err).slice(0, 200) })
+    }
+
+    return json(res, 404, { error: 'not_found' })
   }
 
   json(res, 404, { error: 'not_found' })
