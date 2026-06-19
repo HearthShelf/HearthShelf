@@ -21,6 +21,7 @@ import {
   ConfigAuth,
   ConfigIntegrations,
 } from '@/pages/config/ConfigContentPages'
+import { ConfigQuestGiver } from '@/pages/config/ConfigQuestGiver'
 import { StatsPage } from '@/pages/StatsPage'
 import { ConfigStub } from '@/pages/config/ConfigStub'
 
@@ -72,6 +73,7 @@ export function ConfigShell() {
       items: [
         { id: 'settings', icon: 'tune', label: 'Settings' },
         { id: 'integrations', icon: 'extension', label: 'Integrations' },
+        { id: 'questgiver', icon: 'explore', label: 'QuestGiver' },
         {
           id: 'libraries',
           icon: 'video_library',
@@ -148,6 +150,8 @@ export function ConfigShell() {
         return <ConfigAuth />
       case 'integrations':
         return <ConfigIntegrations />
+      case 'questgiver':
+        return <ConfigQuestGiver />
       default:
         return <ConfigStub section={section} />
     }
