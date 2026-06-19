@@ -144,6 +144,16 @@ export interface ABSAuthorsResponse {
   authors: ABSLibraryAuthor[]
 }
 
+export interface ABSNarrator {
+  id: string
+  name: string
+  numBooks: number
+}
+
+export interface ABSNarratorsResponse {
+  narrators: ABSNarrator[]
+}
+
 // /api/authors/:id?include=items - author detail with books.
 export interface ABSAuthorDetail extends ABSLibraryAuthor {
   asin: string | null

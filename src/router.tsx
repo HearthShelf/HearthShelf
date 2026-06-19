@@ -18,6 +18,7 @@ import { PlaylistDetailPage } from '@/pages/PlaylistDetailPage'
 import { SessionsPage } from '@/pages/SessionsPage'
 import { AuthorsPage } from '@/pages/AuthorsPage'
 import { AuthorDetailPage } from '@/pages/AuthorDetailPage'
+import { NarratorsPage } from '@/pages/NarratorsPage'
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: 'series/:seriesId', element: <SeriesDetailPage /> },
       { path: 'authors', element: <AuthorsPage /> },
       { path: 'author/:authorId', element: <AuthorDetailPage /> },
+      { path: 'narrators', element: <NarratorsPage /> },
       // Stub routes for the full sidebar nav - replaced by real pages as each
       // build phase lands. Keeps the nav graceful instead of 404-ing.
       { path: 'search', element: <SearchPage /> },

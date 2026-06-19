@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getAllLibraryItems, getSeries, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
@@ -54,6 +54,9 @@ function initialsOf(name: string): string {
 export function LibraryPage() {
   const { libraryId } = useParams()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const narratorFilter = params.get('narrator')
+  const genreParam = params.get('genre')
   const { active, activeId } = useActiveLibrary(libraryId)
   const progressById = useMediaProgress()
   const { markFinished, isPending: marking } = useMarkFinished()
@@ -63,7 +66,7 @@ export function LibraryPage() {
 
   const [tab, setTab] = useState<Tab>('books')
   const [prog, setProg] = useState<ProgFilter>('all')
-  const [genre, setGenre] = useState<string | null>(null)
+  const [genre, setGenre] = useState<string | null>(genreParam)
   const [sort, setSort] = useState<Sort>('Title')
   const [desc, setDesc] = useState(false)
   const [view, setView] = useState<View>(
@@ -120,6 +123,13 @@ export function LibraryPage() {
       })
     }
     if (genre) list = list.filter((it) => it.media.metadata.genres.includes(genre))
+    if (narratorFilter)
+      list = list.filter((it) =>
+        (it.media.metadata.narratorName ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .includes(narratorFilter)
+      )
 
     const cmp: Record<Sort, (a: ABSLibraryItem, b: ABSLibraryItem) => number> = {
       Title: (a, b) =>
@@ -137,7 +147,7 @@ export function LibraryPage() {
     const sorted = [...list].sort(cmp[sort])
     if (desc) sorted.reverse()
     return sorted
-  }, [allItems, prog, genre, sort, desc, progressById])
+  }, [allItems, prog, genre, narratorFilter, sort, desc, progressById])
 
   // Derive authors / narrators from the full item set.
   const derivePeople = (field: 'authorName' | 'narratorName'): DerivedPerson[] => {
@@ -291,6 +301,16 @@ export function LibraryPage() {
             </div>
           ) : (
             <div className="toolbar2">
+              {narratorFilter && (
+                <button
+                  className="pill on"
+                  onClick={() => navigate('/library')}
+                  title="Clear narrator filter"
+                >
+                  <Icon name="mic" /> {narratorFilter}
+                  <Icon name="close" style={{ fontSize: 16 }} />
+                </button>
+              )}
               <span className="count-badge">
                 {books.length} of {data.total} books
               </span>
