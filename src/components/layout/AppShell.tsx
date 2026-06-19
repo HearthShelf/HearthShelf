@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { AppBar } from '@/components/layout/AppBar'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { AudioEngine } from '@/components/player/AudioEngine'
 import { useApplySettings } from '@/hooks/useApplySettings'
@@ -27,8 +28,11 @@ export function AppShell() {
     >
       <div className="app-glow" />
       <Sidebar />
-      <div className="content">
-        <Outlet />
+      <div className="main">
+        {!isPlayerRoute && <AppBar />}
+        <div className="content">
+          <Outlet />
+        </div>
       </div>
       <PlayerBar />
       <AudioEngine />

@@ -1314,3 +1314,60 @@
     transition: none !important;
   }
 }
+
+/* =====================================================================
+   App bar + library switcher + sidebar nav badges (Phase 0 shell).
+   Ported verbatim from docs/design-reference/prototype/styles.css.
+   ===================================================================== */
+.appbar {
+  flex: none; height: 60px; display: flex; align-items: center; gap: var(--s4);
+  padding: 0 var(--s8); position: relative; z-index: 8;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in oklab, var(--scaffold) 80%, transparent);
+  backdrop-filter: blur(18px);
+}
+.ab-search {
+  flex: 1; max-width: 440px; display: flex; align-items: center; gap: 10px;
+  background: var(--fill); border: 1px solid var(--hairline);
+  border-radius: var(--r-pill); padding: 8px 15px; color: var(--text-muted); font-size: 13.5px;
+  transition: border-color .18s, background .18s;
+}
+.ab-search:focus-within { border-color: color-mix(in oklab, var(--accent) 50%, transparent); background: var(--c); }
+.ab-search .ms { font-size: 19px; }
+.ab-search input { background: none; border: none; outline: none; color: var(--text); font: inherit; flex: 1; }
+.ab-search input::placeholder { color: var(--text-faint); }
+.ab-search kbd { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); background: var(--fill-strong); border-radius: 5px; padding: 2px 6px; }
+.ab-spacer { flex: 1; }
+.ab-actions { display: flex; align-items: center; gap: 4px; }
+.ab-ico { width: 38px; height: 38px; border-radius: 50%; background: none; border: none; color: var(--text-muted); display: grid; place-items: center; cursor: pointer; position: relative; transition: background .18s, color .18s; }
+.ab-ico:hover { background: var(--fill); color: var(--text); }
+.ab-ico .ms { font-size: 21px; }
+
+/* ---- library switcher ---- */
+.lib-switch { position: relative; }
+.lib-btn { display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 11px; border-radius: var(--r-pill); background: var(--fill); border: 1px solid var(--hairline); cursor: pointer; font-family: inherit; color: var(--text); transition: background .18s; }
+.lib-btn:hover { background: var(--fill-strong); }
+.lib-btn .lib-ico { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in oklab, var(--accent) 22%, transparent); color: var(--accent); }
+.lib-btn .lib-ico .ms { font-size: 17px; }
+.lib-btn .lib-name { font-size: 13.5px; font-weight: 600; }
+.lib-btn > .ms { font-size: 18px; color: var(--text-muted); }
+.lib-menu { position: absolute; top: calc(100% + 8px); left: 0; min-width: 250px; background: var(--c-high); border: 1px solid var(--hairline); border-radius: 14px; box-shadow: var(--shadow-lift); padding: 6px; z-index: 40; }
+.lib-menu .lm-label { font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint); padding: 8px 10px 6px; }
+.lm-item { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px; border-radius: 9px; background: none; border: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.lm-item:hover { background: var(--fill); }
+.lm-item.on { background: var(--row-now); }
+.lm-item .lib-ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--fill); color: var(--text-muted); flex: none; }
+.lm-item.on .lib-ico { background: color-mix(in oklab, var(--accent) 22%, transparent); color: var(--accent); }
+.lm-item .lm-meta { flex: 1; min-width: 0; }
+.lm-item .lm-name { font-size: 13.5px; font-weight: 600; }
+.lm-item .lm-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.lm-item .ms.check { font-size: 18px; color: var(--accent); }
+
+/* ---- sidebar nav badges ---- */
+.nav-item .ni-badge { margin-left: auto; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 99px; background: var(--fill-strong); color: var(--text-muted); font-size: 10.5px; font-weight: 700; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.nav-item .ni-badge.warn { background: color-mix(in oklab, #d8443a 24%, transparent); color: #e8897f; }
+.nav-item.active .ni-badge { background: color-mix(in oklab, var(--accent) 26%, transparent); color: var(--accent); }
+
+/* ---- main column (wraps app bar + scrolling content) ---- */
+.main { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100vh; min-height: 0; min-width: 0; }
+.main > .content { flex: 1; }

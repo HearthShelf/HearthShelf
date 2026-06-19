@@ -1,17 +1,45 @@
 import { useState, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Icon } from '@/components/common/Icon'
 
-const NAV = [
-  { to: '/', icon: 'home', label: 'Home', end: true },
-  { to: '/library', icon: 'grid_view', label: 'Library', end: false },
-  { to: '/series', icon: 'auto_stories', label: 'Series', end: false },
-]
+// Which nav group a given path lights up. Browse surfaces (series, search, item
+// detail) keep the unified Library entry active, matching the design reference.
+function groupForPath(path: string): string {
+  if (path === '/') return 'home'
+  if (
+    path.startsWith('/library') ||
+    path.startsWith('/series') ||
+    path.startsWith('/book') ||
+    path.startsWith('/authors') ||
+    path.startsWith('/narrators') ||
+    path.startsWith('/search')
+  )
+    return 'library'
+  if (path.startsWith('/collections')) return 'collections'
+  if (path.startsWith('/playlists')) return 'playlists'
+  if (path.startsWith('/stats')) return 'stats'
+  if (path.startsWith('/sessions')) return 'sessions'
+  if (path.startsWith('/player')) return 'player'
+  if (path.startsWith('/config')) return 'config'
+  if (path.startsWith('/settings') || path.startsWith('/account')) return 'settings'
+  return path.slice(1)
+}
+
+interface NavItemDef {
+  id: string
+  icon: string
+  label: string
+  to: string
+  badge?: number | null
+  badgeWarn?: boolean
+}
 
 function UserMenu() {
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -22,17 +50,27 @@ function UserMenu() {
   }, [open])
 
   const initial = (user?.username ?? '?').trim()[0]?.toUpperCase()
+  const isAdmin = user?.type === 'admin' || user?.type === 'root'
+  const go = (to: string) => {
+    setOpen(false)
+    navigate(to)
+  }
 
   return (
     <div className="user-wrap" onClick={(e) => e.stopPropagation()}>
       {open && (
         <div className="user-menu">
-          <button>
-            <Icon name="person" /> Profile
+          <button onClick={() => go('/account')}>
+            <Icon name="person" /> Account settings
           </button>
-          <button>
-            <Icon name="manage_accounts" /> Account &amp; server
+          <button onClick={() => go('/stats')}>
+            <Icon name="insights" /> Your stats
           </button>
+          {isAdmin && (
+            <button onClick={() => go('/config')}>
+              <Icon name="manage_accounts" /> Server &amp; admin
+            </button>
+          )}
           <div className="sep" />
           <button className="danger" onClick={signOut}>
             <Icon name="logout" /> Log out
@@ -55,6 +93,29 @@ function UserMenu() {
 }
 
 export function Sidebar() {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const { user } = useAuth()
+  const { itemCount } = useActiveLibrary()
+  const group = groupForPath(pathname)
+  const isAdmin = user?.type === 'admin' || user?.type === 'root'
+
+  const Item = ({ id, icon, label, to, badge, badgeWarn }: NavItemDef) => {
+    const active = group === id
+    return (
+      <button
+        className={'nav-item' + (active ? ' active' : '')}
+        onClick={() => navigate(to)}
+      >
+        <Icon name={icon} fill={active} />
+        {label}
+        {badge != null && (
+          <span className={'ni-badge' + (badgeWarn ? ' warn' : '')}>{badge}</span>
+        )}
+      </button>
+    )
+  }
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -63,21 +124,35 @@ export function Sidebar() {
       </div>
 
       <nav className="nav">
-        {NAV.map((n) => (
-          <NavLink
-            key={n.to}
-            to={n.to}
-            end={n.end}
-            className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
-          >
-            {({ isActive }) => (
-              <>
-                <Icon name={n.icon} fill={isActive} />
-                {n.label}
-              </>
-            )}
-          </NavLink>
-        ))}
+        <Item id="home" icon="home" label="Home" to="/" />
+        <Item
+          id="library"
+          icon="grid_view"
+          label="Library"
+          to="/library"
+          badge={itemCount}
+        />
+
+        <div className="nav-label">Shelves</div>
+        <Item id="series" icon="auto_stories" label="Series" to="/series" />
+        <Item
+          id="collections"
+          icon="folder_special"
+          label="Collections"
+          to="/collections"
+        />
+        <Item id="playlists" icon="queue_music" label="Playlists" to="/playlists" />
+
+        <div className="nav-label">Insights</div>
+        <Item id="stats" icon="insights" label="Stats" to="/stats" />
+        <Item id="sessions" icon="history" label="History" to="/sessions" />
+        <Item id="player" icon="graphic_eq" label="Now playing" to="/player" />
+
+        <div className="nav-sep" />
+        {isAdmin && (
+          <Item id="config" icon="dns" label="Server" to="/config" />
+        )}
+        <Item id="settings" icon="settings" label="Settings" to="/settings" />
       </nav>
 
       <UserMenu />
