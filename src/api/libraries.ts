@@ -12,6 +12,7 @@ export const libraryKeys = {
   all: ['libraries'] as const,
   items: (libraryId: string, page: number) =>
     ['library-items', libraryId, page] as const,
+  allItems: (libraryId: string) => ['library-all-items', libraryId] as const,
   item: (itemId: string) => ['library-item', itemId] as const,
   personalized: (libraryId: string) => ['personalized', libraryId] as const,
   series: (libraryId: string) => ['series', libraryId] as const,
@@ -65,5 +66,15 @@ export function getLibraryItems(
   })
   return absRequest<ABSLibraryItemsResponse>(
     `/api/libraries/${libraryId}/items?${params.toString()}`
+  )
+}
+
+// Fetch the entire library in one request (ABS treats limit=0 as "no limit").
+// The Library page filters/sorts/derives client-side over the full set.
+export function getAllLibraryItems(
+  libraryId: string
+): Promise<ABSLibraryItemsResponse> {
+  return absRequest<ABSLibraryItemsResponse>(
+    `/api/libraries/${libraryId}/items?limit=0`
   )
 }

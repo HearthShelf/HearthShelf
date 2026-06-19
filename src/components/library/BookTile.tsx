@@ -9,11 +9,25 @@ interface BookTileProps {
   fs?: number
   progress?: number
   finished?: boolean
+  compact?: boolean
+  selected?: boolean
+  anySelected?: boolean
+  onToggleSelect?: () => void
 }
 
 // Library/shelf tile: cover with hover-reveal actions, title, author, and a
-// progress bar when the book is in progress.
-export function BookTile({ item, fs = 15, progress = 0, finished }: BookTileProps) {
+// progress bar when the book is in progress. Supports compact sizing and a
+// multi-select checkbox.
+export function BookTile({
+  item,
+  fs = 15,
+  progress = 0,
+  finished,
+  compact,
+  selected,
+  anySelected,
+  onToggleSelect,
+}: BookTileProps) {
   const navigate = useNavigate()
   const { playItem } = usePlayer()
   const { title, authorName } = item.media.metadata
@@ -23,11 +37,19 @@ export function BookTile({ item, fs = 15, progress = 0, finished }: BookTileProp
     fn()
   }
 
+  // In selection mode the whole tile toggles selection instead of opening.
+  const onClick = () => {
+    if (anySelected && onToggleSelect) onToggleSelect()
+    else open()
+  }
+
   return (
     <div
-      className="book fade-in"
+      className={
+        'book fade-in' + (compact ? ' compact' : '') + (selected ? ' sel' : '')
+      }
       data-cv={tintFor(title ?? 'Untitled')}
-      onClick={open}
+      onClick={onClick}
     >
       <Cover
         itemId={item.id}
@@ -36,21 +58,38 @@ export function BookTile({ item, fs = 15, progress = 0, finished }: BookTileProp
         fs={fs}
         finished={finished}
         overlay={
-          <div className="hover-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="ha-btn" title="Details" onClick={stop(open)}>
-              <Icon name="info" />
-            </button>
-            <button
-              className="ha-play"
-              title="Play"
-              onClick={stop(() => void playItem(item.id))}
-            >
-              <Icon name="play_arrow" fill />
-            </button>
-            <button className="ha-btn" title="Add to list" onClick={stop(() => {})}>
-              <Icon name="playlist_add" />
-            </button>
-          </div>
+          <>
+            {onToggleSelect && (
+              <button
+                className={'b-check' + (selected ? ' on' : '')}
+                onClick={stop(onToggleSelect)}
+                title={selected ? 'Deselect' : 'Select'}
+              >
+                <Icon name="check" fill style={{ opacity: selected ? 1 : 0 }} />
+              </button>
+            )}
+            {!anySelected && (
+              <div className="hover-actions" onClick={(e) => e.stopPropagation()}>
+                <button className="ha-btn" title="Details" onClick={stop(open)}>
+                  <Icon name="info" />
+                </button>
+                <button
+                  className="ha-play"
+                  title="Play"
+                  onClick={stop(() => void playItem(item.id))}
+                >
+                  <Icon name="play_arrow" fill />
+                </button>
+                <button
+                  className="ha-btn"
+                  title="Add to list"
+                  onClick={stop(() => {})}
+                >
+                  <Icon name="playlist_add" />
+                </button>
+              </div>
+            )}
+          </>
         }
       />
       <div className="b-meta">
