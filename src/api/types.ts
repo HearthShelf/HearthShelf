@@ -130,9 +130,25 @@ export interface ABSAuthor {
   name: string
 }
 
+export interface ABSAudioFileMetadata {
+  filename: string
+  ext: string
+  size: number
+}
+
 export interface ABSAudioFile {
   index: number
+  ino: string
   duration: number
+  codec?: string
+  bitRate?: number
+  metadata: ABSAudioFileMetadata
+}
+
+export interface ABSSeriesRef {
+  id: string
+  name: string
+  sequence: string | null
 }
 
 // The detail endpoint (/api/items/:id) is NOT minified, and differs from the
@@ -141,6 +157,12 @@ export interface ABSAudioFile {
 // and media.chapters[]. Derive the flattened values from these.
 export interface ABSBookMetadataDetail extends ABSBookMetadata {
   authors: ABSAuthor[]
+  narrators: string[]
+  series: ABSSeriesRef[]
+  isbn: string | null
+  asin: string | null
+  publisher: string | null
+  rating?: number | null
 }
 
 export interface ABSBookMediaDetail
