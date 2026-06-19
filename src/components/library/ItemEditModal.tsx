@@ -9,6 +9,8 @@ import type { ABSLibraryItemDetail } from '@/api/types'
 import { Modal } from '@/components/common/Modal'
 import { Chips } from '@/components/common/Chips'
 import { Icon } from '@/components/common/Icon'
+import { ItemMatchTab } from '@/components/library/ItemMatchTab'
+import { ItemCoverTab } from '@/components/library/ItemCoverTab'
 
 function Field({
   label,
@@ -38,7 +40,10 @@ interface ItemEditModalProps {
 export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
   const qc = useQueryClient()
   const m = item.media.metadata
+  const authorName = m.authors?.[0]?.name ?? ''
 
+  const [tab, setTab] = useState('Details')
+  const [appliedNote, setAppliedNote] = useState<string | null>(null)
   const [title, setTitle] = useState(m.title ?? '')
   const [subtitle, setSubtitle] = useState(m.subtitle ?? '')
   const [publishedYear, setPublishedYear] = useState(m.publishedYear ?? '')
@@ -102,9 +107,49 @@ export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
     </>
   )
 
+  const onApplied = (msg: string) => {
+    setAppliedNote(msg)
+    setTab('Details')
+    // Reflect the applied match in the form by closing+reopening is heavy; the
+    // item query is invalidated, so reopening the modal shows fresh values. Keep
+    // a note for now.
+  }
+
   return (
-    <Modal title={`Edit · ${title}`} onClose={onClose} foot={foot}>
+    <Modal
+      title={`Edit · ${title}`}
+      onClose={onClose}
+      tabs={['Details', 'Match', 'Cover']}
+      tab={tab}
+      setTab={setTab}
+      foot={tab === 'Details' ? foot : undefined}
+    >
+      {tab === 'Match' && (
+        <ItemMatchTab
+          itemId={item.id}
+          defaultTitle={title}
+          defaultAuthor={authorName}
+          onApplied={onApplied}
+        />
+      )}
+      {tab === 'Cover' && (
+        <ItemCoverTab
+          itemId={item.id}
+          defaultTitle={title}
+          defaultAuthor={authorName}
+          onApplied={onApplied}
+        />
+      )}
+      {tab === 'Details' && (
       <div className="form-grid">
+        {appliedNote && (
+          <div className="field full">
+            <span style={{ color: '#a7c896', fontSize: 13 }}>
+              <Icon name="check" /> {appliedNote} - reopen to see updated fields
+            </span>
+          </div>
+        )}
+        {/* details fields below */}
         <Field label="Title" full>
           <input
             className="fld"
@@ -182,6 +227,7 @@ export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
           </div>
         </div>
       </div>
+      )}
     </Modal>
   )
 }

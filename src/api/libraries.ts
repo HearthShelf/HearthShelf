@@ -53,6 +53,78 @@ export interface ItemMetadataPatch {
   abridged?: boolean
 }
 
+// A metadata-provider search result (POST applies it via matchItem).
+export interface ABSMatchResult {
+  title: string
+  subtitle: string | null
+  author: string | null
+  narrator: string | null
+  publisher: string | null
+  publishedYear: string | null
+  description: string | null
+  cover: string | null
+  asin: string | null
+  isbn: string | null
+  genres: string[]
+  series: { series: string; sequence: string | null }[]
+  duration: number | null
+}
+
+export interface MetadataProvider {
+  text: string
+  value: string
+}
+export function getSearchProviders(): Promise<{
+  providers: { books: MetadataProvider[]; booksCovers: MetadataProvider[] }
+}> {
+  return absRequest('/api/search/providers')
+}
+
+export function searchBookMetadata(
+  provider: string,
+  title: string,
+  author = ''
+): Promise<ABSMatchResult[]> {
+  const p = new URLSearchParams({ provider, title, author })
+  return absRequest<ABSMatchResult[]>(`/api/search/books?${p.toString()}`)
+}
+
+export function searchCovers(
+  provider: string,
+  title: string,
+  author = ''
+): Promise<{ results: string[] }> {
+  const p = new URLSearchParams({ provider, title, author })
+  return absRequest<{ results: string[] }>(`/api/search/covers?${p.toString()}`)
+}
+
+// Apply a provider match to an item (writes selected fields / cover).
+export function matchItem(
+  itemId: string,
+  body: {
+    provider: string
+    title?: string
+    author?: string
+    asin?: string | null
+    isbn?: string | null
+    overrideCover?: boolean
+    overrideDetails?: boolean
+  }
+): Promise<void> {
+  return absRequest<void>(`/api/items/${itemId}/match`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+// Set the item cover from an external image URL.
+export function updateItemCover(itemId: string, url: string): Promise<void> {
+  return absRequest<void>(`/api/items/${itemId}/cover`, {
+    method: 'PATCH',
+    body: JSON.stringify({ url }),
+  })
+}
+
 export function updateItemMetadata(
   itemId: string,
   metadata: ItemMetadataPatch,
