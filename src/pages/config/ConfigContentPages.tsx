@@ -9,6 +9,7 @@ import {
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useRmabConfig } from '@/hooks/useRmab'
+import { useAudplexusConfig, useAudplexusStatus } from '@/hooks/useAudplexus'
 
 function Row({ icon, label, value }: { icon: string; label: string; value: string }) {
   return (
@@ -223,6 +224,81 @@ function RmabIntegrationCard() {
   )
 }
 
+// Audplexus connection + library-sync health. Config is server-side (AUDPLEXUS_URL
+// + AUDPLEXUS_KEY env). When connected, surfaces a sync-issue alert so admins know
+// when owned books don't line up with what's actually in ABS.
+function AudplexusIntegrationCard() {
+  const { data: cfg, isLoading } = useAudplexusConfig()
+  const connected = cfg?.configured === true
+  const { data: status } = useAudplexusStatus(connected)
+
+  const issues = status?.booksFailed ?? 0
+  const alert = status?.hasIssues === true
+
+  return (
+    <div style={{ marginBottom: 'var(--s7)' }}>
+      <div className="section-head">
+        <Icon name="sync" />
+        <h2>Audplexus</h2>
+      </div>
+      <div className="cfg-card">
+        <div className="cfg-line">
+          <Icon
+            name={connected ? 'check_circle' : 'cancel'}
+            fill
+            style={{ color: connected ? '#5a9c52' : 'var(--text-faint)' }}
+          />
+          <div className="cl-meta">
+            <div className="cl-t">{connected ? 'Connected' : 'Not connected'}</div>
+            <div className="cl-d">
+              {isLoading
+                ? 'Checking...'
+                : connected
+                  ? 'Watching your library for sync issues with AudiobookShelf.'
+                  : 'Set AUDPLEXUS_URL and AUDPLEXUS_KEY to monitor library sync health.'}
+            </div>
+          </div>
+          <span
+            className="badge-pill"
+            style={{
+              background: connected
+                ? 'color-mix(in oklab, #5a9c52 20%, transparent)'
+                : 'var(--fill)',
+              color: connected ? '#7fbd6f' : 'var(--text-muted)',
+            }}
+          >
+            {connected ? 'Active' : 'Off'}
+          </span>
+        </div>
+
+        {connected && status && (
+          <div className="cfg-line">
+            <Icon
+              name={alert ? 'warning' : 'task_alt'}
+              fill
+              style={{ color: alert ? '#d9a45a' : '#5a9c52' }}
+            />
+            <div className="cl-meta">
+              <div className="cl-t">
+                {status.running
+                  ? 'Sync running...'
+                  : alert
+                    ? `${issues} book${issues === 1 ? '' : 's'} need attention`
+                    : 'Library in sync'}
+              </div>
+              <div className="cl-d">
+                {status.error
+                  ? status.error
+                  : `${status.booksTotal} books tracked${status.completedAt ? ' · last synced ' + new Date(status.completedAt).toLocaleString() : ''}`}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // --- Integrations (read) ---
 export function ConfigIntegrations() {
   const { data } = useQuery({
@@ -239,6 +315,8 @@ export function ConfigIntegrations() {
       </div>
 
       <RmabIntegrationCard />
+
+      <AudplexusIntegrationCard />
 
       <div className="section-head">
         <Icon name="travel_explore" />

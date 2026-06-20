@@ -13,10 +13,12 @@
 //   /hs/settings      -> per-user app settings sync
 //   /hs/rmab/*        -> ReadMeABook acquisition proxy
 //   /hs/audible/*     -> HearthShelf's own Audible catalog search
+//   /hs/audplexus/*   -> Audplexus library-sync diagnostics (admin)
 //
 // Env: QG_PROVIDER, QG_MODEL, QG_API_KEY, QG_BASE_URL, QG_LIMIT, QG_ENABLED,
 //      DISCOVER_ENABLED, QG_DATA_DIR, RMAB_URL, RMAB_LOGIN_TOKEN, AUDIBLE_REGION,
-//      ABS_SERVER_URL (to validate the caller's token), HS_MODE.
+//      AUDPLEXUS_URL, AUDPLEXUS_KEY, ABS_SERVER_URL (to validate the caller's
+//      token), HS_MODE.
 
 import http from 'node:http'
 import { json } from './lib/http.js'
@@ -28,12 +30,20 @@ import { handleDiscover } from './routes/discover.js'
 import { handleSettings } from './routes/settings.js'
 import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
+import { handleAudplexus } from './routes/audplexus.js'
 
 const PORT = process.env.QG_PORT || 8080
 
 // Feature route modules, tried in order. Each returns true once it has handled
 // (and responded to) the request, false to let the next module try.
-const ROUTES = [handleQuestGiver, handleDiscover, handleSettings, handleRmab, handleAudible]
+const ROUTES = [
+  handleQuestGiver,
+  handleDiscover,
+  handleSettings,
+  handleRmab,
+  handleAudible,
+  handleAudplexus,
+]
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')

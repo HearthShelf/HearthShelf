@@ -25,11 +25,64 @@ async function getAudplexusConfig(): Promise<AudplexusConfig> {
   }
 }
 
-export function useAudplexusEnabled(): boolean {
-  const { data } = useQuery({
+export function useAudplexusConfig() {
+  return useQuery({
     queryKey: ['audplexus', 'config'],
     queryFn: getAudplexusConfig,
     staleTime: 5 * 60 * 1000,
   })
+}
+
+export function useAudplexusEnabled(): boolean {
+  const { data } = useAudplexusConfig()
   return data?.configured === true
+}
+
+// Sync-status + library-health summary from Audplexus (admin only). Shape
+// mirrors Audplexus GET /api/sync/status.json.
+export interface AudplexusStatus {
+  running: boolean
+  status: string
+  message?: string
+  error?: string
+  startedAt?: string
+  completedAt?: string
+  booksTotal: number
+  booksFailed: number
+  statusCounts: Record<string, number>
+  hasIssues: boolean
+}
+
+async function getAudplexusStatus(): Promise<AudplexusStatus | null> {
+  const token = useAuthStore.getState().token
+  try {
+    const res = await fetch('/hs/audplexus/status', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return null
+    const r = (await res.json()) as Record<string, unknown>
+    return {
+      running: Boolean(r.running),
+      status: String(r.status ?? ''),
+      message: (r.message as string) || undefined,
+      error: (r.error as string) || undefined,
+      startedAt: (r.started_at as string) || undefined,
+      completedAt: (r.completed_at as string) || undefined,
+      booksTotal: Number(r.books_total ?? 0),
+      booksFailed: Number(r.books_failed ?? 0),
+      statusCounts: (r.status_counts as Record<string, number>) ?? {},
+      hasIssues: Boolean(r.has_issues),
+    }
+  } catch {
+    return null
+  }
+}
+
+export function useAudplexusStatus(enabled = true) {
+  return useQuery({
+    queryKey: ['audplexus', 'status'],
+    queryFn: getAudplexusStatus,
+    enabled,
+    staleTime: 60 * 1000,
+  })
 }
