@@ -14,6 +14,7 @@ import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
 import { BookTile } from '@/components/library/BookTile'
+import { HomeRequestsShelf } from '@/components/requests/HomeRequestsShelf'
 import { SeriesCard } from '@/components/library/SeriesCard'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
@@ -252,6 +253,8 @@ export function HomePage() {
 
       {hero && !compact && <ResumeHero book={hero} progress={heroProgress} />}
       {hero && compact && <CalmHero book={hero} progress={heroProgress} />}
+
+      <HomeRequestsShelf />
 
       {isLoading && <LoadingSpinner className="py-12" label="Loading shelves..." />}
       {isError && (

@@ -5,7 +5,8 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RmabBadge, RmabProgress } from '@/components/requests/RmabBadge'
-import { useCancelRequest, useRetryRequest } from '@/hooks/useRmab'
+import { useToast } from '@/hooks/useToast'
+import { useCancelRequest, useRetryRequest, useFetchEbook } from '@/hooks/useRmab'
 import {
   listRequests,
   requestKeys,
@@ -37,13 +38,30 @@ const GROUP_COLOR: Record<RmabGroup, string> = {
 
 type Tab = 'all' | RmabGroup
 
-function RequestRow({ req, onView }: { req: RmabRequest; onView: (absItemId: string) => void }) {
+function RequestRow({
+  req,
+  onView,
+  onToast,
+}: {
+  req: RmabRequest
+  onView: (absItemId: string) => void
+  onToast: (msg: string) => void
+}) {
   const meta = statusMeta(req.status)
   const b = req.audiobook
   const cover = b.coverArtUrl
   const cancel = useCancelRequest()
   const retry = useRetryRequest()
-  const busy = cancel.isPending || retry.isPending
+  const ebook = useFetchEbook()
+  const busy = cancel.isPending || retry.isPending || ebook.isPending
+  // The matching-ebook companion only applies to a completed audiobook request.
+  const canGetEbook = req.type === 'audiobook' && ['downloaded', 'available'].includes(req.status)
+  const getEbook = () =>
+    ebook.mutate(req.id, {
+      onSuccess: (r) =>
+        onToast(r.success ? 'Searching for the matching ebook...' : r.message ?? 'Ebook unavailable'),
+      onError: () => onToast("Couldn't request the ebook"),
+    })
   return (
     <div className="req-row">
       {cover ? (
@@ -73,6 +91,16 @@ function RequestRow({ req, onView }: { req: RmabRequest; onView: (absItemId: str
             <Icon name="library_books" /> View
           </button>
         )}
+        {canGetEbook && (
+          <button
+            className="req-btn ghost"
+            disabled={busy}
+            title="Find a matching ebook for this audiobook"
+            onClick={getEbook}
+          >
+            <Icon name="menu_book" /> Get ebook
+          </button>
+        )}
         {(req.status === 'failed' || req.status === 'warn') && (
           <button className="req-btn ghost" disabled={busy} onClick={() => retry.mutate(req.id)}>
             <Icon name="refresh" /> Retry
@@ -95,6 +123,7 @@ function RequestRow({ req, onView }: { req: RmabRequest; onView: (absItemId: str
 
 export function RequestsPage() {
   const navigate = useNavigate()
+  const { toast, show } = useToast()
   const [tab, setTab] = useState<Tab>('all')
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -170,8 +199,18 @@ export function RequestsPage() {
       ) : (
         <div className="req-list">
           {requests.map((r) => (
-            <RequestRow key={r.id} req={r} onView={(id) => navigate('/book/' + id)} />
+            <RequestRow
+              key={r.id}
+              req={r}
+              onView={(id) => navigate('/book/' + id)}
+              onToast={show}
+            />
           ))}
+        </div>
+      )}
+      {toast && (
+        <div className="p-toast">
+          <Icon name="check_circle" fill /> {toast}
         </div>
       )}
     </div>
