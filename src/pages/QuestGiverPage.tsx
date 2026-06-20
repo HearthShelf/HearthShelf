@@ -6,9 +6,9 @@ import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { usePlayer } from '@/hooks/usePlayer'
 import { Icon } from '@/components/common/Icon'
-import { Cover } from '@/components/common/Cover'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { QuestGiverChoice } from '@/components/questgiver/QuestGiverChoice'
+import { QuestGiverPicker } from '@/components/questgiver/QuestGiverPicker'
 import { QuestGiverSlider } from '@/components/questgiver/QuestGiverSlider'
 import { QuestGiverResultCard } from '@/components/questgiver/QuestGiverResultCard'
 import { useQgConfig } from '@/hooks/useQuestGiver'
@@ -349,33 +349,18 @@ export function QuestGiverPage() {
                 />
               </div>
               {basis === 'list' && (
-                <div className="qg-pick">
-                  <div className="qg-pick-head">
-                    Pick a few books to match <span>{picked.size} selected</span>
-                  </div>
-                  <div className="qg-pick-grid">
-                    {books.slice(0, 18).map((b) => (
-                      <button
-                        key={b.id}
-                        type="button"
-                        className={'qg-pick-item' + (picked.has(b.id) ? ' on' : '')}
-                        onClick={() =>
-                          setPicked((s) => {
-                            const n = new Set(s)
-                            if (n.has(b.id)) n.delete(b.id)
-                            else n.add(b.id)
-                            return n
-                          })
-                        }
-                      >
-                        <Cover itemId={b.id} title={b.title} author={b.author} fs={4} />
-                        <span className="qg-pick-check">
-                          <Icon name="check_circle" fill />
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <QuestGiverPicker
+                  books={books}
+                  picked={picked}
+                  onToggle={(id) =>
+                    setPicked((s) => {
+                      const n = new Set(s)
+                      if (n.has(id)) n.delete(id)
+                      else n.add(id)
+                      return n
+                    })
+                  }
+                />
               )}
               <div className="qg-foot">
                 <span />
