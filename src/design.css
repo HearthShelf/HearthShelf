@@ -1750,6 +1750,11 @@
 
 .meta-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: var(--s5) 0; }
 
+.pp-series-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 0 18px; border-radius: var(--r-row); background: var(--fill); cursor: pointer; transition: background .15s; }
+.pp-series-row:hover { background: var(--fill-strong); }
+.pp-series-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-series-seq { font-size: 12.5px; color: var(--text-muted); }
+
 .desc { font-size: 14.5px; line-height: 1.65; color: var(--text-muted); }
 
 .desc b { color: var(--text); }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { usePlayerStore } from '@/store/playerStore'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -7,9 +8,11 @@ import { useSleepTimer } from '@/hooks/useSleepTimer'
 import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { useQueueStore } from '@/store/queueStore'
+import { getItem, libraryKeys } from '@/api/libraries'
 import { formatTimestamp } from '@/lib/format'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
+import { Stars } from '@/components/common/Stars'
 import type { ABSChapter } from '@/api/types'
 
 type Panel = 'chapters' | 'details' | 'queue' | null
@@ -207,6 +210,16 @@ export function PlayerPage() {
 
   const { bookmarks, addBookmark: addBookmarkApi, removeBookmark } =
     useBookmarks(libraryItemId)
+
+  // Full metadata for the details panel (narrator, year, genre, series,
+  // description, rating) - the player store only carries title/author/duration.
+  const { data: detail } = useQuery({
+    queryKey: libraryKeys.item(libraryItemId ?? ''),
+    queryFn: () => getItem(libraryItemId as string),
+    enabled: !!libraryItemId && panel === 'details',
+    staleTime: 5 * 60 * 1000,
+  })
+  const dm = detail?.media.metadata
 
   // Reset player-only UI when the book CHANGES (not on first mount, so a panel
   // requested by the mini play bar survives navigation to this page).
@@ -641,6 +654,26 @@ export function PlayerPage() {
                   <div className="by">
                     by <b>{author}</b>
                   </div>
+                  {dm?.narrators[0] && (
+                    <div className="by" style={{ marginTop: 2 }}>
+                      Read by <b>{dm.narrators.join(', ')}</b>
+                    </div>
+                  )}
+                  {dm?.rating != null && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginTop: 10,
+                      }}
+                    >
+                      <Stars rating={dm.rating} />
+                      <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                        {dm.rating.toFixed(1)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="meta-chips" style={{ margin: '0 0 18px' }}>
@@ -650,7 +683,39 @@ export function PlayerPage() {
                 <span className="chip">
                   <Icon name="list" /> {chapters.length} chapters
                 </span>
+                {dm?.publishedYear && (
+                  <span className="chip">
+                    <Icon name="calendar_today" /> {dm.publishedYear}
+                  </span>
+                )}
+                {dm?.genres[0] && (
+                  <span className="chip">
+                    <Icon name="category" /> {dm.genres[0]}
+                  </span>
+                )}
               </div>
+              {dm?.series[0] && (
+                <div
+                  className="pp-series-row"
+                  onClick={() => navigate(`/series/${dm.series[0].id}`)}
+                >
+                  <Icon name="auto_stories" />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="pp-series-name">{dm.series[0].name}</div>
+                    {dm.series[0].sequence && (
+                      <div className="pp-series-seq">
+                        Book {dm.series[0].sequence}
+                      </div>
+                    )}
+                  </div>
+                  <Icon name="chevron_right" />
+                </div>
+              )}
+              {dm?.description && (
+                <p className="desc" style={{ margin: '0 0 18px' }}>
+                  {dm.description}
+                </p>
+              )}
               <button
                 className="btn-sm btn-ghost"
                 onClick={() => navigate(`/book/${libraryItemId}`)}
