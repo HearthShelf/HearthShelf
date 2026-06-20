@@ -7,9 +7,10 @@ import { useSleepTimer } from '@/hooks/useSleepTimer'
 import { Icon } from '@/components/common/Icon'
 import { Cover } from '@/components/common/Cover'
 import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
+import { ChapterList } from '@/components/player/ChapterList'
 import { formatTimestamp } from '@/lib/format'
 
-type Pop = 'speed' | 'sleep' | 'volume' | null
+type Pop = 'speed' | 'sleep' | 'volume' | 'chapters' | null
 
 // Persistent across route changes - rendered once by AppShell, never unmounted
 // on navigation. Hidden (per the design) until a playback session exists.
@@ -28,6 +29,8 @@ export function PlayerBar() {
   const requestPanel = usePlayerStore((s) => s.requestPanel)
 
   const scrubber = useSettingsStore((s) => s.scrubber)
+  const skipFwd = useSettingsStore((s) => s.skipForward)
+  const skipBack = useSettingsStore((s) => s.skipBack)
   const { togglePlaying, seek, skip, chapterStep } = usePlayer()
   const sleepCtl = useSleepTimer()
   const navigate = useNavigate()
@@ -86,9 +89,13 @@ export function PlayerBar() {
           <button className="pb-skip" onClick={() => chapterStep(-1)} aria-label="Previous chapter">
             <Icon name="skip_previous" fill />
           </button>
-          <button className="pb-skip" onClick={() => skip(-30)} aria-label="Back 30 seconds">
-            <Icon name="replay_30" />
-            <small>30</small>
+          <button
+            className="pb-skip"
+            onClick={() => skip(-skipBack)}
+            aria-label={`Back ${skipBack} seconds`}
+          >
+            <Icon name="replay" />
+            <small>{skipBack}</small>
           </button>
           <button
             className="pb-play"
@@ -97,9 +104,13 @@ export function PlayerBar() {
           >
             <Icon name={isPlaying ? 'pause' : 'play_arrow'} fill />
           </button>
-          <button className="pb-skip" onClick={() => skip(30)} aria-label="Forward 30 seconds">
-            <Icon name="forward_30" />
-            <small>30</small>
+          <button
+            className="pb-skip"
+            onClick={() => skip(skipFwd)}
+            aria-label={`Forward ${skipFwd} seconds`}
+          >
+            <Icon name="replay" className="mirror" />
+            <small>{skipFwd}</small>
           </button>
           <button className="pb-skip" onClick={() => chapterStep(1)} aria-label="Next chapter">
             <Icon name="skip_next" fill />
@@ -129,9 +140,36 @@ export function PlayerBar() {
             {speed}×
           </button>
         </div>
-        <button className="icon-btn" title="Chapters" onClick={() => openPanel('chapters')}>
-          <Icon name="list" />
-        </button>
+        <div className="pb-pop-wrap">
+          {pop === 'chapters' && (
+            <div
+              className="p-pop pb-pop"
+              style={{ width: 340, maxHeight: '70vh', overflowY: 'auto' }}
+            >
+              <div className="pop-head">
+                <Icon name="list" /> Chapters
+                <span className="pop-x" onClick={() => setPop(null)}>
+                  <Icon name="close" style={{ fontSize: 18 }} />
+                </span>
+              </div>
+              <ChapterList
+                chapters={chapters}
+                onJump={(c) => {
+                  seek(c.start)
+                  setPop(null)
+                }}
+              />
+            </div>
+          )}
+          <button
+            className={'icon-btn' + (pop === 'chapters' ? ' on' : '')}
+            title="Chapters"
+            onClick={() => togglePop('chapters')}
+            disabled={chapters.length === 0}
+          >
+            <Icon name="list" />
+          </button>
+        </div>
         <button className="icon-btn" title="Bookmarks" onClick={() => openPanel('bookmarks')}>
           <Icon name="bookmark_border" />
         </button>

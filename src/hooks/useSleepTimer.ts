@@ -24,16 +24,16 @@ export interface SleepCtl {
   addTime: (mins: number) => void
   cancel: () => void
   // stop-behavior settings (mirrored to the settings store)
-  rewind: boolean
-  setRewind: (v: boolean) => void
+  // Graduated rewind amount in seconds (0 = resume exactly where it stopped).
+  rewindSec: number
+  setRewindSec: (v: number) => void
+  maxRewind: number
   chapterBarrier: boolean
   setBarrier: (v: boolean) => void
   fade: boolean
   setFade: (v: boolean) => void
   fadeLen: number
   setFadeLen: (v: number) => void
-  chime: boolean
-  setChime: (v: boolean) => void
   // auto-sleep banner context
   auto: boolean
   autoDur: number
@@ -62,7 +62,6 @@ export function useSleepTimer(): SleepCtl {
   const [left, setLeft] = useState(0) // duration/time countdown seconds
   const [eoc, setEoc] = useState<{ idx: number; at: StopAt } | null>(null)
   const tickRef = useRef<number | null>(null)
-  const chimedRef = useRef(false)
 
   const sleeping = left > 0
   const active = sleeping || eoc !== null
@@ -76,8 +75,11 @@ export function useSleepTimer(): SleepCtl {
   const fireStop = useCallback(() => {
     const audio = getAudioElement()
     const finish = () => {
-      if (s.sleepRewind) {
-        const back = Math.max(0, usePlayerStore.getState().currentTime - 30)
+      if (s.sleepRewindSec > 0) {
+        const back = Math.max(
+          0,
+          usePlayerStore.getState().currentTime - s.sleepRewindSec
+        )
         if (s.chapterBarrier) {
           const cur = chapters.find(
             (c) => usePlayerStore.getState().currentTime < c.end
@@ -105,16 +107,13 @@ export function useSleepTimer(): SleepCtl {
     } else {
       finish()
     }
-  }, [s.sleepRewind, s.sleepFade, s.sleepFadeLen, s.chapterBarrier, chapters, seek, setPlaying])
+  }, [s.sleepRewindSec, s.sleepFade, s.sleepFadeLen, s.chapterBarrier, chapters, seek, setPlaying])
 
   // Countdown tick for duration / time modes.
   useEffect(() => {
     if (!sleeping) return
     tickRef.current = window.setInterval(() => {
       setLeft((l) => {
-        if (s.sleepChime && !chimedRef.current && l <= 61 && l > 60) {
-          chimedRef.current = true
-        }
         if (l <= 1) {
           fireStop()
           return 0
@@ -125,7 +124,7 @@ export function useSleepTimer(): SleepCtl {
     return () => {
       if (tickRef.current) window.clearInterval(tickRef.current)
     }
-  }, [sleeping, s.sleepChime, fireStop])
+  }, [sleeping, fireStop])
 
   // Chapter-mode stop: watch position and stop when we cross the target.
   useEffect(() => {
@@ -156,7 +155,6 @@ export function useSleepTimer(): SleepCtl {
     bounds: chapters,
     eoc,
     setDuration: (mins) => {
-      chimedRef.current = false
       setEoc(null)
       setLeft(mins * 60)
     },
@@ -171,7 +169,6 @@ export function useSleepTimer(): SleepCtl {
       const target = new Date()
       target.setHours(h, m, 0, 0)
       if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1)
-      chimedRef.current = false
       setEoc(null)
       setLeft(Math.round((target.getTime() - now.getTime()) / 1000))
     },
@@ -180,16 +177,15 @@ export function useSleepTimer(): SleepCtl {
       setLeft(0)
       setEoc(null)
     },
-    rewind: s.sleepRewind,
-    setRewind: (v) => set('sleepRewind', v),
+    rewindSec: s.sleepRewindSec,
+    setRewindSec: (v) => set('sleepRewindSec', v),
+    maxRewind: 300,
     chapterBarrier: s.chapterBarrier,
     setBarrier: (v) => set('chapterBarrier', v),
     fade: s.sleepFade,
     setFade: (v) => set('sleepFade', v),
     fadeLen: s.sleepFadeLen,
     setFadeLen: (v) => set('sleepFadeLen', v),
-    chime: s.sleepChime,
-    setChime: (v) => set('sleepChime', v),
     auto: s.autoSleep,
     autoDur: s.autoSleepDur,
     autoStart: s.autoSleepStart,

@@ -68,6 +68,9 @@ export interface SettingsState {
 
   // Sleep
   sleepRewind: boolean
+  // Seconds to rewind when the sleep timer stops (0 = resume exactly where it
+  // stopped). Supersedes the on/off sleepRewind toggle in the UI.
+  sleepRewindSec: number
   sleepFade: boolean
   sleepFadeLen: number
   sleepChime: boolean
@@ -107,6 +110,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Sleep
       sleepRewind: true,
+      sleepRewindSec: 30,
       sleepFade: true,
       sleepFadeLen: 20,
       sleepChime: false,

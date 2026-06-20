@@ -937,12 +937,13 @@
 }
 .pb-skip small {
   position: absolute;
-  bottom: 1px;
+  top: 54%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   font-size: 8px;
   font-weight: 700;
 }
+.pb-skip .ms.mirror { transform: scaleX(-1); }
 .pb-skip:disabled,
 .pb-play:disabled {
   opacity: 0.4;
@@ -1532,7 +1533,7 @@
 
 .p-skip .ms { font-size: 34px; }
 
-.p-skip small { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; }
+.p-skip small { position: absolute; top: 54%; left: 50%; transform: translate(-50%, -50%); font-size: 9px; font-weight: 700; }
 
 .p-skip.lite { color: var(--text-muted); }
 

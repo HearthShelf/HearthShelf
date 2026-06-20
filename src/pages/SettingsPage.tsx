@@ -355,22 +355,27 @@ export function SettingsPage() {
         />
         <SetRow
           title="Rewind on wake"
-          desc="When the timer stops, jump back a little so you can pick up with context."
+          desc="When the timer stops, jump back this far so you can pick up with context. Set to Off to resume exactly where it stopped."
           control={
-            <Toggle
-              on={s.sleepRewind}
-              onClick={() => put('sleepRewind', !s.sleepRewind)}
-            />
-          }
-        />
-        <SetRow
-          title="Warning chime"
-          desc="A soft chime a minute before sleep, so you can tap to keep listening."
-          control={
-            <Toggle
-              on={s.sleepChime}
-              onClick={() => put('sleepChime', !s.sleepChime)}
-            />
+            <div className="range-row">
+              <input
+                type="range"
+                min={0}
+                max={300}
+                step={5}
+                value={s.sleepRewindSec}
+                onChange={(e) => put('sleepRewindSec', Number(e.target.value))}
+              />
+              <span className="badge-pill">
+                {s.sleepRewindSec === 0
+                  ? 'Off'
+                  : s.sleepRewindSec < 60
+                    ? `${s.sleepRewindSec}s`
+                    : `${Math.floor(s.sleepRewindSec / 60)}m${
+                        s.sleepRewindSec % 60 ? ` ${s.sleepRewindSec % 60}s` : ''
+                      }`}
+              </span>
+            </div>
           }
         />
         <SetRow

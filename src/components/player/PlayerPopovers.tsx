@@ -5,6 +5,14 @@ import { Icon } from '@/components/common/Icon'
 const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 const SLEEP_PRESETS = [5, 15, 30, 45, 60, 90]
 
+// "30s", "1m 30s" - compact label for the sleep-timer rewind amount.
+function fmtRewind(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return s ? `${m}m ${s}s` : `${m}m`
+}
+
 // Playback-speed popover: live value, slider (0.5x-3x), and preset chips.
 // Shared by the full player and the persistent play bar.
 export function SpeedPopover({
@@ -169,20 +177,40 @@ export function SleepPopover({
       <div className="pop-divider" />
       <div className="pop-label">When it stops</div>
 
-      <div
-        className="pop-row"
-        onClick={() => ctl.setRewind(!ctl.rewind)}
-        style={{ cursor: 'pointer' }}
-      >
+      <div className="pop-row">
         <div className="pr-t">
-          Rewind 30s when it stops
-          <div className="pr-d">Pick up with a little context</div>
+          Rewind when it stops
+          <div className="pr-d">
+            {ctl.rewindSec > 0
+              ? `Backs up ${fmtRewind(ctl.rewindSec)} so you pick up with context`
+              : 'Resumes exactly where it stopped'}
+          </div>
         </div>
-        <div className={'toggle' + (ctl.rewind ? ' on' : '')}>
-          <i />
-        </div>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12.5,
+            color: ctl.rewindSec > 0 ? 'var(--text)' : 'var(--text-muted)',
+            minWidth: 44,
+            textAlign: 'right',
+          }}
+        >
+          {ctl.rewindSec > 0 ? fmtRewind(ctl.rewindSec) : 'Off'}
+        </span>
       </div>
-      {ctl.rewind && (
+      <div className="pop-row" style={{ marginTop: 6 }}>
+        <input
+          type="range"
+          min={0}
+          max={ctl.maxRewind}
+          step={5}
+          value={Math.min(ctl.rewindSec, ctl.maxRewind)}
+          onChange={(e) => ctl.setRewindSec(Number(e.target.value))}
+          style={{ flex: 1, accentColor: 'var(--accent)' }}
+          aria-label="Rewind amount"
+        />
+      </div>
+      {ctl.rewindSec > 0 && (
         <div
           className="pop-row"
           onClick={() => ctl.setBarrier(!ctl.chapterBarrier)}
@@ -240,20 +268,6 @@ export function SleepPopover({
           </span>
         </div>
       )}
-
-      <div
-        className="pop-row"
-        onClick={() => ctl.setChime(!ctl.chime)}
-        style={{ cursor: 'pointer', marginTop: 12 }}
-      >
-        <div className="pr-t">
-          Warning chime
-          <div className="pr-d">A soft chime a minute before sleep</div>
-        </div>
-        <div className={'toggle' + (ctl.chime ? ' on' : '')}>
-          <i />
-        </div>
-      </div>
 
       {ctl.active && (
         <>
