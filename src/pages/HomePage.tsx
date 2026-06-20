@@ -9,7 +9,8 @@ import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { usePlayerStore } from '@/store/playerStore'
 import { useSettingsStore } from '@/store/settingsStore'
-import type { ABSLibraryItem, ABSMediaProgress } from '@/api/types'
+import { useIsMobile } from '@/hooks/useMediaQuery'
+import type { ABSLibraryItem, ABSMediaProgress, ABSShelf } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
@@ -25,6 +26,22 @@ const SHELF_ICONS: Record<string, string> = {
   'continue-series': 'auto_stories',
   discover: 'explore',
   'continue-listening': 'play_circle',
+}
+
+// Shelf display order on Home. "continue-series" is intentionally absent - it
+// is dropped below. "listen-again" sits after "discover" by request. Any shelf
+// id not listed falls to the end in its original order.
+const SHELF_ORDER = [
+  'continue-listening',
+  'recently-added',
+  'recent-series',
+  'discover',
+  'listen-again',
+]
+
+function shelfRank(id: string): number {
+  const i = SHELF_ORDER.indexOf(id)
+  return i === -1 ? SHELF_ORDER.length : i
 }
 
 function greetingWord(): string {
@@ -171,6 +188,7 @@ export function HomePage() {
   const { user } = useAuth()
   const { active, activeId } = useActiveLibrary()
   const unifiedHome = useSettingsStore((s) => s.unifiedHome)
+  const isMobile = useIsMobile()
   const [heroStyle, setHeroStyle] = useState<HeroStyle>(
     () => (localStorage.getItem(HERO_KEY) as HeroStyle) || 'comfy'
   )
@@ -178,7 +196,8 @@ export function HomePage() {
     setHeroStyle(h)
     localStorage.setItem(HERO_KEY, h)
   }
-  const compact = heroStyle === 'compact'
+  // Mobile is always compact - the Comfy hero and the toggle are desktop-only.
+  const compact = isMobile || heroStyle === 'compact'
 
   const { data: progress } = useQuery({
     queryKey: meKeys.itemsInProgress,
@@ -233,22 +252,24 @@ export function HomePage() {
             <p className="page-sub">Nothing in progress yet</p>
           )}
         </div>
-        <div className="hero-switch">
-          <div className="seg">
-            <button
-              className={heroStyle === 'comfy' ? 'on' : ''}
-              onClick={() => chooseHero('comfy')}
-            >
-              Comfy
-            </button>
-            <button
-              className={heroStyle === 'compact' ? 'on' : ''}
-              onClick={() => chooseHero('compact')}
-            >
-              Compact
-            </button>
+        {!isMobile && (
+          <div className="hero-switch">
+            <div className="seg">
+              <button
+                className={heroStyle === 'comfy' ? 'on' : ''}
+                onClick={() => chooseHero('comfy')}
+              >
+                Comfy
+              </button>
+              <button
+                className={heroStyle === 'compact' ? 'on' : ''}
+                onClick={() => chooseHero('compact')}
+              >
+                Compact
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {hero && !compact && <ResumeHero book={hero} progress={heroProgress} />}
@@ -262,7 +283,12 @@ export function HomePage() {
       )}
 
       {shelves
-        ?.filter((sh) => sh.type === 'book' || sh.type === 'series')
+        ?.filter(
+          (sh) =>
+            (sh.type === 'book' || sh.type === 'series') &&
+            sh.id !== 'continue-series'
+        )
+        .sort((a: ABSShelf, b: ABSShelf) => shelfRank(a.id) - shelfRank(b.id))
         .map((sh) => (
           <div className="section" key={sh.id}>
             <SectionHead

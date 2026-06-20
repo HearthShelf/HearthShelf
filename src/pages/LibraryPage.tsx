@@ -14,6 +14,7 @@ import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { BookTile } from '@/components/library/BookTile'
 import { SeriesCard } from '@/components/library/SeriesCard'
@@ -79,6 +80,7 @@ export function LibraryPage() {
   const { playItem } = usePlayer()
   const fill = useSettingsStore((s) => s.libraryFill)
   const setFill = (v: boolean) => useSettingsStore.getState().set('libraryFill', v)
+  const isMobile = useIsMobile()
 
   const [tab, setTab] = useState<Tab>('books')
   const [prog, setProg] = useState<ProgFilter>('all')
@@ -113,7 +115,8 @@ export function LibraryPage() {
     setGridScale(s)
     localStorage.setItem(SCALE_KEY, String(s))
   }
-  const isCompact = gridScale < COMPACT_BELOW
+  // Mobile is always compact (the cover-size slider is hidden there).
+  const isCompact = isMobile || gridScale < COMPACT_BELOW
 
   const {
     data,
@@ -306,7 +309,15 @@ export function LibraryPage() {
     >
       <div className="page-head">
         <div className="eyebrow">Your collection</div>
-        <h1 className="title-xl">{active?.name ?? 'Library'}</h1>
+        <h1 className="title-xl">
+          {active?.name ?? 'Library'}
+          <span className="lib-count">
+            {tab === 'books' && `${books.length} of ${data?.total ?? allItems.length} books`}
+            {tab === 'series' && `${seriesList.length} series`}
+            {tab === 'authors' && `${authors.length} authors`}
+            {tab === 'narrators' && `${narrators.length} narrators`}
+          </span>
+        </h1>
       </div>
 
       <div className="qv-tabs">
@@ -370,9 +381,6 @@ export function LibraryPage() {
             </div>
           ) : (
             <div className="toolbar2">
-              <span className="count-badge">
-                {books.length} of {data.total} books
-              </span>
               <div className="seg">
                 {PROG_CHIPS.map(([id, ic, label]) => (
                   <button
@@ -410,15 +418,17 @@ export function LibraryPage() {
                 </button>
               )}
               <div className="tb-spacer" />
-              <button
-                className={'pill' + (fill ? ' on' : '')}
-                onClick={() => setFill(!fill)}
-                title={fill ? 'Full width' : 'Boxed'}
-              >
-                <Icon name={fill ? 'width_full' : 'width_normal'} />{' '}
-                {fill ? 'Full width' : 'Boxed'}
-              </button>
-              {view === 'grid' && (
+              {!isMobile && (
+                <button
+                  className={'pill' + (fill ? ' on' : '')}
+                  onClick={() => setFill(!fill)}
+                  title={fill ? 'Full width' : 'Boxed'}
+                >
+                  <Icon name={fill ? 'width_full' : 'width_normal'} />{' '}
+                  {fill ? 'Full width' : 'Boxed'}
+                </button>
+              )}
+              {!isMobile && view === 'grid' && (
                 <div className="scale-ctl" title="Cover size">
                   <Icon name="photo_size_select_small" />
                   <div className="scale-track-wrap">
@@ -604,7 +614,6 @@ export function LibraryPage() {
       {tab === 'series' && (
         <>
           <div className="toolbar2">
-            <span className="count-badge">{seriesList.length} series</span>
             <div className="tb-spacer" />
             <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Sort</span>
             <div className="seg">
@@ -631,13 +640,11 @@ export function LibraryPage() {
       {(tab === 'authors' || tab === 'narrators') && (
         <>
           <div className="toolbar2">
-            <span className="count-badge">
-              {(tab === 'authors' ? authors : narrators).length}{' '}
-              {tab === 'authors' ? 'authors' : 'narrators'}
-            </span>
-            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-              Hover to select, edit, or merge
-            </span>
+            {!isMobile && (
+              <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                Hover to select, edit, or merge
+              </span>
+            )}
             <div className="tb-spacer" />
             <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Sort</span>
             <div className="seg">

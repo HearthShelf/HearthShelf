@@ -4,6 +4,7 @@ import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 
 interface BookTileProps {
   item: ABSLibraryItem
@@ -39,6 +40,9 @@ export function BookTile({
   const navigate = useNavigate()
   const { playItem } = usePlayer()
   const { markFinished } = useMarkFinished()
+  // Touch UIs can't hover, so the reveal-on-hover action buttons are dropped -
+  // tapping the tile opens the book detail page instead.
+  const isMobile = useIsMobile()
   const { title, authorName } = item.media.metadata
   const hasEbook = !!item.media.ebookFormat
   const ebookOnly = hasEbook && item.media.numAudioFiles === 0
@@ -89,7 +93,7 @@ export function BookTile({
                 <Icon name="check" fill style={{ opacity: selected ? 1 : 0 }} />
               </button>
             )}
-            {!anySelected && (
+            {!anySelected && !isMobile && (
               <div className="hover-actions" onClick={(e) => e.stopPropagation()}>
                 <button
                   className="ha-btn"

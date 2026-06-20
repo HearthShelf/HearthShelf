@@ -335,6 +335,15 @@
   color: var(--text);
   margin: 0;
 }
+/* Quiet item count tucked beside a page title (e.g. Library "342 books"). */
+.lib-count {
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  margin-left: 12px;
+  vertical-align: 3px;
+}
 .page-sub {
   color: var(--text-muted);
   font-size: 14.5px;
@@ -3084,3 +3093,368 @@ select.fld { appearance: none; cursor: pointer; background-image: url("data:imag
 .home-compact .section-head { margin-bottom: var(--s3); }
 .home-compact .shelf-row { gap: var(--s4); padding-bottom: 4px; }
 .home-compact .shelf-row .book { width: 128px; }
+
+/* =====================================================================
+   Responsive: Tablet + Mobile
+   - Tablet (<=1023px): sidebar narrows, playbar follows.
+   - Mobile (<=700px): sidebar hidden, bottom nav takes over, the book grid
+     becomes a touch-first 4-up portrait layout, tabs collapse to one line.
+   ===================================================================== */
+
+/* ---- Mobile bottom nav --------------------------------------------- */
+.mobile-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  height: var(--mobile-nav-h, 60px);
+  display: none;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
+  background: color-mix(in oklab, var(--c-low) 92%, transparent);
+  backdrop-filter: blur(22px);
+  border-top: 1px solid var(--hairline);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.mn-tab {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  transition: color 0.15s;
+  min-width: 0;
+}
+.mn-tab .ms {
+  font-size: 23px;
+}
+.mn-tab span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.mn-tab.on {
+  color: var(--accent);
+}
+
+/* ---- "More" overflow sheet ----------------------------------------- */
+.more-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(4, 3, 6, 0.5);
+  display: flex;
+  align-items: flex-end;
+  animation: ms-fade 0.18s ease;
+}
+@keyframes ms-fade {
+  from { opacity: 0; }
+}
+.more-sheet {
+  width: 100%;
+  background: var(--c-low);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  border-top: 1px solid var(--hairline);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+  padding: 8px 14px calc(20px + env(safe-area-inset-bottom, 0));
+  max-height: 82vh;
+  overflow-y: auto;
+  animation: ms-up 0.24s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@keyframes ms-up {
+  from { transform: translateY(100%); }
+}
+.ms-grab {
+  width: 40px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--fill-strong);
+  margin: 4px auto 12px;
+}
+.ms-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 8px;
+}
+.ms-user {
+  flex: 1;
+  min-width: 0;
+}
+.ms-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ms-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.ms-close {
+  border: none;
+  background: var(--fill);
+  color: var(--text-muted);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.ms-list {
+  display: flex;
+  flex-direction: column;
+}
+.ms-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 8px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+}
+.ms-row:active {
+  background: var(--fill);
+}
+.ms-row .ms {
+  font-size: 22px;
+  color: var(--text-muted);
+}
+.ms-row .ms-chev {
+  margin-left: auto;
+  font-size: 20px;
+  color: var(--text-faint);
+}
+.ms-row.danger,
+.ms-row.danger .ms {
+  color: #e0654a;
+}
+.ms-sep {
+  height: 1px;
+  background: var(--hairline);
+  margin: 6px 8px;
+}
+
+/* ---- Tablet -------------------------------------------------------- */
+@media (max-width: 1023px) {
+  .app {
+    grid-template-columns: 200px 1fr;
+  }
+  .app-glow {
+    inset: 0 0 auto 200px;
+  }
+  .playbar {
+    left: 200px;
+  }
+}
+
+/* ---- Mobile -------------------------------------------------------- */
+@media (max-width: 700px) {
+  /* Single-column app: sidebar gone, bottom nav in. */
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    display: none;
+  }
+  .app-glow {
+    inset: 0 0 auto 0;
+    height: 52vh;
+  }
+  .mobile-nav {
+    display: grid;
+  }
+
+  /* Content + playbar leave room for the bottom nav. */
+  .app.has-mobile-nav .content {
+    padding-bottom: var(--mobile-nav-h, 60px);
+  }
+  .page {
+    padding: var(--s6) var(--s4) 120px;
+    max-width: none;
+  }
+  .playbar {
+    left: 0;
+    right: 0;
+    height: 64px;
+    grid-template-columns: 1fr auto;
+    gap: var(--s3);
+    padding: 0 var(--s4);
+    bottom: calc(var(--mobile-nav-h, 60px) + env(safe-area-inset-bottom, 0));
+  }
+  /* Player route hides the bottom nav, so the playbar sits flush again. */
+  .app.player-mode .playbar {
+    bottom: 0;
+  }
+
+  /* App bar: compact, search shrinks. */
+  .appbar {
+    height: 52px;
+    padding: 0 var(--s4);
+    gap: var(--s3);
+  }
+  .ab-search {
+    max-width: none;
+    padding: 7px 12px;
+  }
+  .ab-search kbd {
+    display: none;
+  }
+  .ab-actions .ab-ico {
+    display: none;
+  }
+
+  /* Titles + headers shrink. */
+  .title-xl {
+    font-size: 26px;
+  }
+  .lib-count {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+    vertical-align: 0;
+  }
+  .home-head-row {
+    margin-bottom: var(--s5);
+  }
+
+  /* Library tabs: single line, no per-tab count chip, horizontally scrollable. */
+  .qv-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 0;
+    scrollbar-width: none;
+  }
+  .qv-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .qv-tab {
+    flex: 1;
+    justify-content: center;
+    gap: 0;
+    padding: 11px 4px 13px;
+    font-size: 13.5px;
+    white-space: nowrap;
+  }
+  /* Icon + count are dropped so all four labels fit one line on a phone. */
+  .qv-tab .ms {
+    display: none;
+  }
+  .qv-tab .qv-count {
+    display: none;
+  }
+  .qv-tab.on::after {
+    left: 8px;
+    right: 8px;
+  }
+
+  /* Touch-first book grid: 4 columns, portrait "book" covers, no hover. */
+  .lib-grid,
+  .lib-grid.compact {
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--s4) var(--s3);
+  }
+  .lib-grid .book .cover,
+  .shelf-row .book .cover {
+    aspect-ratio: 2 / 3;
+  }
+  .book:hover {
+    transform: none;
+  }
+  .lib-grid .b-meta {
+    padding: 7px 1px 0;
+  }
+  .lib-grid .b-title {
+    font-size: 11.5px;
+    -webkit-line-clamp: 2;
+  }
+  .lib-grid .b-author {
+    font-size: 10.5px;
+    margin-top: 2px;
+  }
+  .hover-actions {
+    display: none;
+  }
+
+  /* Home shelves: portrait covers, tighter row. */
+  .shelf-row .book {
+    width: 116px;
+  }
+  .home-compact .shelf-row .book {
+    width: 112px;
+  }
+  .series-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Author / narrator grid: smaller avatars, more per row. */
+  .author-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s5) var(--s3);
+  }
+  .author-av {
+    width: 84px;
+    height: 84px;
+    font-size: 26px;
+  }
+
+  /* List view collapses extra columns. */
+  .ll-row {
+    grid-template-columns: 48px 1fr 42px;
+    gap: var(--s4);
+  }
+  .ll-col {
+    display: none;
+  }
+
+  /* Toolbar wraps gracefully; let the filter row scroll if needed. */
+  .toolbar2 {
+    gap: var(--s2);
+  }
+
+  /* ---- Book detail: full-width stacked layout ---- */
+  .detail-top {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s5);
+    margin-bottom: var(--s6);
+  }
+  .detail-cover,
+  .detail-cover .cover {
+    width: 60%;
+    max-width: 220px;
+  }
+  .detail-cover .cover {
+    height: auto;
+    aspect-ratio: 2 / 3;
+  }
+  .detail-main {
+    width: 100%;
+    text-align: center;
+  }
+  .detail-main h1 {
+    font-size: 24px;
+  }
+  .detail-main .meta-rows {
+    text-align: left;
+  }
+}
