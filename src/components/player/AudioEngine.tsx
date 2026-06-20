@@ -13,6 +13,7 @@ export function AudioEngine() {
   const tracks = usePlayerStore((s) => s.tracks)
   const isPlaying = usePlayerStore((s) => s.isPlaying)
   const speed = usePlayerStore((s) => s.playbackSpeed)
+  const volume = usePlayerStore((s) => s.volume)
   const seekTarget = usePlayerStore((s) => s.seekTarget)
   const seekNonce = usePlayerStore((s) => s.seekNonce)
   const setCurrentTime = usePlayerStore((s) => s.setCurrentTime)
@@ -64,6 +65,13 @@ export function AudioEngine() {
     const el = ref.current
     if (el) el.playbackRate = speed
   }, [speed, src])
+
+  // Apply volume. The sleep-timer fade temporarily drives volume directly and
+  // restores to this level when it finishes.
+  useEffect(() => {
+    const el = ref.current
+    if (el) el.volume = volume
+  }, [volume, src])
 
   return (
     <audio

@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayerStore } from '@/store/playerStore'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
-import { useSleepTimer, type SleepCtl } from '@/hooks/useSleepTimer'
+import { useSleepTimer } from '@/hooks/useSleepTimer'
+import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { useQueueStore } from '@/store/queueStore'
 import { formatTimestamp } from '@/lib/format'
@@ -14,8 +15,6 @@ import type { ABSChapter } from '@/api/types'
 type Panel = 'chapters' | 'details' | 'queue' | null
 type Pop = 'speed' | 'sleep' | 'bookmark' | 'list' | null
 
-const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
-const SLEEP_PRESETS = [5, 15, 30, 45, 60, 90]
 const LISTS = [
   { name: 'Bedtime', icon: 'bedtime' },
   { name: 'Long drives', icon: 'directions_car' },
@@ -180,277 +179,6 @@ function QueuePanel({
   )
 }
 
-function SpeedPopover({
-  speed,
-  setSpeed,
-  onClose,
-}: {
-  speed: number
-  setSpeed: (s: number) => void
-  onClose: () => void
-}) {
-  return (
-    <>
-      <div className="pop-head">
-        <Icon name="speed" /> Playback speed
-        <span className="pop-x" onClick={onClose}>
-          <Icon name="close" style={{ fontSize: 18 }} />
-        </span>
-      </div>
-      <div className="speed-val">
-        {speed.toFixed(2).replace(/\.?0+$/, '')}
-        <small>×</small>
-      </div>
-      <input
-        className="speed-slider"
-        type="range"
-        min={0.5}
-        max={3}
-        step={0.05}
-        value={speed}
-        onChange={(e) => setSpeed(Number(Number(e.target.value).toFixed(2)))}
-      />
-      <div className="speed-ticks">
-        <span>0.5×</span>
-        <span>1×</span>
-        <span>2×</span>
-        <span>3×</span>
-      </div>
-      <div className="sleep-grid">
-        {SPEED_PRESETS.map((s) => (
-          <button
-            key={s}
-            className={Math.abs(s - speed) < 0.001 ? 'on' : ''}
-            onClick={() => setSpeed(s)}
-          >
-            {s}×
-          </button>
-        ))}
-      </div>
-    </>
-  )
-}
-
-function SleepPopover({ ctl, onClose }: { ctl: SleepCtl; onClose: () => void }) {
-  const { curIdx, bounds } = ctl
-  return (
-    <>
-      <div className="pop-head">
-        <Icon name="bedtime" /> Sleep timer
-        <span className="pop-x" onClick={onClose}>
-          <Icon name="close" style={{ fontSize: 18 }} />
-        </span>
-      </div>
-
-      <div className="seg seg-full" style={{ marginBottom: 14 }}>
-        <button
-          className={ctl.tab === 'duration' ? 'on' : ''}
-          onClick={() => ctl.setTab('duration')}
-        >
-          Duration
-        </button>
-        <button
-          className={ctl.tab === 'chapter' ? 'on' : ''}
-          onClick={() => ctl.setTab('chapter')}
-        >
-          Chapter
-        </button>
-        <button
-          className={ctl.tab === 'time' ? 'on' : ''}
-          onClick={() => ctl.setTab('time')}
-        >
-          Time
-        </button>
-      </div>
-
-      <div className="sleep-tab-body">
-        {ctl.tab === 'duration' && (
-          <div className="sleep-grid">
-            {SLEEP_PRESETS.map((m) => (
-              <button
-                key={m}
-                className={
-                  ctl.sleeping && Math.abs(ctl.left - m * 60) < 30 ? 'on' : ''
-                }
-                onClick={() => ctl.setDuration(m)}
-              >
-                {m}m
-              </button>
-            ))}
-          </div>
-        )}
-        {ctl.tab === 'chapter' && (
-          <>
-            <select
-              className="fld"
-              style={{ marginBottom: 10 }}
-              value={ctl.eoc ? ctl.eoc.idx : curIdx}
-              onChange={(e) =>
-                ctl.setChapter(Number(e.target.value), ctl.eoc ? ctl.eoc.at : 'end')
-              }
-            >
-              {bounds.map((c, i) =>
-                i >= curIdx ? (
-                  <option key={c.id} value={i}>
-                    {c.title}
-                  </option>
-                ) : null
-              )}
-            </select>
-            <div className="seg seg-full">
-              <button
-                className={ctl.eoc && ctl.eoc.at === 'start' ? 'on' : ''}
-                onClick={() =>
-                  ctl.setChapter(ctl.eoc ? ctl.eoc.idx : curIdx, 'start')
-                }
-              >
-                Chapter start
-              </button>
-              <button
-                className={ctl.eoc && ctl.eoc.at === 'end' ? 'on' : ''}
-                onClick={() =>
-                  ctl.setChapter(ctl.eoc ? ctl.eoc.idx : curIdx, 'end')
-                }
-              >
-                Chapter end
-              </button>
-            </div>
-          </>
-        )}
-        {ctl.tab === 'time' && (
-          <>
-            <input
-              type="time"
-              className="fld"
-              onChange={(e) => ctl.setClock(e.target.value)}
-            />
-            <div className="pr-d" style={{ marginTop: 8 }}>
-              Playback stops at the clock time you pick.
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="pop-divider" />
-      <div className="pop-label">When it stops</div>
-
-      <div
-        className="pop-row"
-        onClick={() => ctl.setRewind(!ctl.rewind)}
-        style={{ cursor: 'pointer' }}
-      >
-        <div className="pr-t">
-          Rewind 30s when it stops
-          <div className="pr-d">Pick up with a little context</div>
-        </div>
-        <div className={'toggle' + (ctl.rewind ? ' on' : '')}>
-          <i />
-        </div>
-      </div>
-      {ctl.rewind && (
-        <div
-          className="pop-row"
-          onClick={() => ctl.setBarrier(!ctl.chapterBarrier)}
-          style={{ cursor: 'pointer', marginTop: 8, paddingLeft: 14 }}
-        >
-          <div className="pr-t">
-            Keep within chapter
-            <div className="pr-d">Don't rewind past the chapter start</div>
-          </div>
-          <div className={'toggle' + (ctl.chapterBarrier ? ' on' : '')}>
-            <i />
-          </div>
-        </div>
-      )}
-
-      <div
-        className="pop-row"
-        onClick={() => ctl.setFade(!ctl.fade)}
-        style={{ cursor: 'pointer', marginTop: 12 }}
-      >
-        <div className="pr-t">
-          Fade volume out
-          <div className="pr-d">
-            {ctl.fade ? `Eases down over ${ctl.fadeLen}s` : 'Stops abruptly'}
-          </div>
-        </div>
-        <div className={'toggle' + (ctl.fade ? ' on' : '')}>
-          <i />
-        </div>
-      </div>
-      {ctl.fade && (
-        <div className="pop-row" style={{ marginTop: 8 }}>
-          <Icon
-            name="volume_down"
-            style={{ fontSize: 18, color: 'var(--text-muted)' }}
-          />
-          <input
-            type="range"
-            min={3}
-            max={60}
-            value={ctl.fadeLen}
-            onChange={(e) => ctl.setFadeLen(Number(e.target.value))}
-            style={{ flex: 1, accentColor: 'var(--accent)' }}
-          />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12.5,
-              color: 'var(--text-muted)',
-              width: 30,
-              textAlign: 'right',
-            }}
-          >
-            {ctl.fadeLen}s
-          </span>
-        </div>
-      )}
-
-      <div
-        className="pop-row"
-        onClick={() => ctl.setChime(!ctl.chime)}
-        style={{ cursor: 'pointer', marginTop: 12 }}
-      >
-        <div className="pr-t">
-          Warning chime
-          <div className="pr-d">A soft chime a minute before sleep</div>
-        </div>
-        <div className={'toggle' + (ctl.chime ? ' on' : '')}>
-          <i />
-        </div>
-      </div>
-
-      {ctl.active && (
-        <>
-          <div className="sleep-ends">
-            <Icon
-              name="schedule"
-              style={{ fontSize: 17, color: 'var(--text-muted)' }}
-            />{' '}
-            Stops at <b>{ctl.endsAt}</b>
-            {ctl.sleeping && (
-              <span style={{ color: 'var(--text-muted)' }}>
-                {' '}
-                · in {formatTimestamp(ctl.left)}
-              </span>
-            )}
-          </div>
-          <div className="add-cancel">
-            {ctl.sleeping && (
-              <button className="btn-sm btn-ghost" onClick={() => ctl.addTime(5)}>
-                <Icon name="add" /> 5 min
-              </button>
-            )}
-            <button className="btn-sm btn-ghost" onClick={ctl.cancel}>
-              <Icon name="close" /> Cancel
-            </button>
-          </div>
-        </>
-      )}
-    </>
-  )
-}
-
 export function PlayerPage() {
   const navigate = useNavigate()
   const libraryItemId = usePlayerStore((s) => s.libraryItemId)
@@ -480,12 +208,29 @@ export function PlayerPage() {
   const { bookmarks, addBookmark: addBookmarkApi, removeBookmark } =
     useBookmarks(libraryItemId)
 
-  // Reset player-only UI when the book changes (not the sleep timer).
+  // Reset player-only UI when the book CHANGES (not on first mount, so a panel
+  // requested by the mini play bar survives navigation to this page).
+  const firstSession = useRef(true)
   useEffect(() => {
+    if (firstSession.current) {
+      firstSession.current = false
+      return
+    }
     setLists({})
     setPanel(null)
     setPop(null)
   }, [sessionId])
+
+  // The mini play bar can ask us to open a panel on arrival.
+  const requestedPanel = usePlayerStore((s) => s.requestedPanel)
+  const clearRequestedPanel = usePlayerStore((s) => s.clearRequestedPanel)
+  useEffect(() => {
+    if (!requestedPanel) return
+    if (requestedPanel === 'bookmarks') setPop('bookmark')
+    else if (requestedPanel === 'chapters') setPanel('chapters')
+    else if (requestedPanel === 'queue') setPanel('queue')
+    clearRequestedPanel()
+  }, [requestedPanel, clearRequestedPanel])
 
   // Toast auto-dismiss
   useEffect(() => {

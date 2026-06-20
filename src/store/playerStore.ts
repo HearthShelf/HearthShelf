@@ -12,9 +12,13 @@ interface PlayerState {
   chapters: ABSChapter[]
   tracks: ABSAudioTrack[]
   playbackSpeed: number
+  volume: number
   // Bumped to ask the audio engine to seek to `seekTarget` (seconds).
   seekTarget: number
   seekNonce: number
+  // A panel the mini play bar asked the full player to open on arrival
+  // (chapters / bookmarks / queue). Consumed and cleared by PlayerPage.
+  requestedPanel: 'chapters' | 'bookmarks' | 'queue' | null
 
   openSession: (session: ABSPlaybackSession) => void
   closeSession: () => void
@@ -23,7 +27,10 @@ interface PlayerState {
   setPlaying: (playing: boolean) => void
   togglePlaying: () => void
   setSpeed: (speed: number) => void
+  setVolume: (volume: number) => void
   seek: (time: number) => void
+  requestPanel: (panel: 'chapters' | 'bookmarks' | 'queue') => void
+  clearRequestedPanel: () => void
 }
 
 const initialState = {
@@ -37,8 +44,10 @@ const initialState = {
   chapters: [] as ABSChapter[],
   tracks: [] as ABSAudioTrack[],
   playbackSpeed: 1,
+  volume: 1,
   seekTarget: 0,
   seekNonce: 0,
+  requestedPanel: null as 'chapters' | 'bookmarks' | 'queue' | null,
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -60,17 +69,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }),
 
   closeSession: () =>
-    set((state) => ({ ...initialState, seekNonce: state.seekNonce })),
+    set((state) => ({
+      ...initialState,
+      seekNonce: state.seekNonce,
+      volume: state.volume,
+      playbackSpeed: state.playbackSpeed,
+    })),
 
   setCurrentTime: (currentTime) => set({ currentTime }),
   setDuration: (duration) => set({ duration }),
   setPlaying: (isPlaying) => set({ isPlaying }),
   togglePlaying: () => set((s) => ({ isPlaying: !s.isPlaying })),
   setSpeed: (playbackSpeed) => set({ playbackSpeed }),
+  setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
   seek: (time) =>
     set((s) => ({
       seekTarget: time,
       seekNonce: s.seekNonce + 1,
       currentTime: time,
     })),
+  requestPanel: (requestedPanel) => set({ requestedPanel }),
+  clearRequestedPanel: () => set({ requestedPanel: null }),
 }))

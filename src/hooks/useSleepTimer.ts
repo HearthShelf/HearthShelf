@@ -88,14 +88,15 @@ export function useSleepTimer(): SleepCtl {
         }
       }
       setPlaying(false)
-      if (audio) audio.volume = 1
+      if (audio) audio.volume = usePlayerStore.getState().volume
     }
     if (s.sleepFade && audio) {
       const steps = Math.max(1, s.sleepFadeLen)
+      const startVol = usePlayerStore.getState().volume
       let elapsed = 0
       const fade = window.setInterval(() => {
         elapsed += 1
-        audio.volume = Math.max(0, 1 - elapsed / steps)
+        audio.volume = Math.max(0, startVol * (1 - elapsed / steps))
         if (elapsed >= steps) {
           window.clearInterval(fade)
           finish()
