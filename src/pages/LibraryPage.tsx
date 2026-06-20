@@ -21,16 +21,17 @@ import { BatchEditModal } from '@/components/library/BatchEditModal'
 import { PodcastsGrid } from '@/pages/PodcastsGrid'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
-import { Dropdown, MItem } from '@/components/common/Dropdown'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import {
+  LibraryFilterMenu,
+  LibrarySortMenu,
+} from '@/components/library/LibraryFilters'
+import { applyLibraryFilter, type LibrarySort } from '@/lib/libraryFilters'
 
 type Tab = 'books' | 'series' | 'authors' | 'narrators'
 type View = 'grid' | 'compact' | 'list'
 type ProgFilter = 'all' | 'in-progress' | 'finished' | 'not-started'
-
-const SORTS = ['Title', 'Author', 'Published Year', 'Date Added', 'Duration'] as const
-type Sort = (typeof SORTS)[number]
 
 const VIEW_KEY = 'hearthshelf:libraryView'
 
@@ -75,8 +76,14 @@ export function LibraryPage() {
 
   const [tab, setTab] = useState<Tab>('books')
   const [prog, setProg] = useState<ProgFilter>('all')
-  const [genre, setGenre] = useState<string | null>(genreParam)
-  const [sort, setSort] = useState<Sort>('Title')
+  // Unified "group|value" filter (genre/author/narrator/series/decade/...),
+  // seeded from URL params for deep links into a genre or narrator.
+  const [filter, setFilter] = useState<string>(() => {
+    if (genreParam) return `genres|${genreParam}`
+    if (narratorFilter) return `narrators|${narratorFilter}`
+    return 'all'
+  })
+  const [sort, setSort] = useState<LibrarySort>('Title')
   const [desc, setDesc] = useState(false)
   const [view, setView] = useState<View>(
     () => (localStorage.getItem(VIEW_KEY) as View) || 'grid'
@@ -129,14 +136,8 @@ export function LibraryPage() {
 
   const allItems = useMemo(() => data?.results ?? [], [data])
 
-  // Available genres for the filter menu.
-  const genres = useMemo(() => {
-    const set = new Set<string>()
-    for (const it of allItems) for (const g of it.media.metadata.genres) set.add(g)
-    return [...set].sort()
-  }, [allItems])
-
-  // Filter + sort the books client-side.
+  // Filter + sort the books client-side. The progress segment (prog) and the
+  // unified filter menu stack; both narrow the list.
   const books = useMemo(() => {
     let list = allItems
     if (prog !== 'all') {
@@ -149,32 +150,48 @@ export function LibraryPage() {
         return true
       })
     }
-    if (genre) list = list.filter((it) => it.media.metadata.genres.includes(genre))
-    if (narratorFilter)
-      list = list.filter((it) =>
-        (it.media.metadata.narratorName ?? '')
-          .split(',')
-          .map((s) => s.trim())
-          .includes(narratorFilter)
-      )
+    list = applyLibraryFilter(list, filter, (id) => progressById.get(id))
 
-    const cmp: Record<Sort, (a: ABSLibraryItem, b: ABSLibraryItem) => number> = {
+    const lastName = (n: string) => n.trim().split(/\s+/).pop() ?? n
+    const cmp: Record<
+      LibrarySort,
+      (a: ABSLibraryItem, b: ABSLibraryItem) => number
+    > = {
       Title: (a, b) =>
         (a.media.metadata.titleIgnorePrefix || a.media.metadata.title || '').localeCompare(
           b.media.metadata.titleIgnorePrefix || b.media.metadata.title || ''
         ),
       Author: (a, b) =>
         a.media.metadata.authorName.localeCompare(b.media.metadata.authorName),
+      'Author (Last, First)': (a, b) =>
+        lastName(a.media.metadata.authorName).localeCompare(
+          lastName(b.media.metadata.authorName)
+        ),
       'Published Year': (a, b) =>
         Number(a.media.metadata.publishedYear ?? 0) -
         Number(b.media.metadata.publishedYear ?? 0),
       'Date Added': (a, b) => a.addedAt - b.addedAt,
       Duration: (a, b) => (a.media.duration ?? 0) - (b.media.duration ?? 0),
+      Size: (a, b) => (a.media.size ?? 0) - (b.media.size ?? 0),
+      Progress: (a, b) =>
+        (progressById.get(a.id)?.progress ?? 0) -
+        (progressById.get(b.id)?.progress ?? 0),
+      Random: () => 0,
     }
     const sorted = [...list].sort(cmp[sort])
+    if (sort === 'Random') {
+      // Deterministic-per-render shuffle so repeated renders are stable but the
+      // order is mixed.
+      for (let i = sorted.length - 1; i > 0; i--) {
+        const j = Math.floor((((i * 9301 + 49297) % 233280) / 233280) * (i + 1))
+        const tmp = sorted[i]
+        sorted[i] = sorted[j]
+        sorted[j] = tmp
+      }
+    }
     if (desc) sorted.reverse()
     return sorted
-  }, [allItems, prog, genre, narratorFilter, sort, desc, progressById])
+  }, [allItems, prog, filter, sort, desc, progressById])
 
   // Derive authors / narrators from the full item set.
   const derivePeople = (field: 'authorName' | 'narratorName'): DerivedPerson[] => {
@@ -237,7 +254,7 @@ export function LibraryPage() {
   // Narrator/author detail pages are Phase 2; for now a card click just lands
   // the user in the Books grid with filters cleared.
   const goBooks = () => {
-    setGenre(null)
+    setFilter('all')
     setProg('all')
     setSort('Title')
     setDesc(false)
@@ -336,16 +353,6 @@ export function LibraryPage() {
             </div>
           ) : (
             <div className="toolbar2">
-              {narratorFilter && (
-                <button
-                  className="pill on"
-                  onClick={() => navigate('/library')}
-                  title="Clear narrator filter"
-                >
-                  <Icon name="mic" /> {narratorFilter}
-                  <Icon name="close" style={{ fontSize: 16 }} />
-                </button>
-              )}
               <span className="count-badge">
                 {books.length} of {data.total} books
               </span>
@@ -362,41 +369,17 @@ export function LibraryPage() {
                   </button>
                 ))}
               </div>
-              <Dropdown
-                icon="filter_list"
-                label={genre ?? 'Genre'}
-                align="left"
-              >
-                <div className="mp-label">Filter by genre</div>
-                <MItem label="All genres" on={!genre} onClick={() => setGenre(null)} />
-                {genres.map((g) => (
-                  <MItem
-                    key={g}
-                    label={g}
-                    on={genre === g}
-                    onClick={() => setGenre(g)}
-                  />
-                ))}
-              </Dropdown>
-              <Dropdown icon="swap_vert" label={sort} align="left">
-                <div className="mp-label">Sort by</div>
-                {SORTS.map((s) => (
-                  <MItem
-                    key={s}
-                    label={s}
-                    on={s === sort}
-                    tail={
-                      s === sort ? (
-                        <Icon
-                          name={desc ? 'expand_more' : 'expand_less'}
-                          style={{ color: 'var(--accent)' }}
-                        />
-                      ) : undefined
-                    }
-                    onClick={() => (s === sort ? setDesc((d) => !d) : setSort(s))}
-                  />
-                ))}
-              </Dropdown>
+              <LibraryFilterMenu
+                items={allItems}
+                filter={filter}
+                setFilter={setFilter}
+              />
+              <LibrarySortMenu
+                sort={sort}
+                desc={desc}
+                setSort={setSort}
+                toggleDesc={() => setDesc((d) => !d)}
+              />
               <div className="tb-spacer" />
               <button
                 className={'pill' + (fill ? ' on' : '')}
@@ -437,7 +420,7 @@ export function LibraryPage() {
                 style={{ margin: '0 auto' }}
                 onClick={() => {
                   setProg('all')
-                  setGenre(null)
+                  setFilter('all')
                 }}
               >
                 Clear filter
