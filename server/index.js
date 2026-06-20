@@ -8,10 +8,12 @@
 //   GET/POST /qg/discover        -> monthly AI shelf (cached per user+month)
 //   GET/POST /qg/discover/feedback -> like/dislike/not_interested/rating
 //   GET  /qg/discover/popular    -> server-wide popular item ids (admin data)
-//   /qg/rmab/*                   -> ReadMeABook acquisition proxy
+//   /qg/rmab/*                   -> ReadMeABook acquisition proxy (search,
+//                                   requests CRUD, cancel/retry, watch
+//                                   authors/series, ignore, ebook companion)
 //
 // Env: QG_PROVIDER, QG_MODEL, QG_API_KEY, QG_BASE_URL, QG_LIMIT, QG_ENABLED,
-//      DISCOVER_ENABLED, QG_DATA_DIR, RMAB_URL, RMAB_TOKEN,
+//      DISCOVER_ENABLED, QG_DATA_DIR, RMAB_URL, RMAB_LOGIN_TOKEN,
 //      ABS_SERVER_URL (to validate the caller's token).
 
 import http from 'node:http'
@@ -447,6 +449,93 @@ const server = http.createServer(async (req, res) => {
       const m = url.pathname.match(/^\/qg\/rmab\/requests\/([^/]+)$/)
       if (req.method === 'GET' && m) {
         const r = await rmabFetch('GET', `/api/requests/${encodeURIComponent(m[1])}`)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Cancel / retry a request: PATCH /qg/rmab/requests/:id { action }
+      if (req.method === 'PATCH' && m) {
+        let payload
+        try {
+          payload = JSON.parse(await readBody(req))
+        } catch {
+          return json(res, 400, { error: 'invalid_body' })
+        }
+        const action = payload?.action
+        if (action !== 'cancel' && action !== 'retry') {
+          return json(res, 400, { error: 'invalid_action' })
+        }
+        const r = await rmabFetch('PATCH', `/api/requests/${encodeURIComponent(m[1])}`, { action })
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Ebook companion: POST /qg/rmab/requests/:id/ebook -> fetch-ebook on the
+      // completed parent audiobook request (RMAB admin role + ebook sources req'd).
+      const me = url.pathname.match(/^\/qg\/rmab\/requests\/([^/]+)\/ebook$/)
+      if (req.method === 'POST' && me) {
+        const r = await rmabFetch('POST', `/api/requests/${encodeURIComponent(me[1])}/fetch-ebook`)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Watch authors: GET/POST /qg/rmab/watched-authors, DELETE .../:id
+      if (url.pathname === '/qg/rmab/watched-authors') {
+        if (req.method === 'GET') {
+          const r = await rmabFetch('GET', '/api/user/watched-authors')
+          return json(res, r.status, r.body ?? {})
+        }
+        if (req.method === 'POST') {
+          let payload
+          try {
+            payload = JSON.parse(await readBody(req))
+          } catch {
+            return json(res, 400, { error: 'invalid_body' })
+          }
+          const r = await rmabFetch('POST', '/api/user/watched-authors', payload)
+          return json(res, r.status, r.body ?? {})
+        }
+      }
+      const wa = url.pathname.match(/^\/qg\/rmab\/watched-authors\/([^/]+)$/)
+      if (req.method === 'DELETE' && wa) {
+        const r = await rmabFetch('DELETE', `/api/user/watched-authors/${encodeURIComponent(wa[1])}`)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Watch series: GET/POST /qg/rmab/watched-series, DELETE .../:id
+      if (url.pathname === '/qg/rmab/watched-series') {
+        if (req.method === 'GET') {
+          const r = await rmabFetch('GET', '/api/user/watched-series')
+          return json(res, r.status, r.body ?? {})
+        }
+        if (req.method === 'POST') {
+          let payload
+          try {
+            payload = JSON.parse(await readBody(req))
+          } catch {
+            return json(res, 400, { error: 'invalid_body' })
+          }
+          const r = await rmabFetch('POST', '/api/user/watched-series', payload)
+          return json(res, r.status, r.body ?? {})
+        }
+      }
+      const ws = url.pathname.match(/^\/qg\/rmab\/watched-series\/([^/]+)$/)
+      if (req.method === 'DELETE' && ws) {
+        const r = await rmabFetch('DELETE', `/api/user/watched-series/${encodeURIComponent(ws[1])}`)
+        return json(res, r.status, r.body ?? {})
+      }
+
+      // Ignore / un-ignore a catalog item: POST /qg/rmab/ignored, DELETE .../:id
+      if (req.method === 'POST' && url.pathname === '/qg/rmab/ignored') {
+        let payload
+        try {
+          payload = JSON.parse(await readBody(req))
+        } catch {
+          return json(res, 400, { error: 'invalid_body' })
+        }
+        const r = await rmabFetch('POST', '/api/user/ignored-audiobooks', payload)
+        return json(res, r.status, r.body ?? {})
+      }
+      const ig = url.pathname.match(/^\/qg\/rmab\/ignored\/([^/]+)$/)
+      if (req.method === 'DELETE' && ig) {
+        const r = await rmabFetch('DELETE', `/api/user/ignored-audiobooks/${encodeURIComponent(ig[1])}`)
         return json(res, r.status, r.body ?? {})
       }
     } catch (err) {
