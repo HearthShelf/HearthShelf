@@ -255,6 +255,28 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true })
   }
 
+  // --- QuestGiver run history (per user, synced across devices) ---
+  if (url.pathname === '/qg/runs') {
+    const userId = await authUser(req)
+    if (!userId) return json(res, 401, { error: 'unauthorized' })
+    if (req.method === 'GET') {
+      return json(res, 200, { runs: await store.getRuns(userId) })
+    }
+    if (req.method === 'POST') {
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, 400, { error: 'invalid_body' })
+      }
+      if (!body?.run || typeof body.run !== 'object') {
+        return json(res, 400, { error: 'invalid_run' })
+      }
+      return json(res, 200, { runs: await store.addRun(userId, body.run) })
+    }
+    return json(res, 405, { error: 'method_not_allowed' })
+  }
+
   // --- Per-user app settings (sync across the user's devices) ---
   if (url.pathname === '/qg/settings') {
     const userId = await authUser(req)

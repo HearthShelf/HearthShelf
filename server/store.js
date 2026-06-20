@@ -154,3 +154,34 @@ export async function setPopular(payload) {
   })
   return payload
 }
+
+// --- QuestGiver run history (server-side, so it follows the user) ---
+
+const MAX_RUNS = 30
+
+export async function getRuns(userId) {
+  await ensureStore()
+  const r = await db.execute({
+    sql: `SELECT result_json FROM qg_runs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+    args: [userId, MAX_RUNS],
+  })
+  return r.rows.map((row) => JSON.parse(row.result_json))
+}
+
+export async function addRun(userId, run) {
+  await ensureStore()
+  const id = String(run?.id ?? `${Date.now()}-${Math.round(Math.random() * 1e6)}`)
+  await db.execute({
+    sql: `INSERT OR REPLACE INTO qg_runs (id, user_id, created_at, summary, result_json)
+          VALUES (?, ?, ?, ?, ?)`,
+    args: [id, userId, Date.now(), run?.label ?? '', JSON.stringify({ ...run, id })],
+  })
+  // Trim to the most recent MAX_RUNS for this user.
+  await db.execute({
+    sql: `DELETE FROM qg_runs WHERE user_id = ? AND id NOT IN (
+            SELECT id FROM qg_runs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
+          )`,
+    args: [userId, userId, MAX_RUNS],
+  })
+  return getRuns(userId)
+}

@@ -24,6 +24,7 @@ import {
   qgRecommend,
   getRuns,
   saveRun,
+  fetchServerRuns,
   getFeedback,
   setFeedback as persistFeedback,
   type QgRun,
@@ -72,6 +73,18 @@ export function QuestGiverPage() {
   const [feedback, setFeedback] = useState<Record<string, QgFeedback>>(() => getFeedback())
   const [view, setView] = useState<'flow' | 'history'>('flow')
   const [openRun, setOpenRun] = useState<string | null>(null)
+
+  // Hydrate run history from the server (cross-device); localStorage seeded the
+  // initial state for an instant first paint.
+  useEffect(() => {
+    let cancelled = false
+    fetchServerRuns().then((serverRuns) => {
+      if (!cancelled) setRuns(serverRuns)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // profile recomputes from history OR the hand-picked list
   const profile = useMemo(() => {

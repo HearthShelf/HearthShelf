@@ -5,11 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Summary
 
 HearthShelf is a browser-first, self-hosted replacement UI/UX for AudiobookShelf (ABS).
-ABS remains the backend server. HearthShelf is **only the face** - a pure UI layer with
-no backend, no data storage, and no file management. All data comes from a user-configured
-ABS server via its REST API and Socket.io interface.
+ABS remains the backend server and the source of truth for all library data,
+playback sessions, and progress. HearthShelf is mostly **the face** - a UI layer
+over the ABS REST API and Socket.io interface - with one small backend of its own:
+the QuestGiver service (`server/`), which holds the AI provider key, enforces rate
+limits, and persists HearthShelf-specific state (app settings, QuestGiver config /
+history, Discover feedback) in an embedded SQLite database. It never duplicates
+ABS data. See `docs/database.md`.
 
-Domain: hearthshelf.com - Type: static SPA served via nginx in a Docker container.
+Domain: hearthshelf.com - Type: static SPA + a small Node backend, served via
+nginx in a Docker container.
 
 ## Documentation
 
@@ -27,6 +32,7 @@ Full specs live in `docs/`. Read the relevant file when working on a specific ar
 - @docs/routing.md - React Router route definitions and protected layout
 - @docs/component-system.md - shadcn/ui usage and v0.1 component list
 - @docs/docker-setup.md - Dockerfile, nginx config, runtime env injection
+- @docs/database.md - HearthShelf's embedded SQLite store (settings sync, QuestGiver config/history)
 - @docs/coding-conventions.md - TypeScript, components, state, CSS standards
 - @docs/scope.md - v0.1 in-scope and out-of-scope features
 - @docs/init-commands.md - Scaffolding commands to bootstrap the project

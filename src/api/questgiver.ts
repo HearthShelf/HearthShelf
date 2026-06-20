@@ -162,7 +162,27 @@ export function getRuns(): QgRun[] {
 export function saveRun(run: QgRun): QgRun[] {
   const runs = [run, ...getRuns()].slice(0, 30) // cap at 30
   write(RUNS_KEY, runs)
+  // Mirror to the server so history follows the user across devices. Best
+  // effort - localStorage already holds it if the backend is unreachable.
+  qgFetch('/runs', { method: 'POST', body: JSON.stringify({ run }) }).catch(
+    () => {}
+  )
   return runs
+}
+
+// Pull the server-side run history (cross-device). Falls back to the local
+// cache when the backend is unreachable.
+export async function fetchServerRuns(): Promise<QgRun[]> {
+  try {
+    const data = await qgFetch<{ runs: QgRun[] }>('/runs')
+    if (Array.isArray(data.runs)) {
+      write(RUNS_KEY, data.runs.slice(0, 30))
+      return data.runs
+    }
+  } catch {
+    /* offline - keep the local cache */
+  }
+  return getRuns()
 }
 
 export function getFeedback(): Record<string, QgFeedback> {
