@@ -9,11 +9,13 @@ import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { useQueueStore } from '@/store/queueStore'
 import { getItem, libraryKeys } from '@/api/libraries'
+import { syncSession } from '@/api/playback'
 import { formatTimestamp, stripHtml } from '@/lib/format'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { Stars } from '@/components/common/Stars'
 import type { ABSChapter } from '@/api/types'
+import cozyHearth from '@/assets/img/SittingInTheHearth.webp'
 
 type Panel = 'chapters' | 'details' | 'queue' | null
 type Pop = 'speed' | 'sleep' | 'bookmark' | 'list' | null
@@ -193,6 +195,7 @@ export function PlayerPage() {
   const chapters = usePlayerStore((s) => s.chapters)
   const speed = usePlayerStore((s) => s.playbackSpeed)
   const sessionId = usePlayerStore((s) => s.sessionId)
+  const syncError = usePlayerStore((s) => s.syncError)
   const { togglePlaying, seek, playItem } = usePlayer()
   const setSpeed = usePlayerStore((s) => s.setSpeed)
 
@@ -287,11 +290,24 @@ export function PlayerPage() {
 
   if (!sessionId || !libraryItemId || !title) {
     return (
-      <div className="page">
-        <p className="page-sub">Nothing playing.</p>
-        <button className="btn btn-primary" onClick={() => navigate('/')}>
-          <Icon name="library_books" /> Browse library
-        </button>
+      <div className="page fade-in cozy-page">
+        <div
+          className="cozy-bg"
+          aria-hidden="true"
+          style={{ backgroundImage: `url("${cozyHearth}")` }}
+        />
+        <div className="cozy-veil" aria-hidden="true" />
+        <div className="cozy-empty">
+          <div className="eyebrow">By the hearth</div>
+          <h1 className="cozy-h">Nothing playing</h1>
+          <p className="cozy-sub">
+            The fire's lit and the chair's yours. Pull something off the shelf and
+            settle in.
+          </p>
+          <button className="btn btn-primary" onClick={() => navigate('/library')}>
+            <Icon name="auto_stories" fill /> Browse the library
+          </button>
+        </div>
       </div>
     )
   }
@@ -339,6 +355,18 @@ export function PlayerPage() {
   }
   const listCount = Object.values(lists).filter(Boolean).length
 
+  const retrySync = () => {
+    const { sessionId: sid, currentTime, duration: dur } = usePlayerStore.getState()
+    if (!sid) return
+    setToast('Retrying sync…')
+    syncSession(sid, { currentTime, timeListened: 0, duration: dur })
+      .then(() => {
+        usePlayerStore.getState().setSyncError(false)
+        setToast('Synced')
+      })
+      .catch(() => setToast('Still offline — your position is saved locally'))
+  }
+
   return (
     <div className={'player' + (open ? ' with-panel' : '')}>
       <div className="player-col">
@@ -352,8 +380,17 @@ export function PlayerPage() {
             </h1>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="pill">
-              <Icon name="cloud_done" /> Synced
+            <button
+              className={'pill sync-pill ' + (syncError ? 'bad' : 'ok')}
+              onClick={syncError ? retrySync : undefined}
+              title={
+                syncError
+                  ? 'Sync issue - your latest position may not be saved. Tap to retry.'
+                  : 'Your progress is synced across devices'
+              }
+            >
+              <Icon name={syncError ? 'cloud_off' : 'cloud_done'} />{' '}
+              {syncError ? 'Sync issue' : 'Synced'}
             </button>
             <button
               className={'pill' + (panel === 'queue' ? ' on' : '')}

@@ -12,6 +12,7 @@ export function useProgress() {
   const queryClient = useQueryClient()
   const sessionId = usePlayerStore((s) => s.sessionId)
   const isPlaying = usePlayerStore((s) => s.isPlaying)
+  const setSyncError = usePlayerStore((s) => s.setSyncError)
 
   // Track the wall-clock of the last sync to report timeListened accurately.
   const lastSyncAt = useRef<number | null>(null)
@@ -26,13 +27,19 @@ export function useProgress() {
     return { currentTime, timeListened: listened, duration }
   }
 
+  // Sync once and reflect the outcome on the player's sync-status pill.
+  const syncOnce = (sid: string) =>
+    syncSession(sid, buildPayload())
+      .then(() => setSyncError(false))
+      .catch(() => setSyncError(true))
+
   // Periodic sync while playing.
   useEffect(() => {
     if (!sessionId || !isPlaying) return
     lastSyncAt.current = performance.now()
     const id = setInterval(() => {
       const sid = usePlayerStore.getState().sessionId
-      if (sid) void syncSession(sid, buildPayload())
+      if (sid) void syncOnce(sid)
     }, SYNC_INTERVAL_MS)
     return () => clearInterval(id)
   }, [sessionId, isPlaying])
@@ -42,7 +49,7 @@ export function useProgress() {
   useEffect(() => {
     if (!sessionId || isPlaying) return
     if (lastSyncAt.current === null) return
-    void syncSession(sessionId, buildPayload()).then(() => {
+    void syncOnce(sessionId).then(() => {
       queryClient.invalidateQueries({ queryKey: meKeys.itemsInProgress })
       queryClient.invalidateQueries({ queryKey: meKeys.me })
     })

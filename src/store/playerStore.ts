@@ -19,6 +19,9 @@ interface PlayerState {
   // A panel the mini play bar asked the full player to open on arrival
   // (chapters / bookmarks / queue). Consumed and cleared by PlayerPage.
   requestedPanel: 'chapters' | 'bookmarks' | 'queue' | null
+  // True when the most recent progress sync to ABS failed, so the player can
+  // show a "Sync issue" pill instead of "Synced".
+  syncError: boolean
 
   openSession: (session: ABSPlaybackSession) => void
   closeSession: () => void
@@ -31,6 +34,7 @@ interface PlayerState {
   seek: (time: number) => void
   requestPanel: (panel: 'chapters' | 'bookmarks' | 'queue') => void
   clearRequestedPanel: () => void
+  setSyncError: (error: boolean) => void
 }
 
 const initialState = {
@@ -48,6 +52,7 @@ const initialState = {
   seekTarget: 0,
   seekNonce: 0,
   requestedPanel: null as 'chapters' | 'bookmarks' | 'queue' | null,
+  syncError: false,
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -90,4 +95,5 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     })),
   requestPanel: (requestedPanel) => set({ requestedPanel }),
   clearRequestedPanel: () => set({ requestedPanel: null }),
+  setSyncError: (syncError) => set({ syncError }),
 }))
