@@ -80,10 +80,13 @@ export interface SettingsState {
   autoSleepDur: number
 
   set: <K extends keyof SettingsValues>(key: K, value: SettingsValues[K]) => void
+  // Bulk-merge values pulled from the server (device-sync). Only known keys are
+  // applied; unknown keys from a newer client are ignored.
+  applyServer: (values: Partial<SettingsValues>) => void
 }
 
-// The persisted value subset (everything but the action), used to type set().
-type SettingsValues = Omit<SettingsState, 'set'>
+// The persisted value subset (everything but the actions), used to type set().
+type SettingsValues = Omit<SettingsState, 'set' | 'applyServer'>
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
@@ -120,7 +123,43 @@ export const useSettingsStore = create<SettingsState>()(
       autoSleepDur: 30,
 
       set: (key, value) => set({ [key]: value } as Partial<SettingsState>),
+      applyServer: (values) => set(values as Partial<SettingsState>),
     }),
     { name: 'hearthshelf:settings' }
   )
 )
+
+// The keys that make up a user's syncable settings - everything but the
+// actions. Used to extract a clean values object for the server.
+const SETTINGS_KEYS: (keyof SettingsValues)[] = [
+  'theme',
+  'accentMode',
+  'accentHex',
+  'glow',
+  'coverStyle',
+  'colorEverywhere',
+  'scrubber',
+  'skipForward',
+  'skipBack',
+  'chapterBarrier',
+  'libraryFill',
+  'unifiedHome',
+  'showOthersBooks',
+  'shareReadBooks',
+  'sleepRewind',
+  'sleepRewindSec',
+  'sleepFade',
+  'sleepFadeLen',
+  'sleepChime',
+  'autoSleep',
+  'autoSleepStart',
+  'autoSleepEnd',
+  'autoSleepDur',
+]
+
+// Snapshot the current settings values (no actions) for sending to the server.
+export function settingsValues(s: SettingsState): SettingsValues {
+  const out = {} as SettingsValues
+  for (const k of SETTINGS_KEYS) (out as Record<string, unknown>)[k] = s[k]
+  return out
+}

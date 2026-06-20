@@ -5,6 +5,7 @@ import { AppBar } from '@/components/layout/AppBar'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { AudioEngine } from '@/components/player/AudioEngine'
 import { useApplySettings } from '@/hooks/useApplySettings'
+import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useSettingsStore } from '@/store/settingsStore'
 
 // Persistent app frame (design: .app grid + cover-glow bloom). The PlayerBar
@@ -17,6 +18,7 @@ export function AppShell() {
   const coverStyle = useSettingsStore((s) => s.coverStyle)
 
   useApplySettings(appRef)
+  useSettingsSync()
 
   return (
     <div

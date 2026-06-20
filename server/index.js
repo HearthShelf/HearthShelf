@@ -22,6 +22,7 @@ import * as store from './store.js'
 import { craftDiscoverPrompt, heuristicShelf, filterByFeedback } from './discover.js'
 import { initDb } from './db.js'
 import { getConfig, setConfig, publicConfig } from './config.js'
+import { getSettings, setSettings } from './settings.js'
 
 const PORT = process.env.QG_PORT || 8080
 const ABS_URL = process.env.ABS_SERVER_URL || ''
@@ -252,6 +253,31 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/qg/health') {
     return json(res, 200, { ok: true })
+  }
+
+  // --- Per-user app settings (sync across the user's devices) ---
+  if (url.pathname === '/qg/settings') {
+    const userId = await authUser(req)
+    if (!userId) return json(res, 401, { error: 'unauthorized' })
+    if (req.method === 'GET') {
+      const { values, updatedAt } = await getSettings(userId)
+      return json(res, 200, { values, updatedAt })
+    }
+    if (req.method === 'PUT') {
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, 400, { error: 'invalid_body' })
+      }
+      const values = body?.values
+      if (values == null || typeof values !== 'object') {
+        return json(res, 400, { error: 'invalid_values' })
+      }
+      const saved = await setSettings(userId, values)
+      return json(res, 200, { values: saved.values, updatedAt: saved.updatedAt })
+    }
+    return json(res, 405, { error: 'method_not_allowed' })
   }
 
   // --- Discover backend (monthly AI shelf, feedback, popular signals) ---
