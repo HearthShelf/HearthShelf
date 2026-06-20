@@ -151,9 +151,6 @@ export function Sidebar() {
             <div className="nav-label">Shelves</div>
             <Item id="collections" icon="folder_special" label="Collections" to="/collections" />
             <Item id="playlists" icon="queue_music" label="Playlists" to="/playlists" />
-            {rmabEnabled && (
-              <Item id="requests" icon="cloud_download" label="Requests" to="/requests" />
-            )}
           </>
         ) : (
           <>
@@ -168,21 +165,30 @@ export function Sidebar() {
         )}
 
         <div className="nav-label">Insights</div>
-        {discoverEnabled && !isPodcast && (
-          <Item id="discover" icon="travel_explore" label="Discover" to="/discover" />
-        )}
-        {qgEnabled && !isPodcast && (
-          <Item id="questgiver" icon="explore" label="QuestGiver" to="/questgiver" />
-        )}
         <Item id="stats" icon="insights" label="Stats" to="/stats" />
         <Item id="sessions" icon="history" label="History" to="/sessions" />
         <Item id="player" icon="graphic_eq" label="Now playing" to="/player" />
+
+        {(qgEnabled || discoverEnabled || rmabEnabled) && !isPodcast && (
+          <>
+            <div className="nav-sep" />
+            {qgEnabled && (
+              <Item id="questgiver" icon="favorite" label="QuestGiver" to="/questgiver" />
+            )}
+            {discoverEnabled && (
+              <Item id="discover" icon="travel_explore" label="Discover" to="/discover" />
+            )}
+            {rmabEnabled && (
+              <Item id="requests" icon="cloud_download" label="Requests" to="/requests" />
+            )}
+          </>
+        )}
 
         <div className="nav-sep" />
         {isAdmin && (
           <Item id="config" icon="dns" label="Server" to="/config" />
         )}
-        <Item id="settings" icon="tune" label="Settings" to="/settings" />
+        <Item id="settings" icon="settings" label="Settings" to="/settings" />
       </nav>
 
       <UserMenu />

@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getLibraries, getOneSeries, libraryKeys } from '@/api/libraries'
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
+import { useMarkFinished } from '@/hooks/useMarkFinished'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
@@ -60,9 +62,42 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const navigate = useNavigate()
   const { playItem } = usePlayer()
   const progressById = useMediaProgress()
+  const { markFinished, isPending: marking } = useMarkFinished()
   const books = orderBooks(series.books ?? [])
   const author = books[0]?.media.metadata.authorName || ''
   const cv = tintFor(books[0]?.media.metadata.title ?? series.name)
+
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const toggleSel = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  const clearSel = () => {
+    setSelected(new Set())
+    setSelectMode(false)
+  }
+  const selectAll = () => setSelected(new Set(books.map((b) => b.id)))
+
+  const allSeriesFinished = books.length > 0 && books.every((b) => progressById.get(b.id)?.isFinished)
+  // Quick-mark the whole series: finish all, or unfinish if already all done.
+  const markSeries = () => {
+    if (!books.length) return
+    void markFinished(
+      books.map((b) => b.id),
+      !allSeriesFinished
+    )
+  }
+  // Mark the current selection, toggling off if every selected book is finished.
+  const markSelection = () => {
+    const ids = [...selected]
+    if (!ids.length) return
+    const allFinished = ids.every((id) => progressById.get(id)?.isFinished)
+    void markFinished(ids, !allFinished).then(clearSel)
+  }
 
   // Per-book progress, finished count, totals.
   let done = 0
@@ -136,19 +171,20 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             </div>
           </div>
 
-          {nextUp && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
+          <div style={{ display: 'flex', gap: 12, marginTop: 22, flexWrap: 'wrap' }}>
+            {nextUp && (
               <button
                 className="btn btn-primary"
                 onClick={() => void playItem(nextUp.id)}
               >
                 <Icon name="play_arrow" fill /> Continue · Book {nextUpNum}
               </button>
-              <button className="pill">
-                <Icon name="playlist_add" /> Add series to list
-              </button>
-            </div>
-          )}
+            )}
+            <button className="pill" disabled={marking} onClick={markSeries}>
+              <Icon name={allSeriesFinished ? 'remove_done' : 'done_all'} />{' '}
+              {allSeriesFinished ? 'Mark series unfinished' : 'Mark series finished'}
+            </button>
+          </div>
         </div>
 
         <div className="hero-prog">
@@ -159,7 +195,38 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
       </div>
 
       <div className="section">
-        <SectionHead icon="format_list_numbered" title="In reading order" />
+        {selected.size > 0 ? (
+          <div className="toolbar2 sel-bar">
+            <button className="pill" onClick={clearSel} title="Clear selection">
+              <Icon name="close" />
+            </button>
+            <span className="count-badge" style={{ color: 'var(--accent)', fontWeight: 600 }}>
+              {selected.size} selected
+            </span>
+            {selected.size < books.length && (
+              <button className="pill" onClick={selectAll}>
+                Select all {books.length}
+              </button>
+            )}
+            <div className="tb-spacer" />
+            <button className="pill" disabled={marking} onClick={markSelection}>
+              <Icon name="task_alt" />{' '}
+              {[...selected].every((id) => progressById.get(id)?.isFinished)
+                ? 'Mark not finished'
+                : 'Mark finished'}
+            </button>
+          </div>
+        ) : (
+          <div className="series-list-head">
+            <SectionHead icon="format_list_numbered" title="In reading order" />
+            <button
+              className={'pill' + (selectMode ? ' on' : '')}
+              onClick={() => setSelectMode((v) => !v)}
+            >
+              <Icon name="checklist" /> {selectMode ? 'Done' : 'Select'}
+            </button>
+          </div>
+        )}
         <div className="series-list">
           {books.map((b, i) => {
             const m = b.media.metadata
@@ -169,14 +236,29 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             const hours = b.media.duration
               ? Math.round(b.media.duration / 360) / 10
               : 0
+            const isSel = selected.has(b.id)
+            const active = selectMode || selected.size > 0
             return (
               <div
-                className="sl-row"
+                className={'sl-row' + (isSel ? ' sel' : '')}
                 key={b.id}
                 data-cv={tintFor(m.title ?? 'Untitled')}
-                onClick={() => navigate(`/book/${b.id}`)}
+                onClick={() => (active ? toggleSel(b.id) : navigate(`/book/${b.id}`))}
               >
-                <div className="sl-num">{i + 1}</div>
+                {active ? (
+                  <button
+                    className={'b-check sl-check' + (isSel ? ' on' : '')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleSel(b.id)
+                    }}
+                    aria-label={isSel ? 'Deselect' : 'Select'}
+                  >
+                    <Icon name="check" fill style={{ opacity: isSel ? 1 : 0 }} />
+                  </button>
+                ) : (
+                  <div className="sl-num">{i + 1}</div>
+                )}
                 <Cover
                   itemId={b.id}
                   title={m.title ?? 'Untitled'}

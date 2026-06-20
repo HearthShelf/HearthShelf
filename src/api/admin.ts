@@ -213,6 +213,44 @@ export function getAuthSettings(): Promise<ABSAuthSettings> {
   return absRequest('/api/auth-settings')
 }
 
+// --- Author / Narrator / Series merge ---
+// Authors are first-class records with IDs. Renaming one to match another causes
+// ABS to merge them server-side (same-name dedup). We rename each "loser" to the
+// canonical name in sequence; ABS collapses them.
+export function renameAuthor(
+  authorId: string,
+  name: string
+): Promise<{ updated: boolean; author: { id: string; name: string } }> {
+  return absRequest(`/api/authors/${authorId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
+// Narrators are string fields on items, not first-class records. ABS exposes a
+// bulk-rename route that rewrites the narrator string across all items in a library.
+export function renameNarrator(
+  libraryId: string,
+  oldName: string,
+  newName: string
+): Promise<{ updated: boolean }> {
+  return absRequest(`/api/libraries/${libraryId}/narrators`, {
+    method: 'PATCH',
+    body: JSON.stringify({ oldName, newName }),
+  })
+}
+
+// Series are first-class records. PATCH renames; same-name dedup is handled by ABS.
+export function renameSeries(
+  seriesId: string,
+  name: string
+): Promise<{ id: string; name: string }> {
+  return absRequest(`/api/series/${seriesId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
 // --- Custom metadata providers (integrations) ---
 export interface ABSCustomProvider {
   id: string

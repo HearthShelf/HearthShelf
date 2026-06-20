@@ -5,9 +5,10 @@ import { useMediaProgress } from '@/hooks/useMediaProgress'
 
 interface SeriesCardProps {
   series: ABSSeries
+  selectionActive?: boolean
 }
 
-export function SeriesCard({ series }: SeriesCardProps) {
+export function SeriesCard({ series, selectionActive = false }: SeriesCardProps) {
   const navigate = useNavigate()
   const progressById = useMediaProgress()
   const books = series.books ?? []
@@ -31,7 +32,7 @@ export function SeriesCard({ series }: SeriesCardProps) {
     <div
       className="series-card"
       data-cv={cv}
-      onClick={() => navigate(`/series/${series.id}`, { state: { series } })}
+      onClick={() => !selectionActive && navigate(`/series/${series.id}`, { state: { series } })}
     >
       <div className="series-stack">
         {shown.map((b) => (
