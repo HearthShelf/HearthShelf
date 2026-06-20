@@ -7,6 +7,7 @@ import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
 import { BookTile } from '@/components/library/BookTile'
+import { RmabSearchLane } from '@/components/requests/RmabSearchLane'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -45,6 +46,14 @@ export function SearchPage() {
     authors.length > 0 ||
     narrators.length > 0
 
+  // Owned-title keys so the requestable lane never lists books we already have.
+  const ownedKeys = new Set(
+    books.map(({ libraryItem }) => {
+      const m = libraryItem.media.metadata
+      return ((m.title ?? '') + '|' + (m.authorName ?? '')).toLowerCase()
+    })
+  )
+
   return (
     <div className="page fade-in">
       <div className="page-head">
@@ -64,7 +73,7 @@ export function SearchPage() {
       {data && !hasResults && (
         <div className="sg-empty">
           <Icon name="search_off" />
-          <p>No results for "{q}"</p>
+          <p>No results in your library for "{q}"</p>
         </div>
       )}
 
@@ -173,6 +182,8 @@ export function SearchPage() {
           </div>
         </div>
       )}
+
+      {q.length >= 2 && <RmabSearchLane query={q} ownedKeys={ownedKeys} />}
     </div>
   )
 }

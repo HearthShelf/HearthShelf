@@ -117,6 +117,8 @@ export const requestKeys = {
   config: ['rmab', 'config'] as const,
   list: (group: string) => ['rmab', 'requests', group] as const,
   search: (q: string) => ['rmab', 'search', q] as const,
+  watchedAuthors: ['rmab', 'watched-authors'] as const,
+  watchedSeries: ['rmab', 'watched-series'] as const,
 }
 
 // Is the RMAB backend configured? Returns { configured:false } if unreachable.
@@ -143,11 +145,89 @@ export function submitRequest(audiobook: {
   title: string
   author: string
   narrator?: string
+  description?: string
   coverArtUrl?: string
-  durationMinutes?: number
 }): Promise<{ success: boolean; request?: RmabRequest; error?: string }> {
   return rmabFetch('/requests', {
     method: 'POST',
     body: JSON.stringify({ audiobook }),
   })
+}
+
+// Cancel an in-flight request (only cancellable statuses succeed server-side).
+export function cancelRequest(id: string): Promise<{ success: boolean; message?: string }> {
+  return rmabFetch(`/requests/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action: 'cancel' }),
+  })
+}
+
+// Retry a failed/stalled request (only retryable statuses succeed server-side).
+export function retryRequest(id: string): Promise<{ success: boolean; message?: string }> {
+  return rmabFetch(`/requests/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action: 'retry' }),
+  })
+}
+
+// Fetch the matching ebook for a completed audiobook request. Requires the
+// service account to be an RMAB admin and ebook sources to be configured; the
+// parent request must already be downloaded/available.
+export function fetchEbook(
+  requestId: string
+): Promise<{ success: boolean; message?: string; requestId?: string }> {
+  return rmabFetch(`/requests/${encodeURIComponent(requestId)}/ebook`, { method: 'POST' })
+}
+
+// ---- Watch lists (auto-request new releases) -----------------------------
+export interface WatchedAuthor {
+  id: string
+  authorAsin: string
+  authorName: string
+}
+export interface WatchedSeries {
+  id: string
+  seriesAsin: string
+  seriesTitle: string
+}
+
+export function listWatchedAuthors(): Promise<{ success: boolean; authors: WatchedAuthor[] }> {
+  return rmabFetch('/watched-authors')
+}
+
+export function watchAuthor(input: {
+  authorAsin: string
+  authorName: string
+  coverArtUrl?: string
+}): Promise<{ success: boolean }> {
+  return rmabFetch('/watched-authors', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function unwatchAuthor(id: string): Promise<{ success: boolean }> {
+  return rmabFetch(`/watched-authors/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function listWatchedSeries(): Promise<{ success: boolean; series: WatchedSeries[] }> {
+  return rmabFetch('/watched-series')
+}
+
+export function watchSeries(input: {
+  seriesAsin: string
+  seriesTitle: string
+  coverArtUrl?: string
+}): Promise<{ success: boolean }> {
+  return rmabFetch('/watched-series', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function unwatchSeries(id: string): Promise<{ success: boolean }> {
+  return rmabFetch(`/watched-series/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+// ---- Ignore list (hide a catalog item from request surfaces) -------------
+export function ignoreAudiobook(asin: string): Promise<{ success: boolean }> {
+  return rmabFetch('/ignored', { method: 'POST', body: JSON.stringify({ asin }) })
+}
+
+export function unignoreAudiobook(id: string): Promise<{ success: boolean }> {
+  return rmabFetch(`/ignored/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

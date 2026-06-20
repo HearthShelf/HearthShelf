@@ -5,6 +5,7 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RmabBadge, RmabProgress } from '@/components/requests/RmabBadge'
+import { useCancelRequest, useRetryRequest } from '@/hooks/useRmab'
 import {
   listRequests,
   requestKeys,
@@ -13,6 +14,18 @@ import {
   type RmabRequest,
   type RmabGroup,
 } from '@/api/requests'
+
+// Statuses that can still be cancelled (mirrors RMAB's CANCELLABLE_STATUSES).
+const CANCELLABLE = [
+  'pending',
+  'searching',
+  'downloading',
+  'processing',
+  'awaiting_approval',
+  'awaiting_search',
+  'awaiting_import',
+  'awaiting_release',
+]
 
 const GROUP_COLOR: Record<RmabGroup, string> = {
   active: '#9b6fb8',
@@ -28,6 +41,9 @@ function RequestRow({ req, onView }: { req: RmabRequest; onView: (absItemId: str
   const meta = statusMeta(req.status)
   const b = req.audiobook
   const cover = b.coverArtUrl
+  const cancel = useCancelRequest()
+  const retry = useRetryRequest()
+  const busy = cancel.isPending || retry.isPending
   return (
     <div className="req-row">
       {cover ? (
@@ -55,6 +71,21 @@ function RequestRow({ req, onView }: { req: RmabRequest; onView: (absItemId: str
         {req.status === 'available' && b.absItemId && (
           <button className="req-btn ghost" onClick={() => onView(b.absItemId as string)}>
             <Icon name="library_books" /> View
+          </button>
+        )}
+        {(req.status === 'failed' || req.status === 'warn') && (
+          <button className="req-btn ghost" disabled={busy} onClick={() => retry.mutate(req.id)}>
+            <Icon name="refresh" /> Retry
+          </button>
+        )}
+        {CANCELLABLE.includes(req.status) && (
+          <button
+            className="icon-btn"
+            title="Cancel request"
+            disabled={busy}
+            onClick={() => cancel.mutate(req.id)}
+          >
+            <Icon name="close" />
           </button>
         )}
       </div>
