@@ -57,6 +57,40 @@ export async function getQgConfig(): Promise<QgConfig> {
   }
 }
 
+// --- Admin: editable AI config (provider/model/key/limit/enabled) ---
+
+export interface QgAdminConfig {
+  provider: string | null
+  model: string | null
+  baseUrl: string | null
+  limit: string // "off" | "N/day" | "N/week" | "N/month"
+  enabled: boolean
+  hasKey: boolean
+  validProviders: string[]
+}
+
+export interface QgAdminConfigPatch {
+  provider?: string | null
+  model?: string | null
+  baseUrl?: string | null
+  limit?: string
+  enabled?: boolean
+  apiKey?: string // omit or '' to keep the stored key
+}
+
+export function getQgAdminConfig(): Promise<QgAdminConfig> {
+  return qgFetch<QgAdminConfig>('/admin/config')
+}
+
+export function saveQgAdminConfig(
+  patch: QgAdminConfigPatch
+): Promise<QgAdminConfig> {
+  return qgFetch<QgAdminConfig>('/admin/config', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+}
+
 // Get a recommendation. Tries the AI backend; on any failure (unconfigured,
 // rate-limited, provider error, network) falls back to the local heuristic.
 export async function qgRecommend(

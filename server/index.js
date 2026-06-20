@@ -20,6 +20,8 @@ import { check, consume } from './ratelimit.js'
 import { isRmabConfigured, rmabFetch } from './rmab.js'
 import * as store from './store.js'
 import { craftDiscoverPrompt, heuristicShelf, filterByFeedback } from './discover.js'
+import { initDb } from './db.js'
+import { getConfig, setConfig, publicConfig } from './config.js'
 
 const PORT = process.env.QG_PORT || 8080
 const ABS_URL = process.env.ABS_SERVER_URL || ''
@@ -157,10 +159,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/qg/config') {
     const userId = await authUser(req)
-    const info = providerInfo()
-    const rate = userId ? check(userId) : { limit: null, remaining: null, period: null }
+    const cfg = await getConfig()
+    const info = await providerInfo()
+    const rate = userId
+      ? await check(userId, cfg.limit)
+      : { limit: null, remaining: null, period: null }
     return json(res, 200, {
-      featureEnabled: FEATURE_ENABLED,
+      featureEnabled: FEATURE_ENABLED && cfg.enabled,
       discoverEnabled: DISCOVER_ENABLED,
       enabled: info.configured,
       provider: info.provider,
@@ -171,18 +176,44 @@ const server = http.createServer(async (req, res) => {
     })
   }
 
+  // --- Admin: read / edit the AI config (provider, model, key, limit) ---
+  if (url.pathname === '/qg/admin/config') {
+    const caller = await authUserFull(req)
+    if (!caller) return json(res, 401, { error: 'unauthorized' })
+    if (caller.type !== 'admin' && caller.type !== 'root') {
+      return json(res, 403, { error: 'forbidden' })
+    }
+    if (req.method === 'GET') {
+      return json(res, 200, await publicConfig())
+    }
+    if (req.method === 'PUT') {
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, 400, { error: 'invalid_body' })
+      }
+      await setConfig(body ?? {})
+      return json(res, 200, await publicConfig())
+    }
+    return json(res, 405, { error: 'method_not_allowed' })
+  }
+
   if (req.method === 'POST' && url.pathname === '/qg/recommend') {
     const userId = await authUser(req)
     if (!userId) return json(res, 401, { error: 'unauthorized' })
 
-    if (!FEATURE_ENABLED) return json(res, 403, { error: 'feature_disabled' })
+    const cfg = await getConfig()
+    if (!FEATURE_ENABLED || !cfg.enabled) {
+      return json(res, 403, { error: 'feature_disabled' })
+    }
 
-    if (!isProviderConfigured()) {
+    if (!(await isProviderConfigured())) {
       // No AI configured — the client runs its heuristic fallback.
       return json(res, 503, { error: 'ai_unavailable' })
     }
 
-    const rate = check(userId)
+    const rate = await check(userId, cfg.limit)
     if (!rate.allowed) {
       return json(res, 429, {
         error: 'rate_limited',
@@ -206,7 +237,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const text = await complete(prompt)
       const result = parseResult(text)
-      const after = consume(userId)
+      const after = await consume(userId, cfg.limit)
       return json(res, 200, {
         ...result,
         engine: 'ai',
@@ -233,7 +264,7 @@ const server = http.createServer(async (req, res) => {
     // Feedback: GET map, POST upsert.
     if (url.pathname === '/qg/discover/feedback') {
       if (req.method === 'GET') {
-        return json(res, 200, { feedback: store.getFeedback(caller.id) })
+        return json(res, 200, { feedback: await store.getFeedback(caller.id) })
       }
       if (req.method === 'POST') {
         let body
@@ -257,7 +288,7 @@ const server = http.createServer(async (req, res) => {
           if (r === null || (Number.isInteger(r) && r >= 1 && r <= 5)) fb.rating = r
           else return json(res, 400, { error: 'invalid_rating' })
         }
-        const next = store.setFeedback(caller.id, itemKey, fb)
+        const next = await store.setFeedback(caller.id, itemKey, fb)
         return json(res, 200, { feedback: next })
       }
       return json(res, 404, { error: 'not_found' })
@@ -266,17 +297,17 @@ const server = http.createServer(async (req, res) => {
     // Popular: server-wide aggregate signals, cached daily. Admin-only data.
     if (req.method === 'GET' && url.pathname === '/qg/discover/popular') {
       const date = dateKey()
-      const cached = store.getPopular(date)
+      const cached = await store.getPopular(date)
       if (cached) return json(res, 200, { items: cached.items })
       const items = await computePopular(caller)
-      store.setPopular({ date, items })
+      await store.setPopular({ date, items })
       return json(res, 200, { items })
     }
 
     // Monthly AI shelf: GET (generate-once-per-month, then cached).
     if (req.method === 'GET' && url.pathname === '/qg/discover') {
       const month = monthKey()
-      const cached = store.getMonthly(caller.id, month)
+      const cached = await store.getMonthly(caller.id, month)
       if (cached) return json(res, 200, cached)
       return json(res, 200, { month, engine: 'none', intro: '', picks: [] })
     }
@@ -284,7 +315,7 @@ const server = http.createServer(async (req, res) => {
     // The client posts its history summary + candidate pool to (re)generate.
     if (req.method === 'POST' && url.pathname === '/qg/discover') {
       const month = monthKey()
-      const cached = store.getMonthly(caller.id, month)
+      const cached = await store.getMonthly(caller.id, month)
       if (cached) return json(res, 200, cached)
 
       let body
@@ -296,11 +327,11 @@ const server = http.createServer(async (req, res) => {
       const summary = body?.summary ?? {}
       const candidates = Array.isArray(body?.candidates) ? body.candidates : []
       if (!candidates.length) return json(res, 400, { error: 'no_candidates' })
-      const feedback = store.getFeedback(caller.id)
+      const feedback = await store.getFeedback(caller.id)
       const pool = filterByFeedback(candidates, feedback)
 
       let shelf
-      if (isProviderConfigured() && pool.length) {
+      if ((await isProviderConfigured()) && pool.length) {
         try {
           const text = await complete(craftDiscoverPrompt(summary, pool, feedback, month))
           const parsed = parseResult(text)
@@ -313,7 +344,7 @@ const server = http.createServer(async (req, res) => {
       } else {
         shelf = { month, engine: 'none', intro: '', picks: [] }
       }
-      store.setMonthly(caller.id, shelf)
+      await store.setMonthly(caller.id, shelf)
       return json(res, 200, shelf)
     }
 
@@ -380,7 +411,18 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { error: 'not_found' })
 })
 
-server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[questgiver] listening on :${PORT} (provider configured: ${isProviderConfigured()})`)
-})
+// Initialise the database (schema + legacy JSON migration) before accepting
+// traffic, so the first request never races table creation.
+initDb()
+  .then(async () => {
+    const configured = await isProviderConfigured()
+    server.listen(PORT, () => {
+      // eslint-disable-next-line no-console
+      console.log(`[questgiver] listening on :${PORT} (provider configured: ${configured})`)
+    })
+  })
+  .catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[questgiver] failed to initialise database:', err)
+    process.exit(1)
+  })

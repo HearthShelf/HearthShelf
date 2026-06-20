@@ -1,14 +1,20 @@
-// Per-user rate limiting for QuestGiver. The admin sets QG_LIMIT as
-// "off" | "N/day" | "N/week" | "N/month". Counts are kept in-memory keyed by
-// ABS user id + the current period; this resets on restart, which is acceptable
-// for a soft cap (the goal is curbing runaway use, not billing).
+// Per-user rate limiting for QuestGiver. The limit string ("off" | "N/day" |
+// "N/week" | "N/month") comes from the editable AI config (see providers.js).
+// Counts are persisted in the rate_limits table so a restart no longer wipes a
+// user's usage mid-period.
 
-const counts = new Map() // `${userId}:${periodKey}` -> count
+import { db, initDb } from './db.js'
 
-function parseLimit() {
-  const raw = (process.env.QG_LIMIT || 'off').trim().toLowerCase()
-  if (raw === 'off' || raw === '') return null
-  const m = raw.match(/^(\d+)\s*\/\s*(day|week|month)$/)
+let ready = null
+function ensure() {
+  if (!ready) ready = initDb()
+  return ready
+}
+
+export function parseLimit(raw) {
+  const v = (raw || 'off').trim().toLowerCase()
+  if (v === 'off' || v === '') return null
+  const m = v.match(/^(\d+)\s*\/\s*(day|week|month)$/)
   if (!m) return null
   return { max: Number(m[1]), period: m[2] }
 }
@@ -28,12 +34,21 @@ function periodKey(period, now = new Date()) {
   return now.toISOString().slice(0, 7) // month: YYYY-MM
 }
 
+async function readCount(userId, key) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT count FROM rate_limits WHERE user_id = ? AND period_key = ?`,
+    args: [userId, key],
+  })
+  return r.rows[0] ? Number(r.rows[0].count) : 0
+}
+
 // Returns { allowed, limit, remaining, period } for a user WITHOUT consuming.
-export function check(userId) {
-  const limit = parseLimit()
+export async function check(userId, limitStr) {
+  const limit = parseLimit(limitStr)
   if (!limit) return { allowed: true, limit: null, remaining: null, period: null }
   const key = `${userId}:${periodKey(limit.period)}`
-  const used = counts.get(key) ?? 0
+  const used = await readCount(userId, key)
   return {
     allowed: used < limit.max,
     limit: limit.max,
@@ -42,13 +57,19 @@ export function check(userId) {
   }
 }
 
-// Consume one unit for a user; returns the post-consume state.
-export function consume(userId) {
-  const limit = parseLimit()
+// Consume one unit for a user; returns the post-consume state. The UPSERT is a
+// single atomic statement so concurrent requests can't lose a count.
+export async function consume(userId, limitStr) {
+  const limit = parseLimit(limitStr)
   if (!limit) return { allowed: true, limit: null, remaining: null, period: null }
   const key = `${userId}:${periodKey(limit.period)}`
-  const used = (counts.get(key) ?? 0) + 1
-  counts.set(key, used)
+  await ensure()
+  await db.execute({
+    sql: `INSERT INTO rate_limits (user_id, period_key, count) VALUES (?, ?, 1)
+          ON CONFLICT (user_id, period_key) DO UPDATE SET count = count + 1`,
+    args: [userId, key],
+  })
+  const used = await readCount(userId, key)
   return {
     allowed: used <= limit.max,
     limit: limit.max,

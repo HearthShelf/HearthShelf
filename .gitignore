@@ -30,3 +30,4 @@ dist-ssr
 
 # Internal reference docs (not public)
 docs/
+server/.devdata/

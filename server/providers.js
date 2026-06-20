@@ -1,6 +1,9 @@
 // AI provider adapters for QuestGiver. Each takes a prompt and returns raw model
-// text; the caller extracts the JSON. The provider, model, key, and base URL all
-// come from environment variables (key never leaves the server).
+// text; the caller extracts the JSON. The provider, model, key, and base URL
+// come from the editable AI config (see config.js); the key never leaves the
+// server.
+
+import { getConfig } from './config.js'
 
 const TIMEOUT_MS = 30000
 
@@ -89,31 +92,27 @@ const ADAPTERS = {
   gemini: callGemini,
 }
 
-export function isProviderConfigured() {
-  const provider = (process.env.QG_PROVIDER || '').toLowerCase()
-  return Boolean(ADAPTERS[provider] && process.env.QG_API_KEY)
+export async function isProviderConfigured() {
+  const c = await getConfig()
+  const provider = (c.provider || '').toLowerCase()
+  return Boolean(c.enabled && ADAPTERS[provider] && c.apiKey)
 }
 
-export function providerInfo() {
+export async function providerInfo() {
+  const c = await getConfig()
   return {
-    provider: (process.env.QG_PROVIDER || '').toLowerCase() || null,
-    model: process.env.QG_MODEL || null,
-    configured: isProviderConfigured(),
+    provider: (c.provider || '').toLowerCase() || null,
+    model: c.model || null,
+    configured: await isProviderConfigured(),
   }
 }
 
 // Call the configured provider. Throws if not configured or on any provider error.
 export async function complete(prompt) {
-  const provider = (process.env.QG_PROVIDER || '').toLowerCase()
+  const c = await getConfig()
+  const provider = (c.provider || '').toLowerCase()
   const adapter = ADAPTERS[provider]
-  if (!adapter) throw new Error(`Unknown or unset QG_PROVIDER: "${provider}"`)
-  if (!process.env.QG_API_KEY) throw new Error('QG_API_KEY is not set')
-  return adapter(
-    {
-      baseUrl: process.env.QG_BASE_URL,
-      model: process.env.QG_MODEL,
-      key: process.env.QG_API_KEY,
-    },
-    prompt
-  )
+  if (!adapter) throw new Error(`Unknown or unset AI provider: "${provider}"`)
+  if (!c.apiKey) throw new Error('AI API key is not set')
+  return adapter({ baseUrl: c.baseUrl, model: c.model, key: c.apiKey }, prompt)
 }
