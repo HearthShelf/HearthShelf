@@ -10,25 +10,17 @@ import { tintFor } from '@/components/common/Cover'
 // `appRef` is the .app root that scopes the hover delegation. Dynamic accent
 // derives from the now-playing book's typeset hue (cv); sampling real artwork
 // is deferred, so with no session the accent falls back to the ember default.
-export function useApplySettings(
-  appRef: RefObject<HTMLElement | null>,
-  isPlayerRoute: boolean
-) {
+export function useApplySettings(appRef: RefObject<HTMLElement | null>) {
   const theme = useSettingsStore((s) => s.theme)
-  const accentMode = useSettingsStore((s) => s.accentMode)
   const accentHex = useSettingsStore((s) => s.accentHex)
   const glow = useSettingsStore((s) => s.glow)
-  const colorEverywhere = useSettingsStore((s) => s.colorEverywhere)
 
   const nowTitle = usePlayerStore((s) => s.title)
   const nowCv = nowTitle ? tintFor(nowTitle) : null
 
-  const effectiveAccent =
-    accentMode === 'manual'
-      ? accentHex
-      : colorEverywhere || isPlayerRoute
-        ? (nowCv ?? EMBER)
-        : EMBER
+  // Accent is a fixed, user-chosen colour (default ember). The signature glow
+  // still blooms from the now-playing cover, independent of the accent.
+  const effectiveAccent = accentHex || EMBER
   const glowBase = nowCv ?? effectiveAccent
 
   // Keep the live glow base in a ref so the (mount-once) hover listener can

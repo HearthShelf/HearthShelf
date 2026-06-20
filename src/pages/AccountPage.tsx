@@ -51,6 +51,7 @@ export function AccountPage() {
   }
 
   const perms = Object.entries(me.permissions ?? {}).filter(([, v]) => v)
+  const sso = me.hasOpenIDLink
 
   return (
     <div className="page fade-in" style={{ maxWidth: 680 }}>
@@ -63,8 +64,6 @@ export function AccountPage() {
         {(
           [
             ['badge', 'Account type', me.type],
-            ['email', 'Email', me.email ?? 'Not set'],
-            ['key', 'OpenID linked', me.hasOpenIDLink ? 'Yes' : 'No'],
             ['calendar_today', 'Member since', fmtSessDate(me.createdAt).day],
           ] as [string, string, string][]
         ).map(([icon, label, value]) => (
@@ -76,23 +75,57 @@ export function AccountPage() {
             <span style={{ color: 'var(--text-muted)' }}>{value}</span>
           </div>
         ))}
+        <div className="cfg-line">
+          <Icon name="email" style={{ color: 'var(--text-muted)' }} />
+          <div className="cl-meta">
+            <div className="cl-t">Email</div>
+          </div>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {me.email ?? 'Not set'}
+            {sso && (
+              <Icon
+                name="lock"
+                style={{ fontSize: 15, marginLeft: 6, verticalAlign: '-2px' }}
+              />
+            )}
+          </span>
+        </div>
       </div>
+
+      {sso && (
+        <div className="sso-warn" style={{ marginTop: 'var(--s4)' }}>
+          <Icon name="info" />
+          <span>
+            Your email and sign-in are managed by your{' '}
+            <b>OpenID Connect provider</b>. Changes made here can be overwritten
+            the next time you sign in. Update them with your identity provider.
+          </span>
+        </div>
+      )}
 
       <div className="section-head" style={{ marginTop: 'var(--s6)' }}>
         <Icon name="lock" />
-        <h2>Change password</h2>
+        <h2>{sso ? 'Fallback password' : 'Change password'}</h2>
       </div>
+      {sso && (
+        <p className="page-sub" style={{ marginTop: -6, marginBottom: 12 }}>
+          You sign in with OpenID. Set a password here only if you also want to
+          sign in directly.
+        </p>
+      )}
       <div className="cfg-card">
-        <div className="field full">
-          <label>Current password</label>
-          <input
-            className="fld"
-            type="password"
-            autoComplete="current-password"
-            value={current}
-            onChange={(e) => setCurrent(e.target.value)}
-          />
-        </div>
+        {!sso && (
+          <div className="field full">
+            <label>Current password</label>
+            <input
+              className="fld"
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+          </div>
+        )}
         <div className="field full">
           <label>New password</label>
           <input
@@ -115,7 +148,7 @@ export function AccountPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
           <button className="btn-sm btn-green" disabled={busy} onClick={() => void submit()}>
-            <Icon name="save" /> Update password
+            <Icon name="save" /> {sso ? 'Set password' : 'Update password'}
           </button>
           {msg && (
             <span

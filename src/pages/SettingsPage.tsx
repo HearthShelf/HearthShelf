@@ -4,6 +4,8 @@ import {
   ACCENT_PRESETS,
   type SettingsState,
 } from '@/store/settingsStore'
+import { Icon } from '@/components/common/Icon'
+import { CoverStyleDemo } from '@/components/common/CoverStyleDemo'
 
 // --- Local controls (ported from the design reference Settings component) ---
 
@@ -99,7 +101,7 @@ function SetRow({
   control,
   disabled,
 }: {
-  title: string
+  title: ReactNode
   desc?: string
   control: ReactNode
   disabled?: boolean
@@ -158,21 +160,8 @@ export function SettingsPage() {
           }
         />
         <SetRow
-          title="Accent from cover"
-          desc="Let the artwork colour the controls and glow."
-          control={
-            <Toggle
-              on={s.accentMode === 'dynamic'}
-              onClick={() =>
-                put('accentMode', s.accentMode === 'dynamic' ? 'manual' : 'dynamic')
-              }
-            />
-          }
-        />
-        <SetRow
-          title="Manual accent"
-          desc="Pick a fixed colour for chrome."
-          disabled={s.accentMode === 'dynamic'}
+          title="Accent colour"
+          desc="The colour for buttons, progress, and active controls."
           control={
             <div className="swatch-row">
               {ACCENT_PRESETS.map((p) => (
@@ -181,7 +170,10 @@ export function SettingsPage() {
                   title={p.name}
                   className={'swatch' + (s.accentHex === p.hex ? ' on' : '')}
                   style={{ background: p.hex }}
-                  onClick={() => put('accentHex', p.hex)}
+                  onClick={() => {
+                    put('accentMode', 'manual')
+                    put('accentHex', p.hex)
+                  }}
                 />
               ))}
             </div>
@@ -189,7 +181,7 @@ export function SettingsPage() {
         />
         <SetRow
           title="Cover-glow intensity"
-          desc="How strongly the cover blooms behind the page."
+          desc="How strongly the now-playing cover blooms behind the page."
           control={
             <div className="range-row">
               <input
@@ -204,7 +196,17 @@ export function SettingsPage() {
           }
         />
         <SetRow
-          title="Cover style"
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              Cover style
+              <span className="cs-info">
+                <Icon name="info" />
+                <span className="cs-pop">
+                  <CoverStyleDemo />
+                </span>
+              </span>
+            </span>
+          }
           desc="Float artwork on the page, or sit it on cards."
           control={
             <Seg
@@ -214,16 +216,6 @@ export function SettingsPage() {
                 { v: 'floating', l: 'Floating' },
                 { v: 'cards', l: 'Cards' },
               ]}
-            />
-          }
-        />
-        <SetRow
-          title="Colour everywhere"
-          desc="Tint the whole app, not just the player."
-          control={
-            <Toggle
-              on={s.colorEverywhere}
-              onClick={() => put('colorEverywhere', !s.colorEverywhere)}
             />
           }
         />

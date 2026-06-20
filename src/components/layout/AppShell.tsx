@@ -16,7 +16,7 @@ export function AppShell() {
   const isPlayerRoute = pathname === '/player'
   const coverStyle = useSettingsStore((s) => s.coverStyle)
 
-  useApplySettings(appRef, isPlayerRoute)
+  useApplySettings(appRef)
 
   return (
     <div
