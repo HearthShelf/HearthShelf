@@ -27,8 +27,20 @@ export interface AudibleSearchResponse {
   hasMore: boolean
 }
 
+export interface AudibleSeriesBook extends AudibleResult {
+  sequence?: string | null
+}
+
+export interface AudibleSeriesResponse {
+  name: string
+  seriesAsin: string | null
+  seriesTitle?: string
+  books: AudibleSeriesBook[]
+}
+
 export const audibleKeys = {
   search: (q: string, page = 1) => ['audible', 'search', q, page] as const,
+  series: (name: string) => ['audible', 'series', name] as const,
 }
 
 export async function searchAudible(query: string, page = 1): Promise<AudibleSearchResponse> {
@@ -39,6 +51,18 @@ export async function searchAudible(query: string, page = 1): Promise<AudibleSea
   )
   if (!res.ok) throw new Error(`Audible ${res.status}`)
   return res.json() as Promise<AudibleSearchResponse>
+}
+
+// Fetch a series' books from Audible by series name. The backend resolves the
+// series ASIN (ABS exposes none) and returns the child books ordered by
+// sequence; seriesAsin is null when no confident match was found.
+export async function fetchAudibleSeries(name: string): Promise<AudibleSeriesResponse> {
+  const token = useAuthStore.getState().token
+  const res = await fetch(`/hs/audible/series?q=${encodeURIComponent(name)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`Audible series ${res.status}`)
+  return res.json() as Promise<AudibleSeriesResponse>
 }
 
 // A plain Audible store link for a result, used by the "Buy on Audible" action

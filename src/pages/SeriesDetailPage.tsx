@@ -10,6 +10,7 @@ import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
+import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -66,6 +67,12 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const books = orderBooks(series.books ?? [])
   const author = books[0]?.media.metadata.authorName || ''
   const cv = tintFor(books[0]?.media.metadata.title ?? series.name)
+  const ownedKeys = new Set(
+    books.map((b) => {
+      const m = b.media.metadata
+      return ((m.title ?? '') + '|' + (m.authorName ?? '')).toLowerCase()
+    })
+  )
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -308,6 +315,8 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           })}
         </div>
       </div>
+
+      <SeriesMissingBooks seriesName={series.name} ownedKeys={ownedKeys} />
     </div>
   )
 }

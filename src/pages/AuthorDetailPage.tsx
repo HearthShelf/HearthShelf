@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { WatchAuthorButton } from '@/components/requests/WatchButton'
 import { getAuthor } from '@/api/libraries'
 import { useAuthStore } from '@/store/authStore'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
@@ -84,6 +85,9 @@ export function AuthorDetailPage() {
             {formatDuration(totalH)} total
           </div>
           {data.description && <p className="bio">{data.description}</p>}
+          <div style={{ marginTop: 12 }}>
+            <WatchAuthorButton asin={data.asin} name={data.name} />
+          </div>
         </div>
       </div>
 

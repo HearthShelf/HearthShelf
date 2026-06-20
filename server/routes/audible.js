@@ -128,21 +128,109 @@ async function searchAudible(query, page) {
   }
 }
 
+// Resolve a series name to its Audible series ASIN by searching and picking the
+// most common series whose title matches the query (case-insensitive). ABS
+// exposes no series ASIN, so this is the bridge - best-effort, returns null when
+// no confident match.
+async function resolveSeriesAsin(name) {
+  const norm = name.trim().toLowerCase()
+  const { results } = await searchAudible(name, 1)
+  const tally = new Map() // seriesAsin -> { title, asin, count }
+  for (const r of results) {
+    if (!r.seriesAsin || !r.series) continue
+    if (r.series.trim().toLowerCase() !== norm) continue
+    const cur = tally.get(r.seriesAsin) ?? { title: r.series, asin: r.seriesAsin, count: 0 }
+    cur.count++
+    tally.set(r.seriesAsin, cur)
+  }
+  let best = null
+  for (const v of tally.values()) if (!best || v.count > best.count) best = v
+  return best // { title, asin, count } | null
+}
+
+// Fetch the child books of a series by its ASIN, ordered by series sequence.
+async function fetchSeriesBooks(seriesAsin) {
+  const base = apiBase()
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), 15000)
+  try {
+    // 1) the series product -> child relationships (asin + sequence).
+    const relRes = await fetch(
+      `${base}/1.0/catalog/products/${encodeURIComponent(seriesAsin)}?response_groups=relationships`,
+      { signal: ctrl.signal, headers: { Accept: 'application/json' } }
+    )
+    if (!relRes.ok) return []
+    const relData = await relRes.json()
+    const rels = (relData?.product?.relationships ?? []).filter(
+      (r) => r.relationship_to_product === 'child' && r.asin
+    )
+    if (!rels.length) return []
+    const seqByAsin = new Map(rels.map((r) => [r.asin, r.sequence ?? null]))
+    const asins = rels.map((r) => r.asin).slice(0, 50)
+
+    // 2) batch-fetch the child products for display details.
+    const params = new URLSearchParams({ asins: asins.join(','), response_groups: RESPONSE_GROUPS })
+    const prodRes = await fetch(`${base}/1.0/catalog/products?${params.toString()}`, {
+      signal: ctrl.signal,
+      headers: { Accept: 'application/json' },
+    })
+    if (!prodRes.ok) return []
+    const prodData = await prodRes.json()
+    const products = prodData?.products ?? []
+    const mapped = products.map((p) => ({ ...mapProduct(p), sequence: seqByAsin.get(p.asin) ?? null }))
+    // Order by numeric sequence when available.
+    mapped.sort((a, b) => (parseFloat(a.sequence) || 0) - (parseFloat(b.sequence) || 0))
+    return mapped
+  } catch {
+    return []
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 export async function handleAudible(req, res, url, ctx) {
-  if (url.pathname !== '/hs/audible/search') return false
+  const p = url.pathname
+  if (!p.startsWith('/hs/audible/')) return false
   if (req.method !== 'GET') return (json(res, 405, { error: 'method_not_allowed' }), true)
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
 
-  const q = (url.searchParams.get('q') ?? url.searchParams.get('query') ?? '').trim()
-  const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1)
-  if (q.length < 2) return (json(res, 200, { query: q, results: [], totalResults: 0, page, hasMore: false }), true)
-
   const region = (process.env.AUDIBLE_REGION || 'us').toLowerCase()
-  const key = `${region}|${q.toLowerCase()}|${page}`
-  const cached = cacheGet(key)
-  if (cached) return (json(res, 200, { query: q, ...cached }), true)
 
-  const result = await searchAudible(q, page)
-  cacheSet(key, result)
-  return (json(res, 200, { query: q, ...result }), true)
+  // Catalog search: GET /hs/audible/search?q=
+  if (p === '/hs/audible/search') {
+    const q = (url.searchParams.get('q') ?? url.searchParams.get('query') ?? '').trim()
+    const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1)
+    if (q.length < 2) {
+      return (json(res, 200, { query: q, results: [], totalResults: 0, page, hasMore: false }), true)
+    }
+    const key = `${region}|${q.toLowerCase()}|${page}`
+    const cached = cacheGet(key)
+    if (cached) return (json(res, 200, { query: q, ...cached }), true)
+    const result = await searchAudible(q, page)
+    cacheSet(key, result)
+    return (json(res, 200, { query: q, ...result }), true)
+  }
+
+  // Series books by name: GET /hs/audible/series?q=<series name>
+  // Resolves the series ASIN, then returns its books ordered by sequence.
+  if (p === '/hs/audible/series') {
+    const name = (url.searchParams.get('q') ?? '').trim()
+    if (name.length < 2) return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+    const key = `series|${region}|${name.toLowerCase()}`
+    const cached = cacheGet(key)
+    if (cached) return (json(res, 200, cached), true)
+
+    const match = await resolveSeriesAsin(name)
+    if (!match) {
+      const empty = { name, seriesAsin: null, books: [] }
+      cacheSet(key, empty)
+      return (json(res, 200, empty), true)
+    }
+    const books = await fetchSeriesBooks(match.asin)
+    const out = { name, seriesAsin: match.asin, seriesTitle: match.title, books }
+    cacheSet(key, out)
+    return (json(res, 200, out), true)
+  }
+
+  return (json(res, 404, { error: 'not_found' }), true)
 }
