@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ABSLibraryItem } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
+import { AddToListMenu } from '@/components/library/AddToListMenu'
+import { BookContextMenu } from '@/components/library/BookContextMenu'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { useIsMobile } from '@/hooks/useMediaQuery'
@@ -18,8 +21,8 @@ interface BookTileProps {
   // When the parent can resolve the author to an ID, the name becomes a link
   // to the author page. Falls back to plain text otherwise.
   authorId?: string
-  // Opens the "add to collection/playlist" flow for this item.
-  onAddToList?: () => void
+  // Surface a confirmation toast (e.g. after adding to the queue).
+  onToast?: (msg: string) => void
 }
 
 // Library/shelf tile: cover with hover-reveal actions, title, author, and a
@@ -35,11 +38,12 @@ export function BookTile({
   anySelected,
   onToggleSelect,
   authorId,
-  onAddToList,
+  onToast,
 }: BookTileProps) {
   const navigate = useNavigate()
   const { playItem } = usePlayer()
   const { markFinished } = useMarkFinished()
+  const [menuOpen, setMenuOpen] = useState(false)
   // Touch UIs can't hover, so the reveal-on-hover action buttons are dropped -
   // tapping the tile opens the book detail page instead.
   const isMobile = useIsMobile()
@@ -60,6 +64,13 @@ export function BookTile({
   }
 
   return (
+    <BookContextMenu
+      item={item}
+      progress={progress}
+      finished={finished}
+      authorId={authorId}
+      onToast={onToast}
+    >
     <div
       className={
         'book fade-in' + (compact ? ' compact' : '') + (selected ? ' sel' : '')
@@ -95,14 +106,25 @@ export function BookTile({
               </button>
             )}
             {!anySelected && !isMobile && (
-              <div className="hover-actions" onClick={(e) => e.stopPropagation()}>
-                <button
-                  className="ha-btn"
-                  title="Add to list"
-                  onClick={stop(() => onAddToList?.())}
-                >
-                  <Icon name="playlist_add" />
-                </button>
+              <div className={'hover-actions' + (menuOpen ? ' menu-open' : '')}>
+                <AddToListMenu
+                  libraryItemId={item.id}
+                  libraryId={item.libraryId}
+                  title={title ?? 'Untitled'}
+                  author={authorName}
+                  onToast={onToast}
+                  align="left"
+                  onOpenChange={setMenuOpen}
+                  trigger={(toggle) => (
+                    <button
+                      className="ha-btn"
+                      title="Add to list"
+                      onClick={stop(toggle)}
+                    >
+                      <Icon name="playlist_add" />
+                    </button>
+                  )}
+                />
                 <button
                   className="ha-play"
                   title={ebookOnly ? 'Read' : 'Play'}
@@ -141,5 +163,6 @@ export function BookTile({
         )}
       </div>
     </div>
+    </BookContextMenu>
   )
 }

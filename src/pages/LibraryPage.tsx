@@ -7,17 +7,19 @@ import {
   getAuthors,
   libraryKeys,
 } from '@/api/libraries'
-import { AddToListModal } from '@/components/library/AddToListModal'
 import { useToast } from '@/hooks/useToast'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useAuthStore } from '@/store/authStore'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { BookTile } from '@/components/library/BookTile'
 import { SeriesCard } from '@/components/library/SeriesCard'
+import { AzJumpRail } from '@/components/library/AzJumpRail'
+import { letterOf } from '@/lib/letterBucket'
 import { BatchEditModal } from '@/components/library/BatchEditModal'
 import { PodcastsGrid } from '@/pages/PodcastsGrid'
 import { Cover, tintFor } from '@/components/common/Cover'
@@ -76,7 +78,14 @@ export function LibraryPage() {
   const setFill = (v: boolean) => useSettingsStore.getState().set('libraryFill', v)
   const isMobile = useIsMobile()
 
-  const [tab, setTab] = useState<Tab>('books')
+  const tabParam = params.get('tab')
+  const [tab, setTab] = useState<Tab>(() =>
+    tabParam === 'series' ||
+    tabParam === 'authors' ||
+    tabParam === 'narrators'
+      ? tabParam
+      : 'books'
+  )
   const [mSearch, setMSearch] = useState('')
   const [prog, setProg] = useState<ProgFilter>('all')
   // Unified "group|value" filter (genre/author/narrator/series/decade/...),
@@ -146,8 +155,11 @@ export function LibraryPage() {
     return map
   }, [authorsData])
 
+  // ABS image endpoint takes the bearer token as a query param (same as covers).
+  const token = useAuthStore((s) => s.token)
+  const authImgParams = token ? `?token=${encodeURIComponent(token)}` : ''
+
   const { toast, show } = useToast()
-  const [addToListItem, setAddToListItem] = useState<ABSLibraryItem | null>(null)
 
   const allItems = useMemo(() => data?.results ?? [], [data])
 
@@ -262,6 +274,13 @@ export function LibraryPage() {
   const clearSel = () => setSelected(new Set())
   const selectAll = () => setSelected(new Set(books.map((b) => b.id)))
   const switchTab = (id: Tab) => {
+    // Tapping the tab you're already on scrolls back to the top of the list.
+    if (id === tab) {
+      document
+        .querySelector('.content')
+        ?.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
     clearSel()
     setTab(id)
   }
@@ -292,14 +311,16 @@ export function LibraryPage() {
     <div
       className="page fade-in"
       style={
-        fill
+        fill && !isMobile
           ? {
               paddingTop: 24,
               maxWidth: 'none',
               paddingLeft: 'var(--s6)',
               paddingRight: 'var(--s6)',
             }
-          : { paddingTop: 24 }
+          : isMobile
+            ? {}
+            : { paddingTop: 24 }
       }
     >
       <div className="page-head lib-head">
@@ -612,7 +633,7 @@ export function LibraryPage() {
                       anySelected={anySelected}
                       onToggleSelect={() => toggleSel(b.id)}
                       authorId={authorIdByName.get(b.media.metadata.authorName)}
-                      onAddToList={() => setAddToListItem(b)}
+                      onToast={show}
                     />
                   )
                 })}
@@ -670,34 +691,70 @@ export function LibraryPage() {
               ))}
             </div>
           </div>
-          <div className="author-grid">
-            {(tab === 'authors' ? sortedAuthors : sortedNarrators).map((p) => (
-              <div
-                className="author-card"
-                key={p.name}
-                data-cv={p.cv}
-                onClick={() => tab === 'narrators' && goBooks()}
-              >
-                <div
-                  className={'author-av' + (tab === 'narrators' ? ' nar-av-lg' : '')}
-                  style={{
-                    background: `linear-gradient(150deg, ${p.cv}, color-mix(in oklab, ${p.cv} 45%, #000))`,
-                  }}
-                >
-                  {p.initials}
-                  {tab === 'narrators' && (
-                    <span className="nar-mic">
-                      <Icon name="mic" fill />
-                    </span>
-                  )}
+          {(() => {
+            const list = tab === 'authors' ? sortedAuthors : sortedNarrators
+            // When sorted A-Z, tag the first card of each letter bucket so the
+            // jump rail can scroll to it.
+            const seen = new Set<string>()
+            const showRail = isMobile && pSort === 'Name'
+            return (
+              <div className={'az-wrap' + (showRail ? ' has-rail' : '')}>
+                <div className="author-grid">
+                  {list.map((p) => {
+                    const letter = letterOf(p.name)
+                    let dataLetter: string | undefined
+                    if (pSort === 'Name' && !seen.has(letter)) {
+                      seen.add(letter)
+                      dataLetter = letter
+                    }
+                    return (
+                      <div
+                        className="author-card"
+                        key={p.name}
+                        data-cv={p.cv}
+                        data-letter={dataLetter}
+                        onClick={() => {
+                          if (tab === 'narrators') return goBooks()
+                          const id = authorIdByName.get(p.name)
+                          if (id) navigate(`/author/${id}`)
+                        }}
+                      >
+                        <div
+                          className={'author-av' + (tab === 'narrators' ? ' nar-av-lg' : '')}
+                          style={{
+                            background: `linear-gradient(150deg, ${p.cv}, color-mix(in oklab, ${p.cv} 45%, #000))`,
+                          }}
+                        >
+                          {tab === 'authors' && authorIdByName.get(p.name) ? (
+                            <img
+                              className="author-photo"
+                              src={`/abs-api/api/authors/${authorIdByName.get(p.name)}/image${authImgParams}`}
+                              alt={p.name}
+                              loading="lazy"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
+                            />
+                          ) : null}
+                          {p.initials}
+                          {tab === 'narrators' && (
+                            <span className="nar-mic">
+                              <Icon name="mic" fill />
+                            </span>
+                          )}
+                        </div>
+                        <div className="author-name">{p.name}</div>
+                        <div className="author-books">
+                          {p.count} {p.count === 1 ? 'book' : 'books'}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="author-name">{p.name}</div>
-                <div className="author-books">
-                  {p.count} {p.count === 1 ? 'book' : 'books'}
-                </div>
+                {showRail && <AzJumpRail names={list.map((p) => p.name)} />}
               </div>
-            ))}
-          </div>
+            )
+          })()}
         </>
       )}
 
@@ -711,14 +768,6 @@ export function LibraryPage() {
             setBatchEditing(false)
             clearSel()
           }}
-        />
-      )}
-      {addToListItem && activeId && (
-        <AddToListModal
-          libraryItemId={addToListItem.id}
-          libraryId={activeId}
-          onClose={() => setAddToListItem(null)}
-          onToast={show}
         />
       )}
       {toast && (
