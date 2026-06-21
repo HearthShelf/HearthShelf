@@ -10,14 +10,14 @@ import { useAuthStore } from '@/store/authStore'
 import { formatDuration, formatTimestamp, stripHtml } from '@/lib/format'
 import type { ABSLibraryItemDetail } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
+import { ImageZoomViewer } from '@/components/common/ImageZoomViewer'
 import { Icon } from '@/components/common/Icon'
 import { Stars } from '@/components/common/Stars'
 import { Dropdown, MItem } from '@/components/common/Dropdown'
 import { ItemEditModal } from '@/components/library/ItemEditModal'
-import { AddToListModal } from '@/components/library/AddToListModal'
+import { AddToListMenu } from '@/components/library/AddToListMenu'
 import { ChapterEditorModal } from '@/components/library/ChapterEditorModal'
 import { useToast } from '@/hooks/useToast'
-import { useQueueStore } from '@/store/queueStore'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -74,10 +74,9 @@ export function BookDetailPage() {
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<DetailTab>('chapters')
   const [editing, setEditing] = useState(false)
-  const [addingToList, setAddingToList] = useState(false)
   const [editingChapters, setEditingChapters] = useState(false)
+  const [zoomCover, setZoomCover] = useState(false)
   const { toast, show } = useToast()
-  const addToQueue = useQueueStore((s) => s.add)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.item(itemId ?? ''),
@@ -152,7 +151,19 @@ export function BookDetailPage() {
 
       <div className="detail-top">
         <div className="detail-cover" data-cv={cv}>
-          <Cover itemId={data.id} title={title} author={author} fs={18} />
+          <Cover
+            itemId={data.id}
+            title={title}
+            author={author}
+            fs={18}
+            className="dc-zoomable"
+            onClick={() => setZoomCover(true)}
+            overlay={
+              <span className="dc-zoom-hint" aria-hidden>
+                <Icon name="zoom_in" />
+              </span>
+            }
+          />
           {pct > 0 && !finished && (
             <>
               <div className="prog-line">
@@ -276,9 +287,21 @@ export function BookDetailPage() {
                 <Icon name="menu_book" /> Read
               </button>
             )}
-            <button className="pill" onClick={() => setAddingToList(true)}>
-              <Icon name="playlist_add" /> Add to list
-            </button>
+            <AddToListMenu
+              libraryItemId={data.id}
+              libraryId={data.libraryId}
+              title={title}
+              author={author}
+              onToast={show}
+              trigger={(toggle, isOpen) => (
+                <button
+                  className={'pill' + (isOpen ? ' on' : '')}
+                  onClick={toggle}
+                >
+                  <Icon name="playlist_add" /> Add to list
+                </button>
+              )}
+            />
             <button
               className={'pill' + (finished ? ' on' : '')}
               disabled={marking}
@@ -291,23 +314,6 @@ export function BookDetailPage() {
               <Icon name="edit" /> Edit
             </button>
             <Dropdown icon="more_horiz" label="">
-              <MItem
-                icon="folder_special"
-                label="Add to collection"
-                onClick={() => setAddingToList(true)}
-              />
-              <MItem
-                icon="reorder"
-                label="Add to queue"
-                onClick={() => {
-                  addToQueue({
-                    libraryItemId: data.id,
-                    title: title,
-                    author: author,
-                  })
-                  show('Added to queue')
-                }}
-              />
               <MItem
                 icon="download"
                 label="Download"
@@ -481,16 +487,15 @@ export function BookDetailPage() {
         </div>
       </div>
 
+      {zoomCover && (
+        <ImageZoomViewer
+          src={`/abs-api/api/items/${data.id}/cover${token ? `?token=${encodeURIComponent(token)}` : ''}`}
+          alt={title}
+          onClose={() => setZoomCover(false)}
+        />
+      )}
       {editing && (
         <ItemEditModal item={data} onClose={() => setEditing(false)} />
-      )}
-      {addingToList && (
-        <AddToListModal
-          libraryItemId={data.id}
-          libraryId={data.libraryId}
-          onClose={() => setAddingToList(false)}
-          onToast={show}
-        />
       )}
       {editingChapters && (
         <ChapterEditorModal

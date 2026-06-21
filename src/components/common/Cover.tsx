@@ -12,7 +12,7 @@ interface CoverProps {
   fs?: number
   className?: string
   style?: React.CSSProperties
-  onClick?: () => void
+  onClick?: (e: React.MouseEvent) => void
   overlay?: React.ReactNode
 }
 
