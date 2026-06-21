@@ -17,6 +17,9 @@ export function AppShell() {
   const appRef = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
   const isPlayerRoute = pathname === '/player'
+  // The reader is full-bleed like the player: no app bar, no bottom tab bar.
+  const isReaderRoute = pathname.startsWith('/reader/')
+  const immersive = isPlayerRoute || isReaderRoute
   const coverStyle = useSettingsStore((s) => s.coverStyle)
   const isMobile = useIsMobile()
 
@@ -29,18 +32,18 @@ export function AppShell() {
       className={
         'app' +
         (coverStyle === 'cards' ? ' cards' : '') +
-        (isPlayerRoute ? ' player-mode' : '') +
+        (immersive ? ' player-mode' : '') +
         (isMobile ? ' has-mobile-nav' : '')
       }
     >
       <div className="app-glow" />
       <Sidebar />
       <div className="main">
-        {!isPlayerRoute && !isMobile && <AppBar />}
+        {!immersive && !isMobile && <AppBar />}
         <div className="content">
           <Outlet />
         </div>
-        {isMobile && <MobileNav />}
+        {isMobile && !isReaderRoute && <MobileNav />}
       </div>
       <PlayerBar />
       <AudioEngine />

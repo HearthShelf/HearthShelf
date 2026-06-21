@@ -37,6 +37,14 @@ export function getItem(itemId: string): Promise<ABSLibraryItemDetail> {
   return absRequest<ABSLibraryItemDetail>(`/api/items/${itemId}`)
 }
 
+// Direct URL to an item's primary ebook file (epub/pdf). epub.js fetches this
+// itself, so auth rides as a query token (matching the cover URL pattern) - the
+// proxied ABS endpoint accepts ?token= for file serving.
+export function ebookUrl(itemId: string, token: string | null): string {
+  const params = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `/abs-api/api/items/${itemId}/ebook${params}`
+}
+
 // Editable subset of an item's metadata. PATCH /api/items/:id/media accepts a
 // partial { metadata } payload and returns the updated libraryItem.
 export interface ItemMetadataPatch {

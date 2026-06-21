@@ -10,6 +10,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    optimizeDeps: {
+      // epub.js ships CommonJS deps (jszip, @xmldom/xmldom) whose named exports
+      // only resolve when Vite pre-bundles the whole tree together.
+      include: ['epubjs', 'jszip', '@xmldom/xmldom'],
+    },
     resolve: {
       // Pin a single React copy so the dep optimizer can't split it across two
       // pre-bundles (which surfaces as "invalid hook call" at runtime).

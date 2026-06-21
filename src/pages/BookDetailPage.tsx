@@ -112,6 +112,10 @@ export function BookDetailPage() {
   const tracks = data.media.audioFiles ?? []
   const duration = tracks.reduce((s, t) => s + (t.duration ?? 0), 0)
   const rating = m.rating ?? null
+  // The expanded item detail carries the ebook as `ebookFile` (object), not the
+  // flat `ebookFormat` string used on minified list items.
+  const hasEbook = !!data.media.ebookFile || !!data.media.ebookFormat
+  const ebookOnly = hasEbook && tracks.length === 0
 
   const progress = progressById.get(data.id)
   const pct = progress?.progress ?? 0
@@ -255,9 +259,23 @@ export function BookDetailPage() {
           </dl>
 
           <div className="detail-actions">
-            <button className="btn btn-primary" onClick={() => void playItem(data.id)}>
-              <Icon name="play_arrow" fill /> {playLabel}
-            </button>
+            {ebookOnly ? (
+              <button
+                className="btn btn-primary"
+                onClick={() => navigate(`/reader/${data.id}`)}
+              >
+                <Icon name="menu_book" fill /> Read
+              </button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => void playItem(data.id)}>
+                <Icon name="play_arrow" fill /> {playLabel}
+              </button>
+            )}
+            {hasEbook && !ebookOnly && (
+              <button className="pill" onClick={() => navigate(`/reader/${data.id}`)}>
+                <Icon name="menu_book" /> Read
+              </button>
+            )}
             <button className="pill" onClick={() => setAddingToList(true)}>
               <Icon name="playlist_add" /> Add to list
             </button>

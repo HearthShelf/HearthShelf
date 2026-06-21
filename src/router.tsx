@@ -4,6 +4,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { HomePage } from '@/pages/HomePage'
 import { LibraryPage } from '@/pages/LibraryPage'
 import { BookDetailPage } from '@/pages/BookDetailPage'
+import { ReaderPage } from '@/pages/ReaderPage'
 import { SeriesPage } from '@/pages/SeriesPage'
 import { SeriesDetailPage } from '@/pages/SeriesDetailPage'
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage'
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
       { path: 'library', element: <LibraryPage /> },
       { path: 'library/:libraryId', element: <LibraryPage /> },
       { path: 'book/:itemId', element: <BookDetailPage /> },
+      { path: 'reader/:itemId', element: <ReaderPage /> },
       { path: 'series', element: <SeriesPage /> },
       { path: 'series/:seriesId', element: <SeriesDetailPage /> },
       { path: 'authors', element: <AuthorsPage /> },

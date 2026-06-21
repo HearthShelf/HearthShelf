@@ -1415,8 +1415,33 @@
 .ab-search .ms { font-size: 19px; }
 .ab-search input { background: none; border: none; outline: none; color: var(--text); font: inherit; flex: 1; }
 .ab-search input::placeholder { color: var(--text-faint); }
-.ab-search kbd { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); background: var(--fill-strong); border-radius: 5px; padding: 2px 6px; }
 .ab-spacer { flex: 1; }
+
+/* ---- live search dropdown ---- */
+.ab-searchwrap { position: relative; flex: 1; max-width: 440px; }
+.ab-searchwrap .ab-search { max-width: none; }
+.search-pop {
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+  background: var(--c-high); border: 1px solid var(--hairline); border-radius: 14px;
+  box-shadow: var(--shadow-lift); padding: 6px; z-index: 40;
+  max-height: min(70vh, 560px); overflow-y: auto;
+}
+.search-pop .sp-status { padding: 16px 12px; color: var(--text-faint); font-size: 13px; text-align: center; }
+.search-pop .sp-group { padding: 4px 0; }
+.search-pop .sp-group + .sp-group { border-top: 1px solid var(--hairline); }
+.search-pop .sp-label { font-size: 10.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-faint); padding: 8px 10px 5px; }
+.sp-row { display: flex; align-items: center; gap: 11px; width: 100%; padding: 7px 10px; border-radius: 9px; background: none; border: none; color: var(--text); font: inherit; cursor: pointer; text-align: left; }
+.sp-row:hover { background: var(--fill); }
+.sp-row .sp-cover { width: 34px; height: 34px; border-radius: 6px; flex: none; }
+.sp-row .sp-ico { width: 34px; height: 34px; border-radius: 8px; flex: none; display: grid; place-items: center; background: var(--fill); color: var(--text-muted); }
+.sp-row .sp-ico .ms { font-size: 18px; }
+.sp-row .sp-av { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; }
+.sp-row .sp-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sp-row .sp-title { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-row .sp-sub { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 4px; padding: 10px; border: none; border-top: 1px solid var(--hairline); background: none; color: var(--accent); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; border-radius: 0 0 11px 11px; }
+.sp-more:hover { background: var(--fill); }
+.sp-more .ms { font-size: 17px; }
 .ab-actions { display: flex; align-items: center; gap: 4px; }
 .ab-ico { width: 38px; height: 38px; border-radius: 50%; background: none; border: none; color: var(--text-muted); display: grid; place-items: center; cursor: pointer; position: relative; transition: background .18s, color .18s; }
 .ab-ico:hover { background: var(--fill); color: var(--text); }
@@ -3098,6 +3123,100 @@ select.fld { appearance: none; cursor: pointer; background-image: url("data:imag
 .home-compact .shelf-row .book { width: 128px; }
 
 /* =====================================================================
+   Reader - immersive ebook reading mode (epub.js renders into .reader-viewer).
+   Themed at runtime via --rd-* custom properties from readerPrefsStore.
+   Ported from the Rev 4 reader.jsx / styles.css chrome.
+   ===================================================================== */
+.reader {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column;
+  background: var(--rd-bg, #1b1a18);
+  color: var(--rd-ink, #e9e3d7);
+  isolation: isolate;
+}
+.reader-top {
+  position: relative; z-index: 3; flex: none;
+  display: flex; align-items: center; gap: 12px;
+  height: 60px; padding: 0 18px;
+  background: color-mix(in oklab, var(--rd-bg) 86%, transparent);
+  border-bottom: 1px solid var(--rd-line);
+  backdrop-filter: blur(10px);
+}
+.reader-top .rt-title { min-width: 0; }
+.reader-top .rt-k { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--rd-faint); font-weight: 600; }
+.reader-top .rt-t { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reader-top .rt-spacer { flex: 1; }
+.rd-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--rd-line); background: transparent;
+  color: var(--rd-ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+}
+.rd-btn:hover { background: var(--rd-fill); }
+.rd-btn:disabled { opacity: .4; cursor: default; }
+.rd-btn.on { background: color-mix(in oklab, var(--accent) 18%, transparent); border-color: var(--accent); color: var(--accent); }
+.rd-icon { width: 34px; padding: 0; justify-content: center; }
+.rd-btn .ms { font-size: 19px; }
+.rd-aa { width: auto; padding: 0 12px; }
+.rd-aa .rd-aa-l { font-family: 'Libre Baskerville', serif; font-size: 15px; line-height: 1; }
+.rd-aa .rd-aa-s { font-family: 'Libre Baskerville', serif; font-size: 11px; line-height: 1; margin-left: -2px; }
+
+/* progress rail under the top bar */
+.rd-rail { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--rd-line); }
+.rd-rail i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
+
+/* the epub.js render surface */
+.reader-stage { position: relative; z-index: 1; flex: 1; min-height: 0; }
+.reader-viewer { position: absolute; inset: 0; }
+.reader-dim { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: #000; opacity: 0; transition: opacity .2s; }
+.reader-loading { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: var(--rd-bg); }
+
+/* bottom page bar */
+.rd-pagebar {
+  position: relative; z-index: 3; flex: none;
+  display: flex; align-items: center; justify-content: center; gap: 18px; height: 52px;
+  border-top: 1px solid var(--rd-line);
+  background: color-mix(in oklab, var(--rd-bg) 88%, transparent);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.rd-pagebar .rd-pg { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--rd-line); background: transparent; color: var(--rd-ink); cursor: pointer; display: grid; place-items: center; transition: .15s; }
+.rd-pagebar .rd-pg:hover { background: var(--rd-fill); }
+.rd-pagebar .rd-pg:disabled { opacity: .3; cursor: default; }
+.rd-pagebar .rd-pgnum { font-family: var(--font-mono); font-size: 12.5px; color: var(--rd-faint); min-width: 92px; max-width: 60vw; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* settings + chapters popovers */
+.rd-panel {
+  position: absolute; top: 56px; right: 16px; z-index: 5; width: 320px;
+  background: var(--rd-surface); color: var(--rd-ink);
+  border: 1px solid var(--rd-line); border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.4); padding: 16px; animation: rdpop .16s ease;
+}
+@keyframes rdpop { from { opacity: 0; transform: translateY(-6px); } }
+.rd-panel .rp-sec { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--rd-faint); font-weight: 700; margin: 14px 2px 8px; }
+.rd-panel .rp-sec:first-child { margin-top: 2px; }
+.rd-themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rd-theme { height: 46px; border-radius: 11px; cursor: pointer; border: 2px solid transparent; display: grid; place-items: center; font-size: 11px; font-weight: 700; position: relative; transition: .14s; }
+.rd-theme span { position: absolute; bottom: 4px; font-size: 9px; font-weight: 700; opacity: .8; }
+.rd-theme.on { border-color: var(--accent); }
+.rd-seg { display: flex; background: var(--rd-fill); border-radius: 10px; padding: 3px; gap: 3px; }
+.rd-seg button { flex: 1; border: none; background: transparent; color: var(--rd-ink); font: inherit; font-size: 12.5px; font-weight: 600; padding: 7px 4px; border-radius: 8px; cursor: pointer; transition: .14s; opacity: .7; }
+.rd-seg button.on { background: var(--rd-bg); opacity: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+.rd-stepper { display: flex; align-items: center; justify-content: space-between; background: var(--rd-fill); border-radius: 10px; padding: 5px; }
+.rd-stepper button { width: 34px; height: 30px; border-radius: 7px; border: none; background: var(--rd-bg); color: var(--rd-ink); cursor: pointer; display: grid; place-items: center; }
+.rd-stepper button:hover { color: var(--accent); }
+.rd-stepper .rs-val { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+.rd-row { display: flex; align-items: center; gap: 10px; }
+.rd-row .ms { color: var(--rd-faint); font-size: 18px; }
+.rd-range { flex: 1; accent-color: var(--accent); }
+.rd-panel-grid { display: grid; gap: 9px; }
+/* chapter list popover */
+.rd-chapters { width: 300px; max-height: 70vh; overflow-y: auto; padding: 10px; }
+.rd-chap-list { display: flex; flex-direction: column; gap: 2px; }
+.rd-chap-item { display: flex; gap: 10px; align-items: center; text-align: left; background: transparent; color: var(--rd-ink); border: none; border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.rd-chap-item:hover { background: var(--rd-fill); }
+.rd-chap-item.on { background: color-mix(in oklab, var(--accent) 16%, transparent); color: var(--accent); font-weight: 700; }
+.rd-chap-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* =====================================================================
    MOBILE / PWA - phone state (<=760px). Desktop layout untouched above.
    Ported from the Rev 4 mobile design system: bottom tab bar + nav
    drawer + floating mini-player; full-bleed player; touch-first library.
@@ -3353,4 +3472,17 @@ select.fld { appearance: none; cursor: pointer; background-image: url("data:imag
   .detail-series-links, .detail-actions, .detail-ext, .fmt-switch { justify-content: center; }
   .meta-rows { text-align: left; max-width: 320px; margin-left: auto; margin-right: auto; }
   .detail-actions .btn { flex: 1 1 100%; justify-content: center; }
+
+  /* ---- reader: tighter top bar; settings/chapters become bottom sheets ---- */
+  .reader-top { height: 54px; padding: 0 12px; gap: 8px; }
+  .reader-top .rt-t { font-size: 13.5px; }
+  .rd-panel {
+    top: auto; bottom: 0; left: 0; right: 0; width: auto;
+    max-height: 80vh; overflow-y: auto;
+    border-radius: 20px 20px 0 0;
+    padding: 14px 16px calc(16px + env(safe-area-inset-bottom));
+    animation: rdpop-up .22s cubic-bezier(.2,.7,.3,1);
+  }
+  .rd-chapters { width: auto; max-height: 80vh; }
 }
+@keyframes rdpop-up { from { transform: translateY(100%); } }

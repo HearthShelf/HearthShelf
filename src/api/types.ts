@@ -91,8 +91,24 @@ export interface ABSBookMedia {
   duration: number
   size: number
   // Present (e.g. "epub", "pdf") when the item has an ebook file; absent for
-  // audio-only items. Used to surface the format badge on tiles.
+  // audio-only items. Used to surface the format badge on tiles. This is the
+  // MINIFIED list shape; the expanded item detail uses `ebookFile` instead.
   ebookFormat?: string
+  // The expanded item detail (/api/items/:id) carries the full ebook file
+  // object here rather than the flat `ebookFormat` string.
+  ebookFile?: ABSEBookFile | null
+}
+
+// ABS ebook file object (expanded item detail). The reader only needs the
+// format; the binary is fetched from /api/items/:id/ebook.
+export interface ABSEBookFile {
+  ino: string
+  ebookFormat: string
+  metadata?: {
+    filename?: string
+    ext?: string
+    size?: number
+  }
 }
 
 export interface ABSLibraryItem {

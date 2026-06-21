@@ -47,6 +47,7 @@ export function BookTile({
   const hasEbook = !!item.media.ebookFormat
   const ebookOnly = hasEbook && item.media.numAudioFiles === 0
   const open = () => navigate(`/book/${item.id}`)
+  const read = () => navigate(`/reader/${item.id}`)
   const stop = (fn: () => void) => (e: React.MouseEvent) => {
     e.stopPropagation()
     fn()
@@ -78,7 +79,7 @@ export function BookTile({
               <button
                 className={'cv-fmt' + (ebookOnly ? ' solo' : '')}
                 title={ebookOnly ? 'Read - ebook' : 'Audiobook + ebook'}
-                onClick={stop(open)}
+                onClick={stop(ebookOnly ? read : open)}
               >
                 <Icon name={ebookOnly ? 'menu_book' : 'auto_stories'} fill />
                 {ebookOnly ? 'Read' : null}
@@ -105,7 +106,7 @@ export function BookTile({
                 <button
                   className="ha-play"
                   title={ebookOnly ? 'Read' : 'Play'}
-                  onClick={stop(() => (ebookOnly ? open() : void playItem(item.id)))}
+                  onClick={stop(() => (ebookOnly ? read() : void playItem(item.id)))}
                 >
                   <Icon name={ebookOnly ? 'menu_book' : 'play_arrow'} fill />
                 </button>
