@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { streamUrl } from '@/api/playback'
 import { useProgress } from '@/hooks/useProgress'
+import { useQueueAdvance } from '@/hooks/useQueueAdvance'
+import { useSettingsStore } from '@/store/settingsStore'
+import { useQueueStore } from '@/store/queueStore'
 import { setAudioElement } from '@/lib/audioRef'
 
 // The single, persistent <audio> element. Mounted once by AppShell and never
@@ -19,8 +22,23 @@ export function AudioEngine() {
   const setCurrentTime = usePlayerStore((s) => s.setCurrentTime)
   const setDuration = usePlayerStore((s) => s.setDuration)
   const setPlaying = usePlayerStore((s) => s.setPlaying)
+  const sessionId = usePlayerStore((s) => s.sessionId)
+  const queueMode = useSettingsStore((s) => s.queueMode)
+  const { advance, refresh } = useQueueAdvance()
 
   useProgress()
+
+  // Settings (synced, durable) is the source of truth for the queue mode; mirror
+  // it into the session-scoped queue store the player reads from.
+  useEffect(() => {
+    useQueueStore.getState().setMode(queueMode)
+  }, [queueMode])
+
+  // On app load (and whenever the mode could have changed via settings sync),
+  // populate the up-next list for Auto/Playlist modes once a session is active.
+  useEffect(() => {
+    if (sessionId) void refresh()
+  }, [sessionId, queueMode, refresh])
 
   // Publish the element so the sleep-timer fade can reach its volume.
   useEffect(() => {
@@ -87,7 +105,7 @@ export function AudioEngine() {
       }}
       onPlay={() => setPlaying(true)}
       onPause={() => setPlaying(false)}
-      onEnded={() => setPlaying(false)}
+      onEnded={() => void advance()}
     />
   )
 }
