@@ -55,8 +55,9 @@
   padding: 0 var(--s2) var(--s8);
 }
 .brand .mark {
-  font-size: 22px;
-  color: var(--brand-hearth);
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
   filter: drop-shadow(
     0 0 10px color-mix(in oklab, var(--brand-hearth) 50%, transparent)
   );

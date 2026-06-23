@@ -78,8 +78,8 @@
   --shadow-lift: 0 18px 48px rgba(0, 0, 0, 0.55);
 
   /* brand lockup - Libre Baskerville wordmark, gold + cream */
-  --brand-hearth: #c68e3b;
-  --brand-shelf: #e6ddcc;
+  --brand-hearth: #bd863f;
+  --brand-shelf: #f0e6d6;
 
   /* numeric / time / code face - Geist Mono per the design (self-hosting it is
      deferred); system monospace stack is the fallback until then. */

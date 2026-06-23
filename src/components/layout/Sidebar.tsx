@@ -132,7 +132,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <Icon name="local_fire_department" fill className="mark" />
+        <img src="/flame.png" alt="" className="mark" />
         <Wordmark />
       </div>
 
