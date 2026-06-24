@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getListeningStats, meKeys } from '@/api/me'
+import { getLeaderboard, socialKeys } from '@/api/social'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
@@ -9,12 +11,27 @@ import { ErrorState } from '@/components/common/ErrorState'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+// Whole hours, for the compact leaderboard listening column.
+function hoursLabel(seconds: number): string {
+  return `${Math.floor(seconds / 3600)}h`
+}
+
 export function StatsPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: meKeys.stats,
     queryFn: getListeningStats,
     staleTime: 60 * 1000,
   })
+
+  // Cross-user leaderboard (HearthShelf backend, reads ABS's db). Degrades to an
+  // unavailable response when ABS's db isn't mapped, in which case we hide the
+  // whole section rather than show an error.
+  const { data: leaderboard } = useQuery({
+    queryKey: socialKeys.leaderboard,
+    queryFn: getLeaderboard,
+    staleTime: 5 * 60 * 1000,
+  })
+  const lbEntries = leaderboard?.available ? leaderboard.entries : []
 
   // Top items by listening time, resolved with cover + metadata.
   const mostListened = useMemo(() => {
@@ -206,11 +223,46 @@ export function StatsPage() {
         </div>
       </div>
 
-      <div className="banner info" style={{ marginTop: 'var(--s6)' }}>
-        <Icon name="groups" />
-        Community comparisons and the server leaderboard are coming once cross-user
-        stats are available.
-      </div>
+      {lbEntries.length > 0 && (
+        <div className="section">
+          <SectionHead icon="groups" title="Leaderboard" />
+          <div className="chart-card" style={{ marginTop: 0 }}>
+            <div className="ml-list">
+              {lbEntries.map((e) => (
+                <div
+                  className={'ml-row' + (e.isMe ? ' hot' : '')}
+                  key={e.userId}
+                  data-cv={tintFor(e.username)}
+                >
+                  <span className="ml-rank">{e.rank}</span>
+                  <div className="ml-meta">
+                    <div className="ml-t">
+                      {e.username}
+                      {e.isMe && <small style={{ marginLeft: 6 }}>(you)</small>}
+                    </div>
+                    <div className="ml-s">{hoursLabel(e.secondsListened)} listened</div>
+                  </div>
+                  <span className="ml-h">
+                    {e.booksFinished}
+                    <small>{e.booksFinished === 1 ? 'book' : 'books'}</small>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                marginTop: 'var(--s4)',
+                fontSize: 13,
+                color: 'var(--text-muted)',
+              }}
+            >
+              <Icon name="visibility_off" />{' '}
+              <Link to="/settings">Hide yourself from the leaderboard</Link> under
+              Settings &rsaquo; Library.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

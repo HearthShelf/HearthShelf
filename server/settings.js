@@ -28,6 +28,33 @@ export async function getSettings(serverId, userId) {
   return { values, updatedAt: Number(row.updated_at) }
 }
 
+// Map of user id -> their EXPLICIT leaderboard-sharing choice, for the users
+// (within a server) who have actually set one. shareReadBooks is tri-state:
+// present in a user's settings means they chose (true = share, false = hide);
+// absent from this map means they never chose, so the admin's default applies
+// (see server/community.js). The social leaderboard merges this with the default
+// to decide who appears - flipping the default is retroactive for absent users
+// but never overrides an explicit choice here.
+export async function getExplicitSharePrefs(serverId) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT user_id, values_json FROM app_settings WHERE server_id = ?`,
+    args: [serverId],
+  })
+  const out = new Map()
+  for (const row of r.rows) {
+    try {
+      const values = JSON.parse(row.values_json)
+      if (values && typeof values.shareReadBooks === 'boolean') {
+        out.set(String(row.user_id), values.shareReadBooks)
+      }
+    } catch {
+      // Unparseable settings blob - treat as "no explicit choice".
+    }
+  }
+  return out
+}
+
 export async function setSettings(serverId, userId, values) {
   await ensure()
   const now = Date.now()

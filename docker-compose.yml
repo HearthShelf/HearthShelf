@@ -27,6 +27,9 @@ services:
       # UI). RMAB stays on the internal network; only HearthShelf reaches it.
       - RMAB_URL=${RMAB_URL:-}
       - RMAB_TOKEN=${RMAB_TOKEN:-}
+      # Cross-user leaderboard reads ABS's SQLite read-only (see the abs-config
+      # mount below). Path is where ABS's config dir lands in THIS container.
+      - HS_ABS_DB_PATH=/abs-config/absdatabase.sqlite
     depends_on:
       - abs
     networks:
@@ -34,6 +37,11 @@ services:
     volumes:
       # Persists Discover feedback + the monthly AI shelf cache across restarts.
       - hearthshelf-data:/app/data
+      # Read-only view of ABS's config dir so HearthShelf can read
+      # absdatabase.sqlite for the cross-user leaderboard. ':ro' keeps it
+      # read-only - HearthShelf never writes to ABS's database. Remove this line
+      # (and HS_ABS_DB_PATH above) to disable the leaderboard.
+      - abs-config:/abs-config:ro
     restart: unless-stopped
 
   abs:

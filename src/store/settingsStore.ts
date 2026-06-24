@@ -87,7 +87,10 @@ export interface SettingsState {
   libraryFill: boolean
   unifiedHome: boolean
   showOthersBooks: boolean
-  shareReadBooks: boolean
+  // Tri-state: null = no explicit choice (follow the server's default sharing
+  // setting); true/false = the user's own choice, which the admin default never
+  // overrides. Only written once the user actually toggles it.
+  shareReadBooks: boolean | null
 
   // Sleep
   sleepRewind: boolean
@@ -137,7 +140,7 @@ export const useSettingsStore = create<SettingsState>()(
       libraryFill: false,
       unifiedHome: false,
       showOthersBooks: true,
-      shareReadBooks: true,
+      shareReadBooks: null,
 
       // Sleep
       sleepRewind: true,

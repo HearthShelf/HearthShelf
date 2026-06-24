@@ -537,3 +537,27 @@ export interface ABSListeningStats {
   dayOfWeek: Record<string, number>
   today: number
 }
+
+// --- Social (HearthShelf backend, /hs/social/*) ---
+// Cross-user data ABS won't serve to non-admins; read from ABS's database by our
+// backend. `available` is false when ABS's db isn't mapped, so the UI hides it.
+
+export interface HSLeaderboardEntry {
+  rank: number
+  userId: string
+  username: string
+  booksFinished: number
+  secondsListened: number
+  isMe: boolean
+}
+
+export interface HSLeaderboardResponse {
+  available: boolean
+  me: HSLeaderboardEntry | null
+  entries: HSLeaderboardEntry[]
+}
+
+export interface HSFinishedCount {
+  available: boolean
+  count: number
+}

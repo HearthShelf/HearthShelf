@@ -89,6 +89,15 @@ const SCHEMA = [
      count      INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (server_id, user_id, period_key)
    )`,
+  // Community config is a single instance-wide row (admin-owned), seeded from
+  // the COMMUNITY_DEFAULT_SHARE env on first boot. Holds the default for whether
+  // a user shares their reading on the leaderboard - applied to users who never
+  // set their own preference (see server/community.js).
+  `CREATE TABLE IF NOT EXISTS community_config (
+     id                  INTEGER PRIMARY KEY CHECK (id = 1),
+     default_share       INTEGER NOT NULL DEFAULT 1,
+     updated_at          INTEGER NOT NULL
+   )`,
   // AI config is a single instance-wide row (the admin's provider/key), not
   // per-user, so it stays single-row.
   `CREATE TABLE IF NOT EXISTS ai_config (

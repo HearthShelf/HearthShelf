@@ -25,6 +25,7 @@ import {
   ConfigIntegrations,
 } from '@/pages/config/ConfigContentPages'
 import { ConfigQuestGiver } from '@/pages/config/ConfigQuestGiver'
+import { ConfigCommunity } from '@/pages/config/ConfigCommunity'
 import { ConfigHosted } from '@/pages/config/ConfigHosted'
 import { StatsPage } from '@/pages/StatsPage'
 import { ConfigStub } from '@/pages/config/ConfigStub'
@@ -124,6 +125,10 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
       ],
     },
     {
+      label: 'Community',
+      items: [{ id: 'community', icon: 'groups', label: 'Community' }],
+    },
+    {
       label: 'Insights',
       items: [
         { id: 'mystats', icon: 'person', label: 'Your Stats' },
@@ -173,6 +178,8 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         return <ConfigIntegrations />
       case 'questgiver':
         return <ConfigQuestGiver />
+      case 'community':
+        return <ConfigCommunity />
       case 'connect':
         return <ConfigHosted />
       default:

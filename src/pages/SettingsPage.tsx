@@ -11,6 +11,7 @@ import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useQuery } from '@tanstack/react-query'
 import { getPlaylists, libraryKeys } from '@/api/libraries'
 import { getMe, changePassword, meKeys } from '@/api/me'
+import { getCommunityConfig, socialKeys } from '@/api/social'
 import { useRmabConfig } from '@/hooks/useRmab'
 import { fmtSessDate } from '@/lib/format'
 import {
@@ -290,6 +291,18 @@ export function SettingsPage() {
 
   const [section, setSection] = useState<SettingsSection>('account')
 
+  // The server's default sharing setting, so the leaderboard toggle can show the
+  // inherited state when the user hasn't chosen for themselves (shareReadBooks
+  // is null until they do).
+  const { data: community } = useQuery({
+    queryKey: socialKeys.communityConfig,
+    queryFn: getCommunityConfig,
+    staleTime: 5 * 60 * 1000,
+  })
+  const defaultShare = community?.defaultShare ?? true
+  // Effective state shown on the toggle: explicit choice if made, else default.
+  const sharesEffective = s.shareReadBooks ?? defaultShare
+
   return (
     <div className="page fade-in settings-shell">
       <div className="page-head">
@@ -549,9 +562,17 @@ export function SettingsPage() {
         />
         <SetRow
           title="Share my reading list"
-          desc="Let other listeners see your name and finished titles."
-          disabled
-          control={<ComingSoon />}
+          desc={
+            s.shareReadBooks === null
+              ? `Appear on the server leaderboard with your name and finished count. Following the server default (currently ${defaultShare ? 'shared' : 'hidden'}) until you choose.`
+              : 'Appear on the server leaderboard with your name and finished count. Turn this off to stay hidden from other listeners.'
+          }
+          control={
+            <Toggle
+              on={sharesEffective}
+              onClick={() => put('shareReadBooks', !sharesEffective)}
+            />
+          }
         />
       </div>
       </>
