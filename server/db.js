@@ -144,6 +144,19 @@ const SCHEMA = [
      created_at  INTEGER NOT NULL,
      PRIMARY KEY (server_id, cp_subject)
    )`,
+  // First-boot provisioning state (all-in-one image only). One row records that
+  // the bundled ABS has been initialised (root user created, default library
+  // made) so the routine runs exactly once, and stashes the minted admin token
+  // the auto-provision + onboarding flow reuse. Empty/absent on slim images.
+  `CREATE TABLE IF NOT EXISTS provisioning (
+     id              INTEGER PRIMARY KEY CHECK (id = 1),
+     abs_initialized INTEGER NOT NULL DEFAULT 0,
+     abs_admin_token TEXT,        -- admin token minted at provision time
+     root_username   TEXT,
+     root_password   TEXT,        -- generated root password, revealed once in setup
+     onboarded       INTEGER NOT NULL DEFAULT 0,  -- user finished the wizard
+     updated_at      INTEGER NOT NULL
+   )`,
 ]
 
 // Bring a pre-server_id database up to the keyed schema. Adds the server_id

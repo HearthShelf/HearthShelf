@@ -220,7 +220,7 @@ export function qgLibraryCandidates(books: QgBook[]): QgCandidate[] {
 // plus the authors the listener finishes most. Used to query the external
 // catalog (RMAB / Audible). Returns a small deduped, prioritized list.
 export function qgExternalSearchTerms(
-  profile: QgProfile,
+  _profile: QgProfile,
   books: QgBook[],
   weights: Record<string, number>,
   max = 5

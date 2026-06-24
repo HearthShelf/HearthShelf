@@ -32,12 +32,15 @@ import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
 import { handleAudplexus } from './routes/audplexus.js'
 import { handleHosted } from './routes/hosted.js'
+import { handleRuntime } from './routes/runtime.js'
+import { provisionAio } from './lib/provision-aio.js'
 
 const PORT = process.env.QG_PORT || 8080
 
 // Feature route modules, tried in order. Each returns true once it has handled
 // (and responded to) the request, false to let the next module try.
 const ROUTES = [
+  handleRuntime,
   handleHosted,
   handleQuestGiver,
   handleDiscover,
@@ -79,6 +82,11 @@ initDb()
   .then(async () => {
     const serverId = await getServerId()
     const configured = await isProviderConfigured()
+    // All-in-one image: set up the bundled ABS on first boot (root user, admin
+    // token, default library). Runs in the background so it never delays serving
+    // - the SPA polls /hs/runtime and shows onboarding once ABS is ready. A
+    // no-op on slim/hosted and on every boot after the first.
+    void provisionAio()
     server.listen(PORT, () => {
       // eslint-disable-next-line no-console
       console.log(

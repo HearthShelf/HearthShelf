@@ -1,0 +1,44 @@
+# All-in-one: one container running HearthShelf + a bundled AudiobookShelf.
+# HearthShelf provisions ABS on first boot and owns the whole onboarding flow, so
+# this is the most frictionless setup - bring your audiobooks, run one container.
+#
+#   docker compose -f docker-compose.aio.yml up -d
+#
+# For the slim image (point HearthShelf at your own ABS) use docker-compose.yml.
+services:
+  hearthshelf:
+    image: hearthshelf:aio
+    build:
+      context: .
+      target: aio
+    ports:
+      - "3000:80"
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:3000}
+      # QuestGiver AI recommender (optional). Key stays in-container.
+      - QG_PROVIDER=${QG_PROVIDER:-}
+      - QG_MODEL=${QG_MODEL:-}
+      - QG_API_KEY=${QG_API_KEY:-}
+      - QG_BASE_URL=${QG_BASE_URL:-}
+      - QG_LIMIT=${QG_LIMIT:-off}
+      - QG_ENABLED=${QG_ENABLED:-true}
+      - DISCOVER_ENABLED=${DISCOVER_ENABLED:-true}
+      # HearthShelf's own state (settings sync, QuestGiver config/history).
+      - QG_DATA_DIR=/app/data
+      # ReadMeABook acquisition (optional).
+      - RMAB_URL=${RMAB_URL:-}
+      - RMAB_TOKEN=${RMAB_TOKEN:-}
+    volumes:
+      # HearthShelf-specific state.
+      - hearthshelf-data:/app/data
+      # Bundled ABS: its database/config, derived metadata, and your library.
+      - abs-config:/config
+      - abs-metadata:/metadata
+      - abs-audiobooks:/audiobooks
+    restart: unless-stopped
+
+volumes:
+  hearthshelf-data:
+  abs-config:
+  abs-metadata:
+  abs-audiobooks:

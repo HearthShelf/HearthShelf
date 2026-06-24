@@ -9,6 +9,7 @@ import { BookDetailPage } from '@/pages/BookDetailPage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { SeriesDetailPage } from '@/pages/SeriesDetailPage'
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage'
+import { OnboardingPage } from '@/pages/OnboardingPage'
 import { UploadPage } from '@/pages/UploadPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { PlayerPage } from '@/pages/PlayerPage'
@@ -40,6 +41,11 @@ export const router = createBrowserRouter([
   {
     path: '/oauth/callback',
     element: <OAuthCallbackPage />,
+  },
+  {
+    path: '/onboarding',
+    element: <OnboardingPage />,
+    errorElement: <ErrorPage />,
   },
   {
     path: '/',

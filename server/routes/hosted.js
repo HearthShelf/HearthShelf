@@ -22,6 +22,7 @@
 
 import { json, readBody } from '../lib/http.js'
 import { getServerId } from '../db.js'
+import { getMode } from '../lib/context.js'
 import { getHostedConfig, setHostedConfig } from '../lib/hosted.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
@@ -60,7 +61,7 @@ export async function handleHosted(req, res, url, _ctx) {
     const cfg = await getHostedConfig()
     return (
       json(res, 200, {
-        mode: (process.env.HS_MODE || 'selfhosted').toLowerCase(),
+        mode: getMode(),
         paired: Boolean(cfg?.issuer && cfg?.jwksUrl),
         hasAbsAdminToken: Boolean(cfg?.absAdminToken),
         issuer: cfg?.issuer ?? null,

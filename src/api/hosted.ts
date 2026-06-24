@@ -2,6 +2,7 @@
 // These endpoints connect this self-hosted instance to app.hearthshelf.com
 // (pairing) and let an admin invite people to it from here.
 import { useAuthStore } from '@/store/authStore'
+import type { HSMode } from '@/api/runtime'
 
 async function hostedFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -23,7 +24,7 @@ async function hostedFetch<T>(path: string, options: RequestInit = {}): Promise<
 }
 
 export interface HostedStatus {
-  mode: 'selfhosted' | 'hosted'
+  mode: HSMode
   paired: boolean
   hasAbsAdminToken: boolean
   issuer: string | null

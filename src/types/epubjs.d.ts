@@ -23,6 +23,9 @@ declare module 'epubjs' {
     override(name: string, value: string, priority?: boolean): void
     fontSize(size: string): void
     font(family: string): void
+    // Register a default theme from a CSS-rules object (selector -> declarations).
+    // Injected into the rendered content iframe's stylesheet.
+    default(rules: Record<string, Record<string, string | number>>): void
   }
 
   export interface RelocatedLocation {

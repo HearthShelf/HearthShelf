@@ -19,8 +19,23 @@ import { getServerId } from '../db.js'
 import { resolveHostedContext } from './hosted.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
-// 'selfhosted' (default) or 'hosted'. Only selfhosted is implemented.
-const MODE = (process.env.HS_MODE || 'selfhosted').toLowerCase()
+
+// Deployment mode. Three values reach the rest of the app:
+//   'slim'   - HearthShelf only; the admin points it at their own ABS server.
+//   'aio'    - the all-in-one image; ABS is bundled in-container and HearthShelf
+//              owns its setup (first-boot auto-provision + onboarding).
+//   'hosted' - app.hearthshelf.com fronts many instances (control-plane grants).
+// 'selfhosted' is the legacy spelling of 'slim' and is accepted as an alias so
+// existing deployments keep working. Auth resolution treats slim and aio
+// identically (both validate a real ABS bearer); only 'hosted' differs.
+export function getMode() {
+  const raw = (process.env.HS_MODE || 'slim').toLowerCase()
+  if (raw === 'selfhosted') return 'slim'
+  if (raw === 'aio' || raw === 'hosted' || raw === 'slim') return raw
+  return 'slim'
+}
+
+const MODE = getMode()
 
 function bearer(req) {
   const header = req.headers['authorization'] || ''
