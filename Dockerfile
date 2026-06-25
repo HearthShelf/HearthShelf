@@ -58,7 +58,9 @@ CMD ["nginx", "-g", "daemon off;"]
 FROM nginx:alpine AS aio
 # nodejs runs both the QuestGiver backend and the bundled ABS server; ffmpeg +
 # tini are ABS runtime requirements (transcoding, PID 1 reaping).
-RUN apk add --no-cache nodejs ffmpeg tini tzdata
+# openssl: the backend uses it to generate the hs.direct keypair + CSR at pairing
+# (the private key never leaves the container). nginx/node/ffmpeg/tini as before.
+RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -67,12 +69,13 @@ COPY nginx/abs_proxy.conf /etc/nginx/templates/abs_proxy.conf.template
 COPY nginx/upgrade-map.conf /etc/nginx/templates/upgrade-map.conf
 COPY nginx/cors-map.conf /etc/nginx/templates/cors-map.conf.template
 COPY nginx/cors-headers.conf /etc/nginx/cors-headers.conf
-# hs.direct optional HTTPS: cert acquisition script + the :443 templates. Only
-# used at runtime when HSDIRECT_ENABLED=true; inert otherwise.
+# hs.direct automatic HTTPS: the :443 nginx templates. Cert acquisition itself is
+# done by the HearthShelf backend (server/lib/hsdirect.js) at pairing time, since
+# the control-plane credentials only exist after pairing. The entrypoint enables
+# the :443 block once the backend has provisioned a cert. openssl is needed by the
+# backend to generate the box's keypair + CSR (its private key never leaves here).
 COPY nginx/hsdirect-ssl.conf.template /etc/nginx/templates/hsdirect-ssl.conf.template
 COPY nginx/hsdirect_abs_proxy.conf.template /etc/nginx/templates/hsdirect_abs_proxy.conf.template
-COPY hs-direct-cert.sh /hs-direct-cert.sh
-RUN chmod +x /hs-direct-cert.sh
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
 

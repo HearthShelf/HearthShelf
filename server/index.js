@@ -36,6 +36,7 @@ import { handleAudplexus } from './routes/audplexus.js'
 import { handleHosted } from './routes/hosted.js'
 import { handleRuntime } from './routes/runtime.js'
 import { provisionAio } from './lib/provision-aio.js'
+import { hsDirectOnStartup } from './lib/hsdirect.js'
 
 const PORT = process.env.QG_PORT || 8080
 
@@ -119,6 +120,11 @@ initDb()
     // - the SPA polls /hs/runtime and shows onboarding once ABS is ready. A
     // no-op on slim/hosted and on every boot after the first.
     void provisionAio()
+    // If this AIO box was already paired with app.hearthshelf.com, refresh its
+    // hs.direct certificate on boot so :443 keeps serving a valid cert (the IP
+    // may have changed while it was down). No-op when not paired, opted out, or
+    // not the AIO image. Background; never delays serving.
+    void hsDirectOnStartup()
     server.listen(PORT, () => {
       // eslint-disable-next-line no-console
       console.log(

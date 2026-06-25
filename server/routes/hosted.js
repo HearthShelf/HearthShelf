@@ -25,6 +25,7 @@ import { getServerId } from '../db.js'
 import { getMode } from '../lib/context.js'
 import { getHostedConfig, setHostedConfig } from '../lib/hosted.js'
 import { configureHostedOidc } from '../lib/oidc-setup.js'
+import { acquireCert } from '../lib/hsdirect.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '')
@@ -233,6 +234,13 @@ export async function handleHosted(req, res, url, _ctx) {
       serverSecret: data.server_secret,
       absAdminToken: adminToken,
     })
+
+    // Now that the server_secret exists, hs.direct can provision this box its own
+    // valid HTTPS cert automatically - the monitored fallback connection that is
+    // a core reason HearthShelf exists. On by default once paired; skipped only
+    // when the admin opted out (HSDIRECT_DISABLED) or this isn't the AIO image.
+    // Background + non-fatal: pairing succeeds regardless of cert outcome.
+    void acquireCert().catch(() => {})
 
     // Return the code (and expiry) for the admin to redeem on app.hs.com.
     return (
