@@ -7,11 +7,28 @@ import {
   markOnboarded,
   type RootCredentials,
 } from '@/api/runtime'
-import { startPairing } from '@/api/hosted'
+import { startPairing, checkReachability, type ReachabilityResult } from '@/api/hosted'
 import { useAuth } from '@/hooks/useAuth'
 import { Wordmark } from '@/components/common/Wordmark'
+import { ReachabilityHelp } from '@/components/hosted/ReachabilityHelp'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
+// Map the control plane's machine reason for an invalid URL to a short sentence.
+function invalidReason(r: ReachabilityResult['validReason']): string {
+  switch (r) {
+    case 'not_https':
+    case 'not_absolute':
+      return 'Must be a full https:// web address.'
+    case 'ip_host':
+      return 'Use a hostname, not a bare IP address.'
+    case 'bad_host':
+      return 'Use a public hostname with a domain (not a LAN name).'
+    default:
+      return 'This address can’t be used.'
+  }
+}
 
 // The setup wizard a fresh install lands on. Two variants share this page:
 //
@@ -38,12 +55,56 @@ export function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const revealRan = useRef(false)
 
+  // The public address users reach this server at. Pre-filled from PUBLIC_URL (or
+  // the current origin) and editable; it feeds BOTH the reachability check and
+  // the pairing call, so they always agree on the value.
+  const [publicUrl, setPublicUrl] = useState('')
+  const [reach, setReach] = useState<ReachabilityResult | null>(null)
+  const [checking, setChecking] = useState(false)
+  const urlInit = useRef(false)
+
   const isAio = config?.mode === 'aio'
 
   // Default the connect choice once we know the mode.
   useEffect(() => {
     if (config && connect === null) setConnect(isAio)
   }, [config, connect, isAio])
+
+  // Seed the public URL field once config is known.
+  useEffect(() => {
+    if (config && !urlInit.current) {
+      urlInit.current = true
+      setPublicUrl(config.publicUrl || window.location.origin)
+    }
+  }, [config])
+
+  // Ask the control plane (via our backend) whether the URL is a reachable HTTPS
+  // host. Advisory only - the result never blocks pairing.
+  async function runCheck() {
+    const url = publicUrl.trim()
+    if (!url) {
+      setReach(null)
+      return
+    }
+    setChecking(true)
+    try {
+      setReach(await checkReachability({ publicUrl: url }))
+    } catch {
+      // A failed check (e.g. control plane unreachable) is non-fatal; just clear
+      // the hint rather than blocking the admin.
+      setReach(null)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  // Toggle the connect choice, kicking off a reachability check the first time
+  // it's turned on (rather than from an effect - keeps state changes out of
+  // render). The checkbox and the AIO default both route through here.
+  function setConnectChecked(next: boolean) {
+    setConnect(next)
+    if (next && publicUrl && reach === null && !checking) void runCheck()
+  }
 
   // AIO: reveal the generated root credentials once and sign in with them so the
   // admin never has to hunt for a password. Guarded against StrictMode double-run
@@ -72,7 +133,7 @@ export function OnboardingPage() {
     try {
       if (connect) {
         const result = await startPairing({
-          publicUrl: config?.publicUrl || window.location.origin,
+          publicUrl: publicUrl.trim() || config?.publicUrl || window.location.origin,
         })
         setPairCode(result.code)
         // Pairing is finished by the admin on app.hearthshelf.com; we still mark
@@ -149,21 +210,82 @@ export function OnboardingPage() {
       )}
 
       {(isAio || isAdmin) && (
-        <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={connect}
-            onChange={(e) => setConnect(e.target.checked)}
-          />
-          <span>
-            <span className="font-medium">Connect to app.hearthshelf.com</span>
-            <span className="block text-muted-foreground">
-              Reach your library from anywhere and invite people by email.
-              {isAio ? ' Recommended.' : ' Optional.'} You can change this later.
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={connect}
+              onChange={(e) => setConnectChecked(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">Connect to app.hearthshelf.com</span>
+              <span className="block text-muted-foreground">
+                Reach your library from anywhere and invite people by email.
+                {isAio ? ' Recommended.' : ' Optional.'} You can change this later.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+
+          {connect && (
+            <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
+              <label className="block font-medium" htmlFor="public-url">
+                Your server’s public address
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  id="public-url"
+                  value={publicUrl}
+                  placeholder="https://books.example.com"
+                  onChange={(e) => {
+                    setPublicUrl(e.target.value)
+                    setReach(null)
+                  }}
+                  onBlur={() => void runCheck()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={checking || !publicUrl.trim()}
+                  onClick={() => void runCheck()}
+                >
+                  {checking ? 'Checking…' : 'Check'}
+                </Button>
+              </div>
+
+              {checking && (
+                <p className="text-muted-foreground">
+                  Checking whether app.hearthshelf.com can reach your server…
+                </p>
+              )}
+
+              {!checking && reach && reach.valid && reach.reachable && (
+                <p className="text-primary">Reachable from the internet. You’re good to connect.</p>
+              )}
+
+              {!checking && reach && reach.valid && !reach.reachable && (
+                <p className="text-amber-500">
+                  Your address looks right, but app.hearthshelf.com couldn’t reach
+                  it ({reach.probeDetail || 'unreachable'}). This is common behind
+                  CGNAT or before DNS finishes updating - you can connect now and
+                  fix it later.
+                </p>
+              )}
+
+              {!checking && reach && !reach.valid && (
+                <p className="text-amber-500">
+                  {invalidReason(reach.validReason)} Pairing on app.hearthshelf.com
+                  won’t work until this is a public https address.
+                </p>
+              )}
+
+              {!checking && reach && !(reach.valid && reach.reachable) && (
+                <ReachabilityHelp />
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {error && (

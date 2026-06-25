@@ -140,6 +140,48 @@ export async function handleHosted(req, res, url, _ctx) {
     )
   }
 
+  // Pre-flight reachability check (called by the setup wizard before pairing).
+  // Proxies to the control plane's /reachability/check so the probe runs from the
+  // public internet vantage point, not this box (which can reach itself on the
+  // LAN regardless). Advisory only - never blocks pairing.
+  if (p === '/hs/hosted/reachability' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+
+    let body = {}
+    try {
+      const raw = await readBody(req)
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+
+    const controlPlane = (typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
+      ? body.controlPlaneUrl
+      : DEFAULT_CP
+    ).replace(/\/$/, '')
+    const publicUrl = (typeof body.publicUrl === 'string' && body.publicUrl ? body.publicUrl : PUBLIC_URL).replace(/\/$/, '')
+    if (!publicUrl) {
+      return (json(res, 400, { error: 'public_url_required', detail: 'set PUBLIC_URL or pass publicUrl' }), true)
+    }
+
+    let cpRes
+    try {
+      cpRes = await fetch(`${controlPlane}/reachability/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ public_url: publicUrl }),
+      })
+    } catch (err) {
+      return (json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }), true)
+    }
+    const data = await cpRes.json().catch(() => ({}))
+    if (!cpRes.ok) {
+      return (json(res, 502, { error: 'reachability_check_failed', status: cpRes.status }), true)
+    }
+    return (json(res, 200, data), true)
+  }
+
   // Start pairing with the control plane. HS announces itself; the control
   // plane returns a code (for the admin to enter on app.hearthshelf.com) plus
   // the trust details we persist (issuer, jwks_url, server secret).

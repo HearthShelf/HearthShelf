@@ -57,6 +57,38 @@ export function startPairing(opts?: {
   })
 }
 
+/** Machine-readable reason a public URL is unusable, from the control plane. */
+export type ReachabilityReason = 'not_absolute' | 'not_https' | 'ip_host' | 'bad_host'
+
+export interface ReachabilityResult {
+  /** The URL is an absolute HTTPS host (not a bare IP / dotless name). */
+  valid: boolean
+  validReason: ReachabilityReason | null
+  /** Whether the control plane could reach it over HTTPS. null when !valid. */
+  reachable: boolean | null
+  probeStatus: 'online' | 'offline' | null
+  probeDetail: string | null
+  httpStatus: number | null
+}
+
+/**
+ * Ask the control plane (via our backend) whether a public URL is a valid HTTPS
+ * host and reachable from the internet, before committing to pairing. Advisory:
+ * the answer never blocks pairing, it only warns the admin early.
+ */
+export function checkReachability(opts: {
+  publicUrl: string
+  controlPlaneUrl?: string
+}): Promise<ReachabilityResult> {
+  return hostedFetch<ReachabilityResult>('/reachability', {
+    method: 'POST',
+    body: JSON.stringify({
+      publicUrl: opts.publicUrl,
+      controlPlaneUrl: opts.controlPlaneUrl,
+    }),
+  })
+}
+
 export interface ConfigureOidcResult {
   ok: boolean
   issuer: string

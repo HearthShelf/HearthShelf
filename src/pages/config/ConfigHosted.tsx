@@ -4,6 +4,7 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useToast } from '@/hooks/useToast'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
+import { ReachabilityHelp } from '@/components/hosted/ReachabilityHelp'
 import {
   getHostedStatus,
   startPairing,
@@ -200,6 +201,8 @@ export function ConfigHosted() {
             automatically until this is set.
           </div>
         )}
+
+        <ReachabilityHelp />
       </div>
 
       <div className="section-head" style={{ marginTop: 'var(--s6)' }}>
