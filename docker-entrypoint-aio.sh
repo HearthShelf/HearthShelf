@@ -6,6 +6,25 @@
 # them and exits if any one dies, so Docker's restart policy recycles the box.
 set -e
 
+# --- hs.direct: obtain a wildcard cert + a synthesized PUBLIC_URL (optional) ---
+# When HSDIRECT_ENABLED=true, this generates our own key+CSR, has the VPS broker
+# sign it, installs the cert, and EXPORTS a synthesized PUBLIC_URL. It never holds
+# our key off-box and never aborts the container on failure. Must run BEFORE the
+# envsubst pass so PUBLIC_URL/HSDIRECT_STABLE_HOST are available to the templates.
+if [ "${HSDIRECT_ENABLED:-false}" = "true" ]; then
+  echo "[aio] hs.direct enabled - acquiring certificate"
+  # The cert script exports PUBLIC_URL and writes /config/hsdirect/stable_host.
+  . /hs-direct-cert.sh || echo "[aio] hs.direct cert step failed (continuing)"
+  if [ -f /config/hsdirect/stable_host ]; then
+    HSDIRECT_STABLE_HOST="$(cat /config/hsdirect/stable_host)"
+    export HSDIRECT_STABLE_HOST
+  fi
+  if [ -f /config/hsdirect/public_url ]; then
+    PUBLIC_URL="$(cat /config/hsdirect/public_url)"
+    export PUBLIC_URL
+  fi
+fi
+
 # Same envsubst pass as the slim image: bake runtime URLs into the nginx config.
 # In aio, ABS_SERVER_URL points at the loopback ABS we start below.
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
@@ -19,6 +38,17 @@ cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf
 envsubst '${HS_APP_ORIGIN}' \
   < /etc/nginx/templates/cors-map.conf.template \
   > /etc/nginx/conf.d/cors-map.conf
+
+# hs.direct :443 server block - only when enabled AND a cert was installed.
+if [ "${HSDIRECT_ENABLED:-false}" = "true" ] && [ -f /etc/hsdirect/tls/fullchain.pem ]; then
+  echo "[aio] hs.direct: enabling :443 with the provisioned wildcard cert"
+  envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_STABLE_HOST}' \
+    < /etc/nginx/templates/hsdirect_abs_proxy.conf.template \
+    > /etc/nginx/hsdirect_abs_proxy.conf
+  envsubst '${ABS_SERVER_URL} ${HSDIRECT_STABLE_HOST}' \
+    < /etc/nginx/templates/hsdirect-ssl.conf.template \
+    > /etc/nginx/conf.d/hsdirect-ssl.conf
+fi
 
 # --- bundled AudiobookShelf ---
 # ABS reads PORT/CONFIG_PATH/METADATA_PATH from the environment. We keep these

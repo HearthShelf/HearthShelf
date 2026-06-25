@@ -1,0 +1,32 @@
+# hs.direct ABS proxy behavior. Identical to abs_proxy.conf EXCEPT it forces the
+# Host / X-Forwarded-Host ABS sees to the STABLE hs.direct host instead of the raw
+# inbound $host. This is the load-bearing fix from
+# HearthShelf-WebApp docs/hs-direct-implementation.md sec 2.4 / sec 5:
+#
+#   ABS builds its OIDC redirect_uri from the Host header
+#   (OidcAuthStrategy.js:292-293,327). Under hs.direct the browser connects with an
+#   IP-bearing name (<ip-label>.<hash>.<zone>) that changes when the server's IP
+#   changes, but the Clerk OAuth client pins exactly ONE redirect_uri. If ABS saw
+#   the inbound IP-bearing host, the redirect_uri would not match the pin and the
+#   callback would fail. Forcing the stable <hash>.<zone> here keeps redirect_uri
+#   constant across IP changes (the wildcard cert still validates either name).
+#
+# ${HSDIRECT_STABLE_HOST} and ${ABS_SERVER_URL}/${PUBLIC_URL} are substituted by
+# the entrypoint at container start.
+
+proxy_set_header Host ${HSDIRECT_STABLE_HOST};
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Host ${HSDIRECT_STABLE_HOST};
+proxy_set_header X-Forwarded-Proto https;
+
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $connection_upgrade;
+
+proxy_buffering off;
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+
+proxy_redirect ${ABS_SERVER_URL}/ ${PUBLIC_URL}/;
+proxy_redirect default;

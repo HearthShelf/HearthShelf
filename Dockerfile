@@ -67,6 +67,12 @@ COPY nginx/abs_proxy.conf /etc/nginx/templates/abs_proxy.conf.template
 COPY nginx/upgrade-map.conf /etc/nginx/templates/upgrade-map.conf
 COPY nginx/cors-map.conf /etc/nginx/templates/cors-map.conf.template
 COPY nginx/cors-headers.conf /etc/nginx/cors-headers.conf
+# hs.direct optional HTTPS: cert acquisition script + the :443 templates. Only
+# used at runtime when HSDIRECT_ENABLED=true; inert otherwise.
+COPY nginx/hsdirect-ssl.conf.template /etc/nginx/templates/hsdirect-ssl.conf.template
+COPY nginx/hsdirect_abs_proxy.conf.template /etc/nginx/templates/hsdirect_abs_proxy.conf.template
+COPY hs-direct-cert.sh /hs-direct-cert.sh
+RUN chmod +x /hs-direct-cert.sh
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
 
@@ -87,6 +93,7 @@ ENV ABS_PORT=13378 \
 
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh
 RUN chmod +x /docker-entrypoint-aio.sh
-EXPOSE 80
+# 80 always; 443 used only when hs.direct provisions a cert at runtime.
+EXPOSE 80 443
 # tini as PID 1 reaps the node + nginx children the entrypoint spawns.
 ENTRYPOINT ["tini", "--", "/docker-entrypoint-aio.sh"]
