@@ -16,9 +16,12 @@ export interface RuntimeConfig {
   controlPlaneUrl: string
 }
 
-export interface RootCredentials {
+export interface InitAdminResult {
+  // ABS bearer token for the freshly created admin, so the SPA can sign in
+  // without re-prompting. Null if init succeeded but the follow-up login didn't
+  // (the wizard then falls back to the normal sign-in form).
+  token: string | null
   username: string
-  password: string
 }
 
 async function runtimeFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -39,14 +42,45 @@ export function getRuntimeConfig(): Promise<RuntimeConfig> {
   return runtimeFetch<RuntimeConfig>('')
 }
 
-// AIO only: reveal the auto-generated root credentials once. Returns null when
-// there's nothing to reveal (slim, already onboarded, or already read).
-export async function revealRootCredentials(): Promise<RootCredentials | null> {
-  try {
-    return await runtimeFetch<RootCredentials>('/root-credentials', { method: 'POST' })
-  } catch {
-    return null
+// Raised by initAdmin so the wizard can react to specific backend conditions
+// (e.g. ABS already has a root user) rather than a generic failure.
+export class InitAdminError extends Error {
+  constructor(
+    public code: string,
+    public status: number,
+  ) {
+    super(code)
+    this.name = 'InitAdminError'
   }
+}
+
+// AIO only: create the bundled ABS admin account with the user's chosen
+// credentials (drives ABS /init server-side) and return a bearer token to sign
+// in with. Throws InitAdminError with a machine code on failure.
+export async function initAdmin(credentials: {
+  username: string
+  password: string
+}): Promise<InitAdminResult> {
+  const token = useAuthStore.getState().token
+  const res = await fetch('/hs/runtime/init-admin', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(credentials),
+  })
+  if (!res.ok) {
+    let code = `http_${res.status}`
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (body?.error) code = body.error
+    } catch {
+      // non-JSON error body; keep the http_<status> fallback
+    }
+    throw new InitAdminError(code, res.status)
+  }
+  return res.json() as Promise<InitAdminResult>
 }
 
 export function markOnboarded(): Promise<{ onboarded: boolean }> {

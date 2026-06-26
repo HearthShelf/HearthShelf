@@ -291,6 +291,24 @@ export interface ABSLibrarySummary {
   mediaType: 'book' | 'podcast'
   displayOrder: number
 }
+// Create a library pointed at a folder. ABS auto-scans a newly created library,
+// so the wizard does not need to call scanLibrary after this. Returns the new
+// library (its `id` is used to confirm creation).
+export function createLibrary(opts: {
+  name: string
+  mediaType: 'book' | 'podcast'
+  fullPath: string
+}): Promise<ABSLibrarySummary & { id: string }> {
+  return absRequest<ABSLibrarySummary & { id: string }>('/api/libraries', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: opts.name,
+      mediaType: opts.mediaType,
+      icon: opts.mediaType === 'podcast' ? 'podcast' : 'audiobookshelf',
+      folders: [{ fullPath: opts.fullPath }],
+    }),
+  })
+}
 export function scanLibrary(
   libraryId: string,
   force = false

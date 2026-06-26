@@ -1,19 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
-import {
-  revealRootCredentials,
-  markOnboarded,
-  type RootCredentials,
-} from '@/api/runtime'
+import { initAdmin, InitAdminError, markOnboarded } from '@/api/runtime'
+import { createLibrary } from '@/api/admin'
 import { startPairing, checkReachability, type ReachabilityResult } from '@/api/hosted'
 import { useAuth } from '@/hooks/useAuth'
 import { Wordmark } from '@/components/common/Wordmark'
 import { ReachabilityHelp } from '@/components/hosted/ReachabilityHelp'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
 // Map the control plane's machine reason for an invalid URL to a short sentence.
 function invalidReason(r: ReachabilityResult['validReason']): string {
@@ -30,53 +28,64 @@ function invalidReason(r: ReachabilityResult['validReason']): string {
   }
 }
 
-// The setup wizard a fresh install lands on. Two variants share this page:
+// The default mount point the AIO image documents for the audiobook volume.
+const DEFAULT_LIBRARY_PATH = '/audiobooks'
+
+// The setup wizard a fresh install lands on. Two shapes share this page:
 //
-//   aio  - HearthShelf already provisioned the bundled ABS. We reveal the
-//          generated root credentials, sign the admin in with them, and DEFAULT
-//          to connecting to app.hearthshelf.com (the most frictionless path),
-//          with an opt-out to stay local-only.
+//   aio  - HearthShelf bundles ABS in-container. ABS starts uninitialised; the
+//          admin CREATES their own account here (we drive ABS /init), then sets
+//          up a library, then optionally connects to app.hearthshelf.com. Steps:
+//          Account -> Library -> Pair (Connect is decided on the Account step;
+//          the pairing code is shown last, once a library exists).
 //
-//   slim - the admin already runs their own ABS and has signed in. We don't
-//          assume they want app.hearthshelf.com; we offer it, opt-IN.
+//   slim - the admin already runs their own ABS and signs in first. We don't
+//          assume they want app.hearthshelf.com; we offer it, opt-IN. Steps:
+//          (login) -> Connect -> Pair.
 //
 // 'hosted' instances never reach here (the control plane manages onboarding).
+type AioStep = 'account' | 'library' | 'connect-aio' | 'pairing' | 'done'
+
 export function OnboardingPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: config, isLoading } = useRuntimeConfig()
-  const { isAuthenticated, signIn, user } = useAuth()
-
-  const [creds, setCreds] = useState<RootCredentials | null>(null)
-  // AIO defaults the connect choice ON; slim defaults it OFF.
-  const [connect, setConnect] = useState<boolean | null>(null)
-  const [pairCode, setPairCode] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const revealRan = useRef(false)
-
-  // The public address users reach this server at. Pre-filled from PUBLIC_URL (or
-  // the current origin) and editable; it feeds BOTH the reachability check and
-  // the pairing call, so they always agree on the value.
-  const [publicUrl, setPublicUrl] = useState('')
-  const [reach, setReach] = useState<ReachabilityResult | null>(null)
-  const [checking, setChecking] = useState(false)
-  const urlInit = useRef(false)
+  const { isAuthenticated, signIn } = useAuth()
 
   const isAio = config?.mode === 'aio'
 
-  // Default the connect choice once we know the mode.
-  useEffect(() => {
-    if (config && connect === null) setConnect(isAio)
-  }, [config, connect, isAio])
+  // ----- shared state -----
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Seed the public URL field once config is known.
-  useEffect(() => {
-    if (config && !urlInit.current) {
-      urlInit.current = true
-      setPublicUrl(config.publicUrl || window.location.origin)
-    }
-  }, [config])
+  // ----- account step (aio) -----
+  const [step, setStep] = useState<AioStep>('account')
+  const [adminUser, setAdminUser] = useState('')
+  const [adminPass, setAdminPass] = useState('')
+  const [adminPass2, setAdminPass2] = useState('')
+
+  // ----- connect decision -----
+  // null = the admin hasn't touched the toggle, so it shows its default (aio:on,
+  // slim:off) without an effect syncing state. The effective value is derived
+  // below as `connect`.
+  const [connectChoice, setConnectChoice] = useState<boolean | null>(null)
+  const connect = connectChoice ?? isAio
+  // null = the field hasn't been edited, so it shows the seeded value. The
+  // effective value is derived below as `publicUrl`.
+  const [publicUrlInput, setPublicUrlInput] = useState<string | null>(null)
+  const publicUrl = publicUrlInput ?? config?.publicUrl ?? window.location.origin
+  const [reach, setReach] = useState<ReachabilityResult | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  // ----- library step (aio) -----
+  const [libName, setLibName] = useState('Audiobooks')
+  const [libType, setLibType] = useState<'book' | 'podcast'>('book')
+  const [libPath, setLibPath] = useState(DEFAULT_LIBRARY_PATH)
+
+  // ----- pairing step -----
+  const [pairCode, setPairCode] = useState<string | null>(null)
+
+  const setPublicUrl = (v: string) => setPublicUrlInput(v)
 
   // Ask the control plane (via our backend) whether the URL is a reachable HTTPS
   // host. Advisory only - the result never blocks pairing.
@@ -90,66 +99,106 @@ export function OnboardingPage() {
     try {
       setReach(await checkReachability({ publicUrl: url }))
     } catch {
-      // A failed check (e.g. control plane unreachable) is non-fatal; just clear
-      // the hint rather than blocking the admin.
       setReach(null)
     } finally {
       setChecking(false)
     }
   }
 
-  // Toggle the connect choice, kicking off a reachability check the first time
-  // it's turned on (rather than from an effect - keeps state changes out of
-  // render). The checkbox and the AIO default both route through here.
   function setConnectChecked(next: boolean) {
-    setConnect(next)
+    setConnectChoice(next)
     if (next && publicUrl && reach === null && !checking) void runCheck()
   }
 
-  // AIO: reveal the generated root credentials once and sign in with them so the
-  // admin never has to hunt for a password. Guarded against StrictMode double-run
-  // and against re-revealing (the endpoint self-clears after the first read).
-  useEffect(() => {
-    if (!isAio || isAuthenticated || revealRan.current) return
-    revealRan.current = true
-    void (async () => {
-      const revealed = await revealRootCredentials()
-      if (!revealed) return // already revealed / claimed; admin signs in manually
-      setCreds(revealed)
-      try {
-        await signIn(revealed.username, revealed.password)
-      } catch {
-        // Sign-in failed; leave the credentials on screen so the admin can use
-        // the normal login form.
-      }
-    })()
-  }, [isAio, isAuthenticated, signIn])
-
-  const isAdmin = user?.type === 'admin' || user?.type === 'root'
-
-  async function finish() {
+  // AIO step 1: create the admin account with the user's chosen credentials,
+  // then sign in. On success advance to the library step.
+  async function submitAccount() {
     setError(null)
+    if (adminUser.trim().length < 1) return setError('Choose a username.')
+    if (adminPass.length < 8) return setError('Password must be at least 8 characters.')
+    if (adminPass !== adminPass2) return setError('Passwords don’t match.')
+
     setBusy(true)
     try {
-      if (connect) {
-        const result = await startPairing({
-          publicUrl: publicUrl.trim() || config?.publicUrl || window.location.origin,
-        })
-        setPairCode(result.code)
-        // Pairing is finished by the admin on app.hearthshelf.com; we still mark
-        // onboarding complete so the box stops routing here.
-      }
-      await markOnboarded()
-      await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
-      if (!connect) navigate('/', { replace: true })
+      await initAdmin({ username: adminUser.trim(), password: adminPass })
+      // initAdmin created the account; sign in to populate the full session.
+      await signIn(adminUser.trim(), adminPass)
+      setStep('library')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Setup step failed. Please try again.')
+      if (e instanceof InitAdminError && e.code === 'already_initialized') {
+        setError(
+          'This server already has an admin account. Sign in instead from the login page.'
+        )
+      } else if (e instanceof InitAdminError && e.code === 'abs_unreachable') {
+        setError('Your audiobook server isn’t responding yet. Wait a moment and try again.')
+      } else {
+        setError('Couldn’t create your admin account. Please try again.')
+      }
     } finally {
       setBusy(false)
     }
   }
 
-  if (isLoading || connect === null) {
+  // AIO step 2: create the library (ABS auto-scans it). Advance to connect/pair.
+  async function submitLibrary() {
+    setError(null)
+    if (!libName.trim()) return setError('Give your library a name.')
+    if (!libPath.trim()) return setError('Enter the folder your audiobooks are in.')
+
+    setBusy(true)
+    try {
+      await createLibrary({
+        name: libName.trim(),
+        mediaType: libType,
+        fullPath: libPath.trim(),
+      })
+      // Library created and scanning in the background. Either pair now (if the
+      // admin opted to connect) or finish.
+      if (connect) {
+        await beginPairing()
+      } else {
+        await finishLocal()
+      }
+    } catch {
+      setError('Couldn’t create the library. Check the folder path and try again.')
+      setBusy(false)
+    }
+  }
+
+  // Start pairing and show the code. Used by both aio (after library) and slim.
+  async function beginPairing() {
+    setError(null)
+    setBusy(true)
+    try {
+      const result = await startPairing({
+        publicUrl: publicUrl.trim() || config?.publicUrl || window.location.origin,
+      })
+      setPairCode(result.code)
+      await markOnboarded()
+      await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
+      setStep('pairing')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t start connecting. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Finish a local-only setup: mark onboarded and go straight into the app.
+  async function finishLocal() {
+    setError(null)
+    setBusy(true)
+    try {
+      await markOnboarded()
+      await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
+      navigate('/', { replace: true })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Setup step failed. Please try again.')
+      setBusy(false)
+    }
+  }
+
+  if (isLoading || !config) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         Loading…
@@ -163,11 +212,11 @@ export function OnboardingPage() {
     return null
   }
 
-  // After pairing started: show the code to redeem on app.hearthshelf.com.
-  if (pairCode) {
+  // ----- pairing code screen (shared) -----
+  if (step === 'pairing' && pairCode) {
     return (
       <Shell>
-        <CardTitle className="text-center text-lg">Almost there</CardTitle>
+        <h1 className="text-center text-lg font-semibold">Almost there</h1>
         <p className="text-sm text-muted-foreground">
           Finish connecting on app.hearthshelf.com by entering this pairing code.
           It expires shortly.
@@ -190,114 +239,290 @@ export function OnboardingPage() {
     )
   }
 
-  return (
-    <Shell>
-      <CardTitle className="text-center text-lg">
-        {isAio ? 'Your library is ready' : 'Connect HearthShelf'}
-      </CardTitle>
+  // ===== AIO step 1: create admin + connect decision =====
+  if (isAio && step === 'account') {
+    return (
+      <Shell>
+        <Eyebrow>First-run setup</Eyebrow>
+        <h1 className="text-2xl font-bold tracking-tight">Create your admin account</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Your audiobook server is ready. Choose the admin username and password
+          you’ll sign in with - this is the account that controls the server.
+        </p>
 
-      {isAio && creds && (
-        <div className="space-y-2 rounded-md border bg-muted/40 px-4 py-3 text-sm">
-          <p className="text-muted-foreground">
-            We set up your audiobook server and signed you in. Save these admin
-            credentials, then change the password in Settings.
-          </p>
-          <div className="font-mono">
-            <div>user: {creds.username}</div>
-            <div>pass: {creds.password}</div>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="admin-user">Username</Label>
+            <Input
+              id="admin-user"
+              autoComplete="username"
+              value={adminUser}
+              onChange={(e) => setAdminUser(e.target.value)}
+              placeholder="admin"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="admin-pass">Password</Label>
+            <Input
+              id="admin-pass"
+              type="password"
+              autoComplete="new-password"
+              value={adminPass}
+              onChange={(e) => setAdminPass(e.target.value)}
+              placeholder="At least 8 characters"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="admin-pass2">Confirm password</Label>
+            <Input
+              id="admin-pass2"
+              type="password"
+              autoComplete="new-password"
+              value={adminPass2}
+              onChange={(e) => setAdminPass2(e.target.value)}
+            />
           </div>
         </div>
-      )}
 
-      {(isAio || isAdmin) && (
-        <div className="space-y-3">
-          <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={connect}
-              onChange={(e) => setConnectChecked(e.target.checked)}
-            />
-            <span>
-              <span className="font-medium">Connect to app.hearthshelf.com</span>
-              <span className="block text-muted-foreground">
-                Reach your library from anywhere and invite people by email.
-                {isAio ? ' Recommended.' : ' Optional.'} You can change this later.
-              </span>
-            </span>
-          </label>
+        <ConnectToggle
+          connect={connect}
+          recommended
+          onToggle={setConnectChecked}
+          publicUrl={publicUrl}
+          setPublicUrl={setPublicUrl}
+          reach={reach}
+          setReach={setReach}
+          checking={checking}
+          runCheck={runCheck}
+        />
 
-          {connect && (
-            <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
-              <label className="block font-medium" htmlFor="public-url">
-                Your server’s public address
-              </label>
-              <div className="flex gap-2">
-                <Input
-                  id="public-url"
-                  value={publicUrl}
-                  placeholder="https://books.example.com"
-                  onChange={(e) => {
-                    setPublicUrl(e.target.value)
-                    setReach(null)
-                  }}
-                  onBlur={() => void runCheck()}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={checking || !publicUrl.trim()}
-                  onClick={() => void runCheck()}
-                >
-                  {checking ? 'Checking…' : 'Check'}
-                </Button>
-              </div>
+        <ErrorLine error={error} />
 
-              {checking && (
-                <p className="text-muted-foreground">
-                  Checking whether app.hearthshelf.com can reach your server…
-                </p>
-              )}
+        <Button className="w-full" disabled={busy} onClick={() => void submitAccount()}>
+          {busy ? 'Creating account…' : 'Create account and continue'}
+        </Button>
+      </Shell>
+    )
+  }
 
-              {!checking && reach && reach.valid && reach.reachable && (
-                <p className="text-primary">Reachable from the internet. You’re good to connect.</p>
-              )}
-
-              {!checking && reach && reach.valid && !reach.reachable && (
-                <p className="text-amber-500">
-                  Your address looks right, but app.hearthshelf.com couldn’t reach
-                  it ({reach.probeDetail || 'unreachable'}). This is common behind
-                  CGNAT or before DNS finishes updating - you can connect now and
-                  fix it later.
-                </p>
-              )}
-
-              {!checking && reach && !reach.valid && (
-                <p className="text-amber-500">
-                  {invalidReason(reach.validReason)} Pairing on app.hearthshelf.com
-                  won’t work until this is a public https address.
-                </p>
-              )}
-
-              {!checking && reach && !(reach.valid && reach.reachable) && (
-                <ReachabilityHelp />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
+  // ===== AIO step 2: library =====
+  if (isAio && step === 'library') {
+    return (
+      <Shell>
+        <Eyebrow>Set up your library</Eyebrow>
+        <h1 className="text-2xl font-bold tracking-tight">Add your audiobooks</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Point your server at the folder you mounted. HearthShelf creates the
+          library and scans it in the background - you can start browsing right away.
         </p>
-      )}
 
-      <Button className="w-full" onClick={() => void finish()} disabled={busy}>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="lib-name">Library name</Label>
+          <Input
+            id="lib-name"
+            value={libName}
+            onChange={(e) => setLibName(e.target.value)}
+            placeholder="Audiobooks"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label>Content type</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={libType === 'book' ? 'default' : 'outline'}
+              onClick={() => setLibType('book')}
+            >
+              Audiobooks
+            </Button>
+            <Button
+              type="button"
+              variant={libType === 'podcast' ? 'default' : 'outline'}
+              onClick={() => setLibType('podcast')}
+            >
+              Podcasts
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="lib-path">Folder location</Label>
+          <Input
+            id="lib-path"
+            value={libPath}
+            onChange={(e) => setLibPath(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <p className="text-xs leading-snug text-muted-foreground">
+            The volume mounted into your container (default{' '}
+            <span className="font-mono">/audiobooks</span>). Drop your files here
+            from the host.
+          </p>
+        </div>
+
+        <ErrorLine error={error} />
+
+        <Button className="w-full" disabled={busy || !libName.trim()} onClick={() => void submitLibrary()}>
+          {busy
+            ? connect
+              ? 'Setting up…'
+              : 'Creating library…'
+            : connect
+              ? 'Create library and connect'
+              : 'Create library and finish'}
+        </Button>
+      </Shell>
+    )
+  }
+
+  // ===== Slim: connect decision (admin already signed in) =====
+  return (
+    <Shell>
+      <Eyebrow>Connected to your server</Eyebrow>
+      <h1 className="text-2xl font-bold tracking-tight">Connect HearthShelf</h1>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Signed in as admin on your audiobook server. One optional step before
+        you’re in.
+      </p>
+
+      <ConnectToggle
+        connect={connect}
+        recommended={false}
+        onToggle={setConnectChecked}
+        publicUrl={publicUrl}
+        setPublicUrl={setPublicUrl}
+        reach={reach}
+        setReach={setReach}
+        checking={checking}
+        runCheck={runCheck}
+      />
+
+      <ErrorLine error={error} />
+
+      <Button
+        className="w-full"
+        disabled={busy}
+        onClick={() => void (connect ? beginPairing() : finishLocal())}
+      >
         {busy ? 'Setting up…' : connect ? 'Connect and continue' : 'Continue to HearthShelf'}
       </Button>
     </Shell>
+  )
+}
+
+// The app.hearthshelf.com opt-in plus the public-URL reachability check, shared
+// by the AIO account step and the slim connect step.
+function ConnectToggle({
+  connect,
+  recommended,
+  onToggle,
+  publicUrl,
+  setPublicUrl,
+  reach,
+  setReach,
+  checking,
+  runCheck,
+}: {
+  connect: boolean
+  recommended: boolean
+  onToggle: (next: boolean) => void
+  publicUrl: string
+  setPublicUrl: (v: string) => void
+  reach: ReachabilityResult | null
+  setReach: (r: ReachabilityResult | null) => void
+  checking: boolean
+  runCheck: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={connect}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        <span>
+          <span className="font-medium">Connect to app.hearthshelf.com</span>
+          <span className="block text-muted-foreground">
+            Reach your library from anywhere and invite people by email.
+            {recommended ? ' Recommended.' : ' Optional.'} You can change this later.
+          </span>
+        </span>
+      </label>
+
+      {connect && (
+        <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
+          <Label htmlFor="public-url">Your server’s public address</Label>
+          <div className="flex gap-2">
+            <Input
+              id="public-url"
+              value={publicUrl}
+              placeholder="https://books.example.com"
+              onChange={(e) => {
+                setPublicUrl(e.target.value)
+                setReach(null)
+              }}
+              onBlur={() => void runCheck()}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={checking || !publicUrl.trim()}
+              onClick={() => void runCheck()}
+            >
+              {checking ? 'Checking…' : 'Check'}
+            </Button>
+          </div>
+
+          {checking && (
+            <p className="text-muted-foreground">
+              Checking whether app.hearthshelf.com can reach your server…
+            </p>
+          )}
+
+          {!checking && reach && reach.valid && reach.reachable && (
+            <p className="text-primary">Reachable from the internet. You’re good to connect.</p>
+          )}
+
+          {!checking && reach && reach.valid && !reach.reachable && (
+            <p className="text-amber-500">
+              Your address looks right, but app.hearthshelf.com couldn’t reach it
+              ({reach.probeDetail || 'unreachable'}). This is common behind CGNAT
+              or before DNS finishes updating - you can connect now and fix it later.
+            </p>
+          )}
+
+          {!checking && reach && !reach.valid && (
+            <p className="text-amber-500">
+              {invalidReason(reach.validReason)} Pairing on app.hearthshelf.com
+              won’t work until this is a public https address.
+            </p>
+          )}
+
+          {!checking && reach && !(reach.valid && reach.reachable) && <ReachabilityHelp />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[11px] font-light uppercase tracking-[0.32em] text-muted-foreground">
+      {children}
+    </div>
+  )
+}
+
+function ErrorLine({ error }: { error: string | null }) {
+  if (!error) return null
+  return (
+    <p className="text-sm text-destructive" role="alert">
+      {error}
+    </p>
   )
 }
 
