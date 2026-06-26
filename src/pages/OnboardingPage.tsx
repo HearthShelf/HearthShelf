@@ -7,11 +7,12 @@ import { createLibrary } from '@/api/admin'
 import { startPairing, checkReachability, type ReachabilityResult } from '@/api/hosted'
 import { useAuth } from '@/hooks/useAuth'
 import { Wordmark } from '@/components/common/Wordmark'
+import { Icon } from '@/components/common/Icon'
 import { ReachabilityHelp } from '@/components/hosted/ReachabilityHelp'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 
 // Map the control plane's machine reason for an invalid URL to a short sentence.
 function invalidReason(r: ReachabilityResult['validReason']): string {
@@ -30,6 +31,10 @@ function invalidReason(r: ReachabilityResult['validReason']): string {
 
 // The default mount point the AIO image documents for the audiobook volume.
 const DEFAULT_LIBRARY_PATH = '/audiobooks'
+
+// AIO wizard step labels, shown in the step rail. Order matches the flow:
+// create account -> add a library -> connect.
+const AIO_STEPS = ['Account', 'Library', 'Connect']
 
 // The setup wizard a fresh install lands on. Two shapes share this page:
 //
@@ -275,7 +280,8 @@ export function OnboardingPage() {
   if (isAio && step === 'account') {
     return (
       <Shell>
-        <Eyebrow>First-run setup · Step 1 of 3</Eyebrow>
+        <StepRail steps={AIO_STEPS} active={0} />
+        <Eyebrow>First-run setup</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Your audiobook server is ready. Set up the account you’ll sign in with.
@@ -339,7 +345,8 @@ export function OnboardingPage() {
   if (isAio && step === 'library') {
     return (
       <Shell>
-        <Eyebrow>Step 2 of 3</Eyebrow>
+        <StepRail steps={AIO_STEPS} active={1} />
+        <Eyebrow>Set up your library</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Add your audiobooks</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Point your server at the folder you mounted. HearthShelf creates the
@@ -408,7 +415,8 @@ export function OnboardingPage() {
     const reachable = reach?.valid && reach?.reachable
     return (
       <Shell>
-        <Eyebrow>Step 3 of 3 · Optional</Eyebrow>
+        <StepRail steps={AIO_STEPS} active={2} />
+        <Eyebrow>Optional</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Reach your library from anywhere</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Connecting to app.hearthshelf.com lets you open your library away from
@@ -676,13 +684,82 @@ function ErrorLine({ error }: { error: string | null }) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="items-center text-center">
-          <Wordmark className="text-3xl" />
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">{children}</CardContent>
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-5 pb-28 pt-12">
+      {/* Ambient page glow - two stacked radial blobs behind everything. */}
+      <div
+        aria-hidden
+        className="hs-onboard-glow pointer-events-none absolute left-1/2 top-[-260px] h-[560px] w-[820px] -translate-x-1/2"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, color-mix(in oklab, var(--primary) 40%, transparent), transparent 66%)',
+          filter: 'blur(46px)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-[-190px] h-[360px] w-[460px] -translate-x-1/2"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, color-mix(in oklab, var(--brand-hearth) 30%, transparent), transparent 64%)',
+          filter: 'blur(40px)',
+        }}
+      />
+
+      {/* Flame + wordmark, above the card (design-system placement). */}
+      <div className="relative z-10 mb-7 flex items-center gap-3">
+        <Icon
+          name="local_fire_department"
+          fill
+          className="text-[30px]"
+          style={{
+            color: 'var(--brand-hearth)',
+            textShadow: '0 0 22px color-mix(in oklab, var(--brand-hearth) 60%, transparent)',
+          }}
+        />
+        <Wordmark className="text-[25px]" />
+      </div>
+
+      <Card className="relative z-10 w-full max-w-md shadow-[var(--shadow-lift)]">
+        <CardContent className="flex flex-col gap-4 pt-6">{children}</CardContent>
       </Card>
+    </div>
+  )
+}
+
+// The numbered step rail shown at the top of each wizard card. `steps` are the
+// labels in order; `active` is the zero-based index of the current step. Done
+// steps show a check, the active one is ringed, upcoming ones are muted.
+function StepRail({ steps, active }: { steps: string[]; active: number }) {
+  return (
+    <div className="mb-2 flex items-center justify-between gap-1.5">
+      {steps.map((label, i) => {
+        const done = i < active
+        const current = i === active
+        return (
+          <div key={label} className="flex min-w-0 flex-none items-center gap-2">
+            <span
+              className={
+                'grid h-[25px] w-[25px] flex-none place-items-center rounded-full text-xs font-bold ' +
+                (done
+                  ? 'bg-primary text-primary-foreground'
+                  : current
+                    ? 'border-[1.5px] border-primary bg-primary/15 text-primary'
+                    : 'border-[1.5px] border-border bg-muted text-muted-foreground')
+              }
+            >
+              {done ? <Icon name="check" fill className="text-[15px]" /> : i + 1}
+            </span>
+            <span
+              className={
+                'whitespace-nowrap text-xs font-semibold tracking-tight ' +
+                (current ? 'text-foreground' : 'text-muted-foreground')
+              }
+            >
+              {label}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
