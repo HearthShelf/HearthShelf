@@ -279,8 +279,12 @@ export function OnboardingPage() {
     setError(null)
     setBusy(true)
     try {
+      // Only send a public URL when the admin explicitly entered their own domain.
+      // Otherwise leave it to the backend, which provisions + supplies the
+      // hs.direct address. (Sending the seeded bare IP here was the bug that made
+      // pairing demand a domain.)
       const result = await startPairing({
-        publicUrl: publicUrl.trim() || config?.publicUrl || window.location.origin,
+        publicUrl: publicUrlInput?.trim() || undefined,
       })
       setPairCode(result.code)
       await markOnboarded()

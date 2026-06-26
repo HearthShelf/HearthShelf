@@ -238,20 +238,25 @@ export async function handleHosted(req, res, url, _ctx) {
     const override = typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
     const cpApi = (override ? body.controlPlaneUrl : DEFAULT_CP_API).replace(/\/$/, '')
     const controlPlane = (override ? body.controlPlaneUrl : DEFAULT_CP).replace(/\/$/, '')
-    const publicUrl = (typeof body.publicUrl === 'string' && body.publicUrl ? body.publicUrl : PUBLIC_URL).replace(/\/$/, '')
-    if (!publicUrl) {
-      return (json(res, 400, { error: 'public_url_required', detail: 'set PUBLIC_URL or pass publicUrl' }), true)
-    }
+    // The admin's OWN domain, if they entered one (advanced). When absent, the
+    // address comes from hs.direct, which we can't know until after start (it
+    // needs the server_secret), so we send a placeholder now and update it once
+    // the cert is provisioned, before the user redeems.
+    const ownDomain = (typeof body.publicUrl === 'string' && body.publicUrl ? body.publicUrl : PUBLIC_URL).replace(/\/$/, '')
 
     const serverId = await getServerId()
     const name = typeof body.name === 'string' ? body.name : undefined
+    // Placeholder for start: the own domain if given, else a harmless https
+    // sentinel (start only sanity-checks the scheme; redeem is the real gate, and
+    // we overwrite this with the hs.direct hostname below).
+    const startUrl = ownDomain || `https://pending.${serverId}.hs.direct`
 
     let startRes
     try {
       startRes = await fetch(`${cpApi}/pairing/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ server_id: serverId, public_url: publicUrl, name }),
+        body: JSON.stringify({ server_id: serverId, public_url: startUrl, name }),
       })
     } catch (err) {
       return (json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }), true)
@@ -271,12 +276,29 @@ export async function handleHosted(req, res, url, _ctx) {
       absAdminToken: adminToken,
     })
 
-    // Now that the server_secret exists, hs.direct can provision this box its own
-    // valid HTTPS cert automatically - the monitored fallback connection that is
-    // a core reason HearthShelf exists. On by default once paired; skipped only
-    // when the admin opted out (HSDIRECT_DISABLED) or this isn't the AIO image.
-    // Background + non-fatal: pairing succeeds regardless of cert outcome.
-    void acquireCert().catch(() => {})
+    // With the server_secret in hand, provision the hs.direct cert NOW (awaited,
+    // not fire-and-forget) so we can hand the control plane the real public
+    // hostname before the user redeems. Skipped when the admin brought their own
+    // domain or opted out of hs.direct. Non-fatal: if it fails, the placeholder
+    // stays and the admin can retry; we just don't block returning the code.
+    if (!ownDomain) {
+      try {
+        const cert = await acquireCert()
+        if (cert?.ok && cert.publicUrl) {
+          await fetch(`${cpApi}/pairing/update-url`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: data.code,
+              server_secret: data.server_secret,
+              public_url: cert.publicUrl,
+            }),
+          }).catch(() => {})
+        }
+      } catch {
+        /* non-fatal - placeholder remains; redeem will prompt to fix */
+      }
+    }
 
     // Return the code (and expiry) for the admin to redeem on app.hs.com.
     return (
