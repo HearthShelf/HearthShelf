@@ -11,6 +11,7 @@
 //     onboarded: boolean,        // admin finished the HearthShelf wizard?
 //     publicUrl: string | null,  // this instance's public origin, if known
 //     controlPlaneUrl: string,   // where the connect step points
+//     serviceUsername: string | null, // the auto-created HS service root (AIO)
 //   }
 
 import crypto from 'node:crypto'
@@ -217,6 +218,9 @@ export async function handleRuntime(req, res, url, ctx) {
     onboarded: prov.onboarded,
     publicUrl: PUBLIC_URL,
     controlPlaneUrl: CONTROL_PLANE,
+    // The auto-created HearthShelf service root, so the Config UI can mark it as
+    // a machine account. Only AIO provisions one; null on slim/hosted.
+    serviceUsername: mode === 'aio' ? prov.rootUsername || SERVICE_USERNAME : null,
   })
   return true
 }

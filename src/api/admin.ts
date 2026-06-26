@@ -1,6 +1,7 @@
 import { absRequest } from '@/api/client'
 import type {
   ABSUsersResponse,
+  ABSAdminUser,
   ABSApiKeysResponse,
   ABSApiKey,
   ABSBackupsResponse,
@@ -19,6 +20,26 @@ export const adminKeys = {
 // --- Users ---
 export function getUsers(): Promise<ABSUsersResponse> {
   return absRequest<ABSUsersResponse>('/api/users')
+}
+
+// Create an ABS user. Used by the Service Accounts page to mint machine accounts
+// (type 'admin' by default). ABS echoes back the created user on `user`.
+export function createUser(opts: {
+  username: string
+  password: string
+  email?: string | null
+  type?: 'user' | 'admin'
+}): Promise<{ user: ABSAdminUser }> {
+  return absRequest<{ user: ABSAdminUser }>('/api/users', {
+    method: 'POST',
+    body: JSON.stringify({
+      username: opts.username,
+      password: opts.password,
+      email: opts.email || null,
+      type: opts.type ?? 'admin',
+      isActive: true,
+    }),
+  })
 }
 
 export function setUserActive(

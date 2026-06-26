@@ -1,7 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getUsers, deleteUser, setUserActive, adminKeys } from '@/api/admin'
+import {
+  getServiceAccountIds,
+  serviceAccountKeys,
+} from '@/api/serviceAccounts'
+import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
 import { fmtSessDate } from '@/lib/format'
 import type { ABSAdminUser } from '@/api/types'
 import { Icon } from '@/components/common/Icon'
@@ -20,13 +25,33 @@ export function ConfigUsers() {
   const [pendingDelete, setPendingDelete] = useState<ABSAdminUser | null>(null)
   const [adding, setAdding] = useState(false)
 
+  const { data: runtime } = useRuntimeConfig()
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: adminKeys.users,
     queryFn: getUsers,
     staleTime: 60 * 1000,
   })
+  const { data: trackedData } = useQuery({
+    queryKey: serviceAccountKeys.ids,
+    queryFn: getServiceAccountIds,
+    staleTime: 60 * 1000,
+  })
 
-  const users = data?.users ?? []
+  // Service accounts (the HS service root + any tagged here) live on their own
+  // Config page, so keep them out of this human-user list.
+  const serviceUsername = runtime?.serviceUsername ?? null
+  const trackedIds = useMemo(
+    () => new Set(trackedData?.ids ?? []),
+    [trackedData]
+  )
+  const allUsers = data?.users ?? []
+  const users = allUsers.filter(
+    (u) =>
+      !trackedIds.has(u.id) &&
+      !(serviceUsername != null && u.username === serviceUsername)
+  )
+  const serviceCount = allUsers.length - users.length
 
   const toggleActive = async (u: ABSAdminUser) => {
     await setUserActive(u.id, !u.isActive)
@@ -48,6 +73,23 @@ export function ConfigUsers() {
           <Icon name="add" /> Add user
         </button>
       </div>
+
+      {serviceCount > 0 && (
+        <p
+          style={{
+            fontSize: 13,
+            color: 'var(--text-muted)',
+            margin: '0 0 16px',
+          }}
+        >
+          <Icon name="smart_toy" style={{ verticalAlign: '-3px' }} />{' '}
+          {serviceCount} machine{' '}
+          {serviceCount === 1 ? 'account is' : 'accounts are'} hidden here.{' '}
+          <span className="lnk" onClick={() => navigate('/config/service-accounts')}>
+            Manage service accounts
+          </span>
+        </p>
+      )}
 
       {isLoading && <LoadingSpinner className="py-12" label="Loading users..." />}
       {isError && <ErrorState message="Could not load users." onRetry={refetch} />}

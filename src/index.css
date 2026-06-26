@@ -284,3 +284,23 @@
     color: var(--primary-foreground);
   }
 }
+
+/* Slow ambient glow for the onboarding wizard backdrop (matches the design
+   system's first-run hero). Honours reduced-motion. */
+@keyframes hs-onboard-glow {
+  0%,
+  100% {
+    opacity: 0.82;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.hs-onboard-glow {
+  animation: hs-onboard-glow 7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hs-onboard-glow {
+    animation: none;
+  }
+}

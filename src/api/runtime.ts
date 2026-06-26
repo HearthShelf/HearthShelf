@@ -14,6 +14,9 @@ export interface RuntimeConfig {
   onboarded: boolean
   publicUrl: string | null
   controlPlaneUrl: string
+  // The auto-created HearthShelf service root account (AIO only; null otherwise),
+  // so the Config UI can flag it as a machine account it owns.
+  serviceUsername: string | null
 }
 
 export interface InitAdminResult {

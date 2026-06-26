@@ -35,6 +35,7 @@ import { handleAudible } from './routes/audible.js'
 import { handleAudplexus } from './routes/audplexus.js'
 import { handleHosted } from './routes/hosted.js'
 import { handleRuntime } from './routes/runtime.js'
+import { handleServiceAccounts } from './routes/serviceAccounts.js'
 import { provisionAio } from './lib/provision-aio.js'
 import { hsDirectOnStartup } from './lib/hsdirect.js'
 
@@ -70,6 +71,7 @@ function applyCors(req, res) {
 // (and responded to) the request, false to let the next module try.
 const ROUTES = [
   handleRuntime,
+  handleServiceAccounts,
   handleHosted,
   handleQuestGiver,
   handleDiscover,

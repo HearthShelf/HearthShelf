@@ -153,6 +153,16 @@ const SCHEMA = [
      created_at  INTEGER NOT NULL,
      PRIMARY KEY (server_id, cp_subject)
    )`,
+  // HearthShelf-tracked service accounts (instance-wide, single row). A "service
+  // account" is just an ABS admin/root user; ABS has no native concept of one, so
+  // HearthShelf remembers which accounts it minted as machine accounts here. The
+  // auto-created service root (provisioning.root_username) is always treated as one
+  // without needing a row. ids_json is a JSON array of ABS user ids.
+  `CREATE TABLE IF NOT EXISTS service_accounts (
+     id          INTEGER PRIMARY KEY CHECK (id = 1),
+     ids_json    TEXT NOT NULL DEFAULT '[]',
+     updated_at  INTEGER NOT NULL
+   )`,
   // First-boot setup state (all-in-one image only). One row tracks whether the
   // bundled ABS has a root user yet (abs_initialized) and whether the admin has
   // finished HearthShelf's onboarding wizard (onboarded). On AIO the wizard
