@@ -30,7 +30,16 @@ import { acquireCert } from '../lib/hsdirect.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '')
+// The control plane has two hosts: the browser-facing app (where the admin
+// redeems a pairing code, app.hearthshelf.com) and the server-to-server API
+// (where this box POSTs pairing/start + reachability/check, api.hearthshelf.com).
+// They are split because the app host doesn't serve the API (it 405s). The API
+// base mirrors hsdirect.js's default. Override per-request via controlPlaneUrl
+// (the app link) only - the API base is env-only.
 const DEFAULT_CP = (process.env.HS_CONTROL_PLANE_URL || 'https://app.hearthshelf.com').replace(/\/$/, '')
+const DEFAULT_CP_API = (
+  process.env.HS_CONTROL_PLANE_API_URL || 'https://api.hearthshelf.com'
+).replace(/\/$/, '')
 // The hosted SPA origin allowed to receive tokens from the connect-return relay
 // and to make cross-origin calls (CORS). One origin, never '*'.
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
@@ -167,9 +176,11 @@ export async function handleHosted(req, res, url, _ctx) {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
 
-    const controlPlane = (typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
+    // Reachability is a pure server-to-server probe, so it targets the API base
+    // (an explicit controlPlaneUrl override still wins, for testing).
+    const cpApi = (typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
       ? body.controlPlaneUrl
-      : DEFAULT_CP
+      : DEFAULT_CP_API
     ).replace(/\/$/, '')
     const publicUrl = (typeof body.publicUrl === 'string' && body.publicUrl ? body.publicUrl : PUBLIC_URL).replace(/\/$/, '')
     if (!publicUrl) {
@@ -178,7 +189,7 @@ export async function handleHosted(req, res, url, _ctx) {
 
     let cpRes
     try {
-      cpRes = await fetch(`${controlPlane}/reachability/check`, {
+      cpRes = await fetch(`${cpApi}/reachability/check`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ public_url: publicUrl }),
@@ -208,10 +219,12 @@ export async function handleHosted(req, res, url, _ctx) {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
 
-    const controlPlane = (typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
-      ? body.controlPlaneUrl
-      : DEFAULT_CP
-    ).replace(/\/$/, '')
+    // Two hosts: cpApi for the server-to-server pairing call, controlPlane for
+    // the browser link the admin redeems the code on. An explicit
+    // controlPlaneUrl override (testing) drives both.
+    const override = typeof body.controlPlaneUrl === 'string' && body.controlPlaneUrl
+    const cpApi = (override ? body.controlPlaneUrl : DEFAULT_CP_API).replace(/\/$/, '')
+    const controlPlane = (override ? body.controlPlaneUrl : DEFAULT_CP).replace(/\/$/, '')
     const publicUrl = (typeof body.publicUrl === 'string' && body.publicUrl ? body.publicUrl : PUBLIC_URL).replace(/\/$/, '')
     if (!publicUrl) {
       return (json(res, 400, { error: 'public_url_required', detail: 'set PUBLIC_URL or pass publicUrl' }), true)
@@ -222,7 +235,7 @@ export async function handleHosted(req, res, url, _ctx) {
 
     let startRes
     try {
-      startRes = await fetch(`${controlPlane}/pairing/start`, {
+      startRes = await fetch(`${cpApi}/pairing/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ server_id: serverId, public_url: publicUrl, name }),
