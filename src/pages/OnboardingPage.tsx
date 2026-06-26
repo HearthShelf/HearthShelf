@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
-import { initAdmin, InitAdminError, markOnboarded } from '@/api/runtime'
+import { initAdmin, InitAdminError, markOnboarded, getPublicIp } from '@/api/runtime'
 import { createLibrary } from '@/api/admin'
 import { startPairing, checkReachability, type ReachabilityResult } from '@/api/hosted'
 import { useAuth } from '@/hooks/useAuth'
@@ -36,8 +36,9 @@ const DEFAULT_LIBRARY_PATH = '/audiobooks'
 //   aio  - HearthShelf bundles ABS in-container. ABS starts uninitialised; the
 //          admin CREATES their own account here (we drive ABS /init), then sets
 //          up a library, then optionally connects to app.hearthshelf.com. Steps:
-//          Account -> Library -> Pair (Connect is decided on the Account step;
-//          the pairing code is shown last, once a library exists).
+//          Account -> Library -> Connect -> Pair -> Done. Connect is its OWN late
+//          step (not folded into Account) so we never promise "reach from
+//          anywhere" before the reachability test has actually passed.
 //
 //   slim - the admin already runs their own ABS and signs in first. We don't
 //          assume they want app.hearthshelf.com; we offer it, opt-IN. Steps:
@@ -70,10 +71,16 @@ export function OnboardingPage() {
   // below as `connect`.
   const [connectChoice, setConnectChoice] = useState<boolean | null>(null)
   const connect = connectChoice ?? isAio
-  // null = the field hasn't been edited, so it shows the seeded value. The
-  // effective value is derived below as `publicUrl`.
+  // The box's detected public IP, fetched when the Connect step opens. We seed
+  // the address field from a real public address, never the LAN origin the
+  // browser sees (which can never work from the internet).
+  const [detectedIp, setDetectedIp] = useState<string | null>(null)
+  // null = the field hasn't been edited, so it shows the seeded value. The seed
+  // prefers an explicit PUBLIC_URL, else the detected public IP as an https host
+  // - NOT window.location.origin, which is the LAN address.
   const [publicUrlInput, setPublicUrlInput] = useState<string | null>(null)
-  const publicUrl = publicUrlInput ?? config?.publicUrl ?? window.location.origin
+  const seededUrl = config?.publicUrl ?? (detectedIp ? `https://${detectedIp}` : '')
+  const publicUrl = publicUrlInput ?? seededUrl
   const [reach, setReach] = useState<ReachabilityResult | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
@@ -149,7 +156,8 @@ export function OnboardingPage() {
     }
   }
 
-  // AIO step 2: create the library (ABS auto-scans it). Advance to connect/pair.
+  // AIO step 2: create the library (ABS auto-scans it). Advance to the Connect
+  // step, where we detect/test reachability BEFORE offering remote access.
   async function submitLibrary() {
     setError(null)
     if (!libName.trim()) return setError('Give your library a name.')
@@ -162,17 +170,22 @@ export function OnboardingPage() {
         mediaType: libType,
         fullPath: libPath.trim(),
       })
-      // Library created and scanning in the background. Either pair now (if the
-      // admin opted to connect) or finish.
-      if (connect) {
-        await beginPairing()
-      } else {
-        await finishLocal()
-      }
+      await goToConnect()
     } catch {
       setError('Couldn’t create the library. Check the folder path and try again.')
+    } finally {
       setBusy(false)
     }
+  }
+
+  // Open the Connect step: detect the public IP first so the address field is
+  // seeded with a real public address (best-effort; null just leaves it blank).
+  async function goToConnect() {
+    if (detectedIp === null) {
+      const ip = await getPublicIp()
+      if (ip) setDetectedIp(ip)
+    }
+    setStep('connect-aio')
   }
 
   // Start pairing and show the code. Used by both aio (after library) and slim.
@@ -249,11 +262,11 @@ export function OnboardingPage() {
     )
   }
 
-  // ===== AIO step 1: create admin + connect decision =====
+  // ===== AIO step 1: create admin (no connect promise here yet) =====
   if (isAio && step === 'account') {
     return (
       <Shell>
-        <Eyebrow>First-run setup</Eyebrow>
+        <Eyebrow>First-run setup · Step 1 of 3</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Create your admin account</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Your audiobook server is ready. Choose the admin username and password
@@ -294,20 +307,6 @@ export function OnboardingPage() {
           </div>
         </div>
 
-        <ConnectToggle
-          connect={connect}
-          recommended
-          onToggle={setConnectChecked}
-          publicUrl={publicUrl}
-          setPublicUrl={setPublicUrl}
-          reach={reach}
-          setReach={setReach}
-          checking={checking}
-          checkError={checkError}
-          clearCheckError={() => setCheckError(null)}
-          runCheck={runCheck}
-        />
-
         <ErrorLine error={error} />
 
         <Button className="w-full" disabled={busy} onClick={() => void submitAccount()}>
@@ -321,7 +320,7 @@ export function OnboardingPage() {
   if (isAio && step === 'library') {
     return (
       <Shell>
-        <Eyebrow>Set up your library</Eyebrow>
+        <Eyebrow>Step 2 of 3</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Add your audiobooks</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Point your server at the folder you mounted. HearthShelf creates the
@@ -376,14 +375,123 @@ export function OnboardingPage() {
         <ErrorLine error={error} />
 
         <Button className="w-full" disabled={busy || !libName.trim()} onClick={() => void submitLibrary()}>
-          {busy
-            ? connect
-              ? 'Setting up…'
-              : 'Creating library…'
-            : connect
-              ? 'Create library and connect'
-              : 'Create library and finish'}
+          {busy ? 'Creating library…' : 'Create library and continue'}
         </Button>
+      </Shell>
+    )
+  }
+
+  // ===== AIO step 3: connect (detect -> test -> confirm) =====
+  // We only reach here AFTER the account + library exist, and we never promise
+  // "reach from anywhere" until the reachability test has actually passed - so
+  // the admin doesn't think setup is done and then hit a firewall wall.
+  if (isAio && step === 'connect-aio') {
+    const reachable = reach?.valid && reach?.reachable
+    return (
+      <Shell>
+        <Eyebrow>Step 3 of 3 · Optional</Eyebrow>
+        <h1 className="text-2xl font-bold tracking-tight">Reach your library from anywhere</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Connecting to app.hearthshelf.com lets you open your library away from
+          home and invite people by email. First, let’s check your server can be
+          reached from the internet - this needs a port open on your router.
+        </p>
+
+        <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={connect}
+            onChange={(e) => setConnectChecked(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium">Connect to app.hearthshelf.com</span>
+            <span className="block text-muted-foreground">
+              Recommended. After connecting we set up a secure web address for you
+              automatically (hs.direct) - no domain needed. You can change this later.
+            </span>
+          </span>
+        </label>
+
+        {connect && (
+          <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
+            <Label htmlFor="public-url">Your server’s public address</Label>
+            <div className="flex gap-2">
+              <Input
+                id="public-url"
+                value={publicUrl}
+                placeholder="https://books.example.com"
+                onChange={(e) => {
+                  setPublicUrl(e.target.value)
+                  setReach(null)
+                  setCheckError(null)
+                }}
+                onBlur={() => void runCheck()}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={checking || !publicUrl.trim()}
+                onClick={() => void runCheck()}
+              >
+                {checking ? 'Checking…' : 'Test'}
+              </Button>
+            </div>
+            {detectedIp && (
+              <p className="text-xs text-muted-foreground">
+                Detected your public address from <span className="font-mono">{detectedIp}</span>.
+                If you use your own domain or reverse proxy, enter it instead.
+              </p>
+            )}
+
+            {checkError && <p className="text-amber-500">{checkError}</p>}
+
+            {checking && (
+              <p className="text-muted-foreground">
+                Checking whether app.hearthshelf.com can reach your server…
+              </p>
+            )}
+
+            {!checking && reach && reach.valid && reach.reachable && (
+              <p className="text-primary">Reachable from the internet. You’re good to connect.</p>
+            )}
+
+            {!checking && reach && reach.valid && !reach.reachable && (
+              <p className="text-amber-500">
+                Your address looks right, but app.hearthshelf.com couldn’t reach it
+                ({reach.probeDetail || 'unreachable'}). Open the port on your router,
+                or use the guidance below. This is common behind CGNAT or before DNS
+                finishes updating.
+              </p>
+            )}
+
+            {!checking && reach && !reach.valid && (
+              <p className="text-amber-500">
+                {invalidReason(reach.validReason)} Connecting won’t work until this
+                is a public https address - the guidance below covers the easy paths.
+              </p>
+            )}
+
+            {!checking && reach && !(reach.valid && reach.reachable) && <ReachabilityHelp />}
+          </div>
+        )}
+
+        <ErrorLine error={error} />
+
+        {connect ? (
+          <Button
+            className="w-full"
+            disabled={busy}
+            onClick={() => void beginPairing()}
+          >
+            {busy ? 'Setting up…' : reachable ? 'Connect and continue' : 'Connect anyway'}
+          </Button>
+        ) : (
+          <Button className="w-full" disabled={busy} onClick={() => void finishLocal()}>
+            {busy ? 'Finishing…' : 'Skip - keep it local'}
+          </Button>
+        )}
       </Shell>
     )
   }
@@ -425,8 +533,8 @@ export function OnboardingPage() {
   )
 }
 
-// The app.hearthshelf.com opt-in plus the public-URL reachability check, shared
-// by the AIO account step and the slim connect step.
+// The app.hearthshelf.com opt-in plus the public-URL reachability check, used by
+// the slim connect step. (AIO inlines its own copy with public-IP detection.)
 function ConnectToggle({
   connect,
   recommended,

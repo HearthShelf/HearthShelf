@@ -17,6 +17,7 @@ import { json, readBody } from '../lib/http.js'
 import { getMode, isAdmin } from '../lib/context.js'
 import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import { getHostedConfig } from '../lib/hosted.js'
+import { detectPublicIp } from '../lib/hsdirect.js'
 
 // On AIO the bundled ABS is co-located; ABS_SERVER_URL is set in the image but
 // fall back to the in-container default so the init-admin step always has a
@@ -106,6 +107,17 @@ export async function handleRuntime(req, res, url, ctx) {
 
     await setProvisioning({ absInitialized: true })
     return (json(res, 200, { token, username }), true)
+  }
+
+  // Report the box's public IP to the onboarding wizard so the Connect step can
+  // work from the real public address instead of the LAN one the browser sees.
+  // Gated to the AIO first-run window (no admin token exists yet on that step);
+  // returns { ip: null } when detection fails (advisory only, never blocks).
+  if (url.pathname === '/hs/runtime/public-ip' && req.method === 'GET') {
+    const onboarding = getMode() === 'aio' && !(await getProvisioning()).onboarded
+    if (!onboarding && !isAdmin(ctx)) return (json(res, 404, { error: 'not_found' }), true)
+    const ip = await detectPublicIp().catch(() => null)
+    return (json(res, 200, { ip }), true)
   }
 
   if (url.pathname !== '/hs/runtime' || req.method !== 'GET') return false

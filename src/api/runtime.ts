@@ -87,3 +87,15 @@ export async function initAdmin(credentials: {
 export function markOnboarded(): Promise<{ onboarded: boolean }> {
   return runtimeFetch<{ onboarded: boolean }>('/onboarded', { method: 'POST' })
 }
+
+// The box's public IP, so the Connect step can work from the real public address
+// instead of the LAN one the browser sees. Returns null when detection fails -
+// it's advisory, never blocking.
+export async function getPublicIp(): Promise<string | null> {
+  try {
+    const { ip } = await runtimeFetch<{ ip: string | null }>('/public-ip')
+    return ip
+  } catch {
+    return null
+  }
+}

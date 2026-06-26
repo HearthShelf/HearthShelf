@@ -181,7 +181,10 @@ export async function acquireCert({ force = false } = {}) {
   return { ok: true, host, publicUrl, hash }
 }
 
-async function detectPublicIp() {
+// Best-effort public IP lookup via several echo services. Returns the IPv4
+// string or null. Exported so the onboarding wizard can show the admin their
+// real public address (not the LAN one) before connecting.
+export async function detectPublicIp() {
   for (const url of ['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com']) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(8000) })
