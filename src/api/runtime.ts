@@ -45,12 +45,13 @@ export function getRuntimeConfig(): Promise<RuntimeConfig> {
 // Raised by initAdmin so the wizard can react to specific backend conditions
 // (e.g. ABS already has a root user) rather than a generic failure.
 export class InitAdminError extends Error {
-  constructor(
-    public code: string,
-    public status: number,
-  ) {
+  code: string
+  status: number
+  constructor(code: string, status: number) {
     super(code)
     this.name = 'InitAdminError'
+    this.code = code
+    this.status = status
   }
 }
 
