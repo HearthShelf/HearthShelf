@@ -6,8 +6,11 @@ import {
   createApiKey,
   deleteApiKey,
   createUser,
+  updateUser,
+  deleteUser,
   adminKeys,
 } from '@/api/admin'
+import type { UserFormSubmit } from '@/components/config/UserForm'
 import {
   getServiceAccountIds,
   tagServiceAccount,
@@ -15,10 +18,12 @@ import {
   serviceAccountKeys,
 } from '@/api/serviceAccounts'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
+import { useAuth } from '@/hooks/useAuth'
 import { fmtSessDate } from '@/lib/format'
 import type { ABSAdminUser, ABSApiKey } from '@/api/types'
 import { Icon } from '@/components/common/Icon'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
+import { UserForm } from '@/components/config/UserForm'
 import { Modal } from '@/components/common/Modal'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
@@ -63,11 +68,22 @@ function SecretReveal({ value }: { value: string }) {
 }
 
 // Per-account API key management, revealed when a service-account row is expanded.
-function AccountKeys({ account }: { account: ABSAdminUser }) {
+// canCreate is false for a root account viewed by a non-root admin: ABS forbids
+// minting a token under a root user unless the caller is root (matching how the
+// ABS web client hides root from its "act on behalf" picker), so we don't offer
+// it rather than letting the request 403.
+function AccountKeys({
+  account,
+  canCreate,
+}: {
+  account: ABSAdminUser
+  canCreate: boolean
+}) {
   const qc = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [createdToken, setCreatedToken] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<ABSApiKey | null>(null)
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -81,11 +97,18 @@ function AccountKeys({ account }: { account: ABSAdminUser }) {
   const create = async () => {
     const name = newName.trim()
     if (!name) return
-    const res = await createApiKey(name, account.id)
-    setCreatedToken(res.apiKey.apiKey ?? null)
-    setNewName('')
-    setCreating(false)
-    qc.invalidateQueries({ queryKey: adminKeys.apiKeys })
+    setCreateError(null)
+    try {
+      const res = await createApiKey(name, account.id)
+      setCreatedToken(res.apiKey.apiKey ?? null)
+      setNewName('')
+      setCreating(false)
+      qc.invalidateQueries({ queryKey: adminKeys.apiKeys })
+    } catch (e) {
+      setCreateError(
+        e instanceof Error ? e.message : 'Could not create token.'
+      )
+    }
   }
   const revoke = async (k: ABSApiKey) => {
     await deleteApiKey(k.id)
@@ -105,10 +128,20 @@ function AccountKeys({ account }: { account: ABSAdminUser }) {
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           API tokens for {account.username}
         </span>
-        <button className="btn-sm btn-accent" onClick={() => setCreating(true)}>
-          <Icon name="add" /> New token
-        </button>
+        {canCreate && (
+          <button className="btn-sm btn-accent" onClick={() => setCreating(true)}>
+            <Icon name="add" /> New token
+          </button>
+        )}
       </div>
+
+      {!canCreate && (
+        <p style={{ fontSize: 13, color: 'var(--text-faint)', margin: '4px 0 10px' }}>
+          <Icon name="info" style={{ verticalAlign: '-3px' }} /> This is a root
+          account. Only a root user can mint tokens under it - sign in as root, or
+          create a separate service account for app access.
+        </p>
+      )}
 
       {isLoading && <LoadingSpinner className="py-6" label="Loading tokens..." />}
       {isError && (
@@ -191,6 +224,20 @@ function AccountKeys({ account }: { account: ABSAdminUser }) {
             Mints a token under <strong>{account.username}</strong>. The app you
             give it to acts as this account.
           </p>
+          {createError && (
+            <p
+              style={{
+                fontSize: 13,
+                color: '#e8897f',
+                background: 'color-mix(in oklab, #d8443a 14%, transparent)',
+                border: '1px solid color-mix(in oklab, #d8443a 40%, transparent)',
+                borderRadius: 10,
+                padding: '8px 12px',
+              }}
+            >
+              {createError}
+            </p>
+          )}
           <div className="field full">
             <label>Token name</label>
             <input
@@ -244,6 +291,8 @@ function AccountKeys({ account }: { account: ABSAdminUser }) {
 export function ConfigServiceAccounts() {
   const qc = useQueryClient()
   const { data: runtime } = useRuntimeConfig()
+  const { user: me } = useAuth()
+  const callerIsRoot = me?.type === 'root'
   const [expanded, setExpanded] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ username: '', password: '', email: '' })
@@ -252,6 +301,10 @@ export function ConfigServiceAccounts() {
     password: string
   } | null>(null)
   const [pendingUntag, setPendingUntag] = useState<ABSAdminUser | null>(null)
+  const [editing, setEditing] = useState<ABSAdminUser | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ABSAdminUser | null>(null)
 
   const {
     data: usersData,
@@ -312,6 +365,31 @@ export function ConfigServiceAccounts() {
     qc.invalidateQueries({ queryKey: serviceAccountKeys.ids })
   }
 
+  const saveEdit = async (values: UserFormSubmit) => {
+    if (!editing) return
+    setEditBusy(true)
+    setEditError(null)
+    try {
+      await updateUser(editing.id, values)
+      qc.invalidateQueries({ queryKey: adminKeys.users })
+      setEditing(null)
+    } catch (e) {
+      // ABS returns a plain-language reason (e.g. "Username already taken").
+      setEditError(e instanceof Error ? e.message : 'Could not save changes')
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  // Permanently delete the underlying ABS account (and its tokens), then drop the
+  // HS tag. ABS forbids deleting root, so the root service account never offers it.
+  const doDelete = async (u: ABSAdminUser) => {
+    await deleteUser(u.id)
+    await untagServiceAccount(u.id).catch(() => {})
+    qc.invalidateQueries({ queryKey: adminKeys.users })
+    qc.invalidateQueries({ queryKey: serviceAccountKeys.ids })
+  }
+
   return (
     <>
       <div className="page-head-row">
@@ -367,6 +445,7 @@ export function ConfigServiceAccounts() {
             <tbody>
               {accounts.map((u) => {
                 const owned = isOwnedRoot(u)
+                const isRoot = u.type === 'root'
                 const open = expanded === u.id
                 return (
                   <Fragment key={u.id}>
@@ -409,6 +488,16 @@ export function ConfigServiceAccounts() {
                           >
                             <Icon name="key" />
                           </button>
+                          <button
+                            className="tbl-icon"
+                            title="Edit account"
+                            onClick={() => {
+                              setEditError(null)
+                              setEditing(u)
+                            }}
+                          >
+                            <Icon name="edit" />
+                          </button>
                           {!owned && (
                             <button
                               className="tbl-icon"
@@ -418,13 +507,25 @@ export function ConfigServiceAccounts() {
                               <Icon name="playlist_remove" />
                             </button>
                           )}
+                          {!isRoot && (
+                            <button
+                              className="tbl-icon"
+                              title="Delete account"
+                              onClick={() => setPendingDelete(u)}
+                            >
+                              <Icon name="delete" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
                     {open && (
                       <tr>
                         <td colSpan={4} style={{ background: 'var(--fill)' }}>
-                          <AccountKeys account={u} />
+                          <AccountKeys
+                            account={u}
+                            canCreate={!isRoot || callerIsRoot}
+                          />
                         </td>
                       </tr>
                     )}
@@ -526,6 +627,30 @@ export function ConfigServiceAccounts() {
           confirmLabel="Remove"
           onConfirm={() => void untag(pendingUntag)}
           onClose={() => setPendingUntag(null)}
+        />
+      )}
+
+      {editing && (
+        <UserForm
+          user={editing}
+          busy={editBusy}
+          error={editError}
+          onSubmit={(v) => void saveEdit(v)}
+          onClose={() => {
+            setEditing(null)
+            setEditError(null)
+          }}
+        />
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Delete service account"
+          message={`Permanently delete "${pendingDelete.username}"? This removes the AudiobookShelf account and every API token under it. Apps using those tokens stop working immediately. This cannot be undone.`}
+          confirmLabel="Delete account"
+          danger
+          onConfirm={() => void doDelete(pendingDelete)}
+          onClose={() => setPendingDelete(null)}
         />
       )}
     </>
