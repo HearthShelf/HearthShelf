@@ -705,15 +705,14 @@ function Shell({ children }: { children: React.ReactNode }) {
         }}
       />
 
-      {/* Flame + wordmark, above the card (design-system placement). */}
+      {/* Flame + wordmark, above the card (matches the sidebar brand lockup). */}
       <div className="relative z-10 mb-7 flex items-center gap-3">
-        <Icon
-          name="local_fire_department"
-          fill
-          className="text-[30px]"
+        <img
+          src="/flame.png"
+          alt=""
+          className="h-[30px] w-[30px] object-contain"
           style={{
-            color: 'var(--brand-hearth)',
-            textShadow: '0 0 22px color-mix(in oklab, var(--brand-hearth) 60%, transparent)',
+            filter: 'drop-shadow(0 0 14px color-mix(in oklab, var(--brand-hearth) 55%, transparent))',
           }}
         />
         <Wordmark className="text-[25px]" />
