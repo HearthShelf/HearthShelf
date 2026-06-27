@@ -66,9 +66,6 @@ export function AppBar() {
       <SearchDropdown />
       <div className="ab-spacer" />
       <div className="ab-actions">
-        <button className="ab-ico" title="Cast">
-          <Icon name="cast" />
-        </button>
         <button
           className="ab-ico"
           title="Upload"
