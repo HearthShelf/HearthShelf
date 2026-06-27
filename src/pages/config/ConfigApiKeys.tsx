@@ -7,6 +7,11 @@ import {
   deleteApiKey,
   adminKeys,
 } from '@/api/admin'
+import {
+  getServiceAccountIds,
+  serviceAccountKeys,
+} from '@/api/serviceAccounts'
+import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
 import { fmtSessDate } from '@/lib/format'
 import { useAuthStore } from '@/store/authStore'
 import { ABSRequestError } from '@/api/client'
@@ -36,6 +41,9 @@ export function ConfigApiKeys() {
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<ABSApiKey | null>(null)
+  // Keys owned by tagged service accounts are hidden by default - they're
+  // managed on the Service Accounts page and would just clutter this list.
+  const [showServiceKeys, setShowServiceKeys] = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: adminKeys.apiKeys,
@@ -51,7 +59,16 @@ export function ConfigApiKeys() {
     staleTime: 60 * 1000,
   })
 
-  const keys = data?.apiKeys ?? []
+  // Which users are service accounts: the ids an admin tagged, plus the
+  // auto-created service root (identified by username via the runtime config).
+  const { data: trackedData } = useQuery({
+    queryKey: serviceAccountKeys.ids,
+    queryFn: getServiceAccountIds,
+    staleTime: 60 * 1000,
+  })
+  const { data: runtime } = useRuntimeConfig()
+
+  const allKeys = data?.apiKeys ?? []
   const users = useMemo(
     () => (usersData?.users ?? []).filter((u) => u.type !== 'guest'),
     [usersData]
@@ -60,6 +77,22 @@ export function ConfigApiKeys() {
     () => new Map(users.map((u) => [u.id, u])),
     [users]
   )
+
+  const serviceUserIds = useMemo(() => {
+    const ids = new Set(trackedData?.ids ?? [])
+    const svcName = runtime?.serviceUsername
+    if (svcName) {
+      const root = users.find((u) => u.username === svcName)
+      if (root) ids.add(root.id)
+    }
+    return ids
+  }, [trackedData, runtime, users])
+
+  const isServiceKey = (k: ABSApiKey): boolean => serviceUserIds.has(k.userId)
+  const hiddenServiceCount = allKeys.filter(isServiceKey).length
+  const keys = showServiceKeys
+    ? allKeys
+    : allKeys.filter((k) => !isServiceKey(k))
 
   const ownerName = (k: ABSApiKey): string =>
     k.user?.username ?? userById.get(k.userId)?.username ?? 'Unknown'
@@ -114,6 +147,30 @@ export function ConfigApiKeys() {
 
       {isLoading && <LoadingSpinner className="py-12" label="Loading keys..." />}
       {isError && <ErrorState message="Could not load API keys." onRetry={refetch} />}
+
+      {data && hiddenServiceCount > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            margin: '0 0 14px',
+          }}
+        >
+          <div
+            className={'toggle' + (showServiceKeys ? ' on' : '')}
+            role="switch"
+            aria-checked={showServiceKeys}
+            onClick={() => setShowServiceKeys((v) => !v)}
+          >
+            <i />
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+            Show service-account keys
+            {!showServiceKeys && ` (${hiddenServiceCount} hidden)`}
+          </span>
+        </div>
+      )}
 
       {data && (
         <div className="tbl-wrap">

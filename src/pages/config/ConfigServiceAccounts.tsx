@@ -32,6 +32,22 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
+// Generate a strong random password the admin can hand to an app, the way a
+// password manager would. Uses crypto.getRandomValues over an unambiguous
+// alphabet (no look-alike 0/O, 1/l/I) and rejection-samples to avoid modulo bias.
+function generatePassword(length = 20): string {
+  const alphabet =
+    'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*-_'
+  const max = Math.floor(256 / alphabet.length) * alphabet.length
+  const out: string[] = []
+  const buf = new Uint8Array(1)
+  while (out.length < length) {
+    crypto.getRandomValues(buf)
+    if (buf[0] < max) out.push(alphabet[buf[0] % alphabet.length])
+  }
+  return out.join('')
+}
+
 // A reveal-once secret block (API token or generated password). The value is
 // shown plainly with select-all so the admin can copy it before dismissing -
 // neither the token nor the password is ever retrievable again.
@@ -296,6 +312,7 @@ export function ConfigServiceAccounts() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ username: '', password: '', email: '' })
+  const [showPw, setShowPw] = useState(false)
   const [createdCreds, setCreatedCreds] = useState<{
     username: string
     password: string
@@ -397,7 +414,14 @@ export function ConfigServiceAccounts() {
           <div className="eyebrow">Admin</div>
           <h1 className="title-xl">Service Accounts</h1>
         </div>
-        <button className="btn-sm btn-accent" onClick={() => setAdding(true)}>
+        <button
+          className="btn-sm btn-accent"
+          onClick={() => {
+            setForm({ username: '', password: '', email: '' })
+            setShowPw(false)
+            setAdding(true)
+          }}
+        >
           <Icon name="add" /> New service account
         </button>
       </div>
@@ -576,13 +600,36 @@ export function ConfigServiceAccounts() {
           </div>
           <div className="field full">
             <label>Password</label>
-            <input
-              className="fld"
-              type="text"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              placeholder="Choose a strong password"
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <input
+                className="fld"
+                style={{ flex: 1 }}
+                type={showPw ? 'text' : 'password'}
+                value={form.password}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, password: e.target.value }))
+                }
+                placeholder="Choose a strong password"
+              />
+              <button
+                className="btn-sm btn-ghost"
+                type="button"
+                title={showPw ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPw((v) => !v)}
+              >
+                <Icon name={showPw ? 'visibility_off' : 'visibility'} />
+              </button>
+              <button
+                className="btn-sm btn-ghost"
+                type="button"
+                onClick={() => {
+                  setForm((f) => ({ ...f, password: generatePassword() }))
+                  setShowPw(true)
+                }}
+              >
+                <Icon name="casino" /> Generate
+              </button>
+            </div>
           </div>
           <div className="field full">
             <label>Email (optional)</label>
