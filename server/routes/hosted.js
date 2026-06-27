@@ -388,7 +388,9 @@ export async function handleHosted(req, res, url, _ctx) {
     const data = await startRes.json()
 
     // Persist the trust details. The ABS admin token defaults to the caller's
-    // token so a single setup call leaves HS ready to federate users.
+    // token so a single setup call leaves HS ready to federate users. The
+    // control plane issues a fresh server_secret on every /pairing/start (and
+    // rotates the servers-row hash to match), so we always store the new one.
     await setHostedConfig({
       issuer: data.issuer,
       jwksUrl: data.jwks_url,
