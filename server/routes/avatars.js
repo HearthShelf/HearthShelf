@@ -14,11 +14,14 @@
 import { json, readBodyBuffer } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { getServerId } from '../db.js'
+import { getUserEmail } from '../lib/absdb.js'
+import { getUserSetting } from '../settings.js'
 import {
   readAvatar,
   writeAvatar,
   deleteAvatar,
   extForType,
+  gravatarUrlFor,
   MAX_AVATAR_BYTES,
 } from '../lib/avatars.js'
 
@@ -32,16 +35,38 @@ export async function handleAvatars(req, res, url, ctx) {
   if (req.method === 'GET') {
     const serverId = await getServerId()
     const avatar = await readAvatar(serverId, targetUserId)
-    if (!avatar) return (json(res, 404, { error: 'no_avatar' }), true)
-    res.writeHead(200, {
-      'Content-Type': avatar.contentType,
-      'Content-Length': avatar.buf.length,
-      // The path includes no version, so allow caching but let the client
-      // cache-bust with a ?v= query param after an upload.
-      'Cache-Control': 'public, max-age=300',
-    })
-    res.end(avatar.buf)
-    return true
+    if (avatar) {
+      res.writeHead(200, {
+        'Content-Type': avatar.contentType,
+        'Content-Length': avatar.buf.length,
+        // The path includes no version, so allow caching but let the client
+        // cache-bust with a ?v= query param after an upload.
+        'Cache-Control': 'public, max-age=300',
+      })
+      res.end(avatar.buf)
+      return true
+    }
+
+    // No uploaded photo: fall through to the user's Gravatar unless they opted
+    // out (useGravatar tri-state - default on, false means hide). We redirect to
+    // Gravatar with d=404, so a user with no Gravatar yields a 404 here too and
+    // the client renders initials. Email comes read-only from ABS.
+    const optedOut = (await getUserSetting(serverId, targetUserId, 'useGravatar')) === false
+    if (!optedOut) {
+      const email = await getUserEmail(targetUserId)
+      const gravatar = email && gravatarUrlFor(email)
+      if (gravatar) {
+        res.writeHead(302, {
+          Location: gravatar,
+          // Short cache so toggling the opt-out or setting a Gravatar takes
+          // effect promptly; the client also cache-busts with ?v= on upload.
+          'Cache-Control': 'public, max-age=300',
+        })
+        res.end()
+        return true
+      }
+    }
+    return (json(res, 404, { error: 'no_avatar' }), true)
   }
 
   // Writes require auth: the user themselves, or any admin.

@@ -28,6 +28,15 @@ export async function getSettings(serverId, userId) {
   return { values, updatedAt: Number(row.updated_at) }
 }
 
+// Read one key out of a user's settings blob, or null when unset / no settings.
+// Used by the avatar route to honor the per-user Gravatar opt-out without pulling
+// the whole settings object into that path.
+export async function getUserSetting(serverId, userId, key) {
+  const { values } = await getSettings(serverId, userId)
+  if (!values || typeof values !== 'object') return null
+  return key in values ? values[key] : null
+}
+
 // Map of user id -> their EXPLICIT leaderboard-sharing choice, for the users
 // (within a server) who have actually set one. shareReadBooks is tri-state:
 // present in a user's settings means they chose (true = share, false = hide);

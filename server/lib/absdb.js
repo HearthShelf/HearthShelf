@@ -125,6 +125,25 @@ export async function getLeaderboard({ limit = 100 } = {}) {
   }
 }
 
+// One user's email, read read-only from ABS (the source of truth for accounts).
+// Used to derive a Gravatar fallback for the avatar route. Returns null when the
+// db is unavailable, the user is unknown, or they have no email on file.
+export async function getUserEmail(userId) {
+  if (!userId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  try {
+    const res = await c.execute({
+      sql: `SELECT email FROM users WHERE id = ? LIMIT 1`,
+      args: [userId],
+    })
+    const email = res.rows[0]?.email
+    return email ? String(email) : null
+  } catch {
+    return null
+  }
+}
+
 // How many distinct users have finished a given library item. The progress rows
 // reference the book by its media id (books.id), not the library-item id, so we
 // hop libraryItems -> books to resolve it. Returns 0 on any failure.

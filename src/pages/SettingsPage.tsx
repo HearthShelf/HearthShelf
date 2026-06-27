@@ -701,6 +701,9 @@ function AccountSettings() {
     staleTime: 60 * 1000,
   })
 
+  const useGravatar = useSettingsStore((s) => s.useGravatar)
+  const setSetting = useSettingsStore((s) => s.set)
+
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -747,7 +750,26 @@ function AccountSettings() {
           <div className="cl-meta">
             <div className="cl-t">Profile photo</div>
           </div>
-          <AvatarUpload userId={me.id} name={me.username} size={72} />
+          <AvatarUpload
+            key={`grav-${useGravatar}`}
+            userId={me.id}
+            name={me.username}
+            size={72}
+          />
+        </div>
+        <div className="cfg-line">
+          <Icon name="public" style={{ color: 'var(--text-muted)' }} />
+          <div className="cl-meta">
+            <div className="cl-t">Use my Gravatar</div>
+            <div className="cl-d">
+              When you haven't uploaded a photo, show your Gravatar (from your
+              email) instead of initials.
+            </div>
+          </div>
+          <Toggle
+            on={useGravatar}
+            onClick={() => setSetting('useGravatar', !useGravatar)}
+          />
         </div>
       </div>
 

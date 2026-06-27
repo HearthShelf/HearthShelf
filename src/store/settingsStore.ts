@@ -91,6 +91,9 @@ export interface SettingsState {
   // setting); true/false = the user's own choice, which the admin default never
   // overrides. Only written once the user actually toggles it.
   shareReadBooks: boolean | null
+  // When no photo is uploaded, fall back to the user's Gravatar (by their email).
+  // On by default (opt-out); false hides the Gravatar so initials show instead.
+  useGravatar: boolean
 
   // Sleep
   sleepRewind: boolean
@@ -141,6 +144,7 @@ export const useSettingsStore = create<SettingsState>()(
       unifiedHome: false,
       showOthersBooks: true,
       shareReadBooks: null,
+      useGravatar: true,
 
       // Sleep
       sleepRewind: true,
@@ -180,6 +184,7 @@ const SETTINGS_KEYS: (keyof SettingsValues)[] = [
   'unifiedHome',
   'showOthersBooks',
   'shareReadBooks',
+  'useGravatar',
   'sleepRewind',
   'sleepRewindSec',
   'sleepFade',

@@ -10,6 +10,7 @@
 
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import crypto from 'node:crypto'
 import { db, initDb } from '../db.js'
 import { DB_DIR } from '../db.js'
 
@@ -28,6 +29,17 @@ const TYPE_EXT = {
 
 export function extForType(contentType) {
   return TYPE_EXT[contentType] || null
+}
+
+// The Gravatar image URL for an email, sized to match our avatars. `d=404` makes
+// Gravatar return a 404 (not a placeholder) when the user has no Gravatar, so the
+// avatar route can fall through to initials instead of serving a generic icon.
+// The hash is SHA-256 of the trimmed, lowercased email (Gravatar's current spec).
+export function gravatarUrlFor(email, size = 256) {
+  const normalized = String(email).trim().toLowerCase()
+  if (!normalized) return null
+  const hash = crypto.createHash('sha256').update(normalized).digest('hex')
+  return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`
 }
 
 async function ensureDir() {
