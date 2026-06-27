@@ -20,7 +20,7 @@ import { getMode, isAdmin } from '../lib/context.js'
 import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import { getHostedConfig, setHostedConfig } from '../lib/hosted.js'
 import { detectPublicIp } from '../lib/hsdirect.js'
-import { getServerName, setServerName } from '../db.js'
+import { getServerId, getServerName, setServerName } from '../db.js'
 
 // The bundled ABS root user is HearthShelf's own service/backup admin, not a
 // human login. Named so its purpose is obvious in the ABS user list years later.
@@ -32,6 +32,11 @@ const SERVICE_USERNAME = process.env.AIO_SERVICE_USERNAME || 'hearthshelf-servic
 const ABS_URL = process.env.ABS_SERVER_URL || 'http://127.0.0.1:13378'
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '') || null
 const CONTROL_PLANE = (process.env.HS_CONTROL_PLANE_URL || 'https://app.hearthshelf.com').replace(/\/$/, '')
+// Server-to-server control-plane API (api.hearthshelf.com), where the box pushes
+// a renamed server so the hosted app stays in sync. Same default as hosted.js.
+const CONTROL_PLANE_API = (
+  process.env.HS_CONTROL_PLANE_API_URL || 'https://api.hearthshelf.com'
+).replace(/\/$/, '')
 
 // Is ABS initialised (has a root user)? ABS reports this on /api/status without
 // auth. Used by slim, where HearthShelf doesn't provision ABS itself.
@@ -90,6 +95,24 @@ export async function handleRuntime(req, res, url, ctx) {
     const name = String(body.name || '').trim()
     if (name.length < 2) return (json(res, 400, { error: 'name_too_short' }), true)
     const saved = await setServerName(name)
+
+    // If this box is paired, push the name to the control plane so the hosted app
+    // shows the rename (otherwise it stays frozen at the pairing-time name).
+    // Best-effort: a failure here must not fail the local save.
+    try {
+      const cfg = await getHostedConfig().catch(() => null)
+      if (cfg?.serverSecret) {
+        const serverId = await getServerId()
+        await fetch(`${CONTROL_PLANE_API}/servers/name`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ server_id: serverId, server_secret: cfg.serverSecret, name }),
+        }).catch(() => {})
+      }
+    } catch {
+      /* non-fatal - the name is saved locally; CP sync can retry on next edit */
+    }
+
     return (json(res, 200, { serverName: saved }), true)
   }
 
