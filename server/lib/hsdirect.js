@@ -34,10 +34,12 @@ const CP_URL = (process.env.HSDIRECT_CP_URL || process.env.HS_CONTROL_PLANE || '
 const CERT_DIR = process.env.HSDIRECT_CERT_DIR || '/etc/hsdirect/tls'
 const STATE_DIR = process.env.HSDIRECT_STATE_DIR || '/config/hsdirect'
 const ACME_ENV = process.env.HSDIRECT_ACME_ENV || 'production'
-// hs.direct HTTPS is served on this port, NOT 443 (Plex-style - we don't take
-// over 443). The port is carried in the public URL. Must match the nginx SSL
-// block + the host port mapping. Default 9443.
-const HTTPS_PORT = Number(process.env.HSDIRECT_HTTPS_PORT || '9443')
+// hs.direct serves HTTPS on the SAME container port as the WebUI (:80), and the
+// host maps that to a host port (e.g. Unraid's 9277). The public URL must carry
+// that HOST port - which the container only knows if we tell it. HSDIRECT_PUBLIC_PORT
+// is the externally-reachable port (default 9277, the AIO WebUI port). The
+// reverse-proxy/own-domain user sets PUBLIC_URL instead and this is unused.
+const PUBLIC_PORT = Number(process.env.HSDIRECT_PUBLIC_PORT || '9277')
 
 const log = (...a) => console.log('[hsdirect]', ...a)
 const warn = (...a) => console.warn('[hsdirect]', ...a)
@@ -170,9 +172,9 @@ export async function acquireCert({ force = false } = {}) {
   // 4. Install the chain + compute the public URL from our current public IP.
   await fs.writeFile(crtPath, certPem, { mode: 0o644 })
   const ip = await detectPublicIp()
-  // Plex-style: the HTTPS port lives in the URL (we don't serve on 443). Omit it
-  // only when it actually is 443, so the URL stays clean in that (atypical) case.
-  const portSuffix = HTTPS_PORT === 443 ? '' : `:${HTTPS_PORT}`
+  // Plex-style: the externally-reachable port lives in the URL (we don't serve on
+  // 443). Omit it only when it is 443, so the URL stays clean in that case.
+  const portSuffix = PUBLIC_PORT === 443 ? '' : `:${PUBLIC_PORT}`
   const publicUrl = ip
     ? `https://${ip.replace(/\./g, '-')}.${host}${portSuffix}`
     : `https://${host}${portSuffix}`

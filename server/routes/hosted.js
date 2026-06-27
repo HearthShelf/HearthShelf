@@ -47,6 +47,10 @@ const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').
 // The hs.direct VPS broker, which also hosts the self-IP port probe. Same host
 // the cert flow uses. The probe connects back to THIS box's public IP.
 const BROKER_URL = (process.env.HSDIRECT_BROKER_URL || 'https://ns1.d.hearthshelf.com:8443').replace(/\/$/, '')
+// The externally-reachable port (the host's WebUI port; default 9277). The port
+// to forward + probe when there's no public URL yet (cert pending, no PUBLIC_URL
+// set) - it's the single port hs.direct will serve HTTPS on once the cert lands.
+const PUBLIC_PORT = Number(process.env.HSDIRECT_PUBLIC_PORT || '9277')
 
 // The port a user must forward / we probe: from a public URL's explicit port, or
 // the scheme default. Returns a number, or null if no URL.
@@ -263,9 +267,11 @@ export async function handleHosted(req, res, url, _ctx) {
       const adminToken = await requireAbsAdmin(req)
       if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
     }
+    // Port to test: the hs.direct URL's port, else PUBLIC_URL's, else the
+    // hs.direct serving port (9443) - which is where we'll be reachable once the
+    // cert lands, so it's the right thing to probe/forward even while pending.
     const hsd = await getHsDirectState().catch(() => null)
-    const port = portFromUrl(hsd?.publicUrl) ?? portFromUrl(PUBLIC_URL)
-    if (!port) return (json(res, 409, { error: 'no_public_port', detail: 'no public address to derive a port from' }), true)
+    const port = portFromUrl(hsd?.publicUrl) ?? portFromUrl(PUBLIC_URL) ?? PUBLIC_PORT
     try {
       const probeRes = await fetch(`${BROKER_URL}/probe`, {
         method: 'POST',

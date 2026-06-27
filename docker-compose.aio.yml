@@ -12,14 +12,14 @@ services:
       context: .
       target: aio
     ports:
+      # Single port (Plex-style): serves the WebUI over HTTP for LAN, and HTTPS
+      # on this SAME port once hs.direct provisions a cert. Forward this one port
+      # on your router for remote access; hs.direct's address is https://<host>:9277.
       - "9277:80"
-      # hs.direct HTTPS (Plex-style: we don't take 443). Maps host 9443 ->
-      # container 9443 so the auto address https://<host>:9443 is reachable.
-      # Forward this same port on your router to reach the server from outside.
-      - "9443:9443"
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:9277}
-      - HSDIRECT_HTTPS_PORT=${HSDIRECT_HTTPS_PORT:-9443}
+      # The externally-reachable port the hs.direct URL uses (the host port above).
+      - HSDIRECT_PUBLIC_PORT=${HSDIRECT_PUBLIC_PORT:-9277}
       # QuestGiver AI recommender (optional). Key stays in-container.
       - QG_PROVIDER=${QG_PROVIDER:-}
       - QG_MODEL=${QG_MODEL:-}

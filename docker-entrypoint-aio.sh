@@ -27,12 +27,8 @@ if [ -z "${PUBLIC_URL:-}" ] && [ -f /config/hsdirect/public_url ]; then
   export PUBLIC_URL
 fi
 
-# Same envsubst pass as the slim image: bake runtime URLs into the nginx config.
-# In aio, ABS_SERVER_URL points at the loopback ABS we start below.
+# Shared bits both the HTTP and HTTPS server blocks include.
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
-envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
-  < /etc/nginx/templates/default.conf.template \
-  > /etc/nginx/conf.d/default.conf
 envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' \
   < /etc/nginx/templates/abs_proxy.conf.template \
   > /etc/nginx/abs_proxy.conf
@@ -41,19 +37,29 @@ envsubst '${HS_APP_ORIGIN}' \
   < /etc/nginx/templates/cors-map.conf.template \
   > /etc/nginx/conf.d/cors-map.conf
 
-# hs.direct HTTPS server block - whenever a provisioned cert + stable host exist.
-# Served on HSDIRECT_HTTPS_PORT (default 9443), NOT 443 (Plex-style; the port is
-# in the public URL). No env gate on cert presence: the backend only writes these
-# once the box is paired and not opted out, so their presence IS the signal.
-export HSDIRECT_HTTPS_PORT="${HSDIRECT_HTTPS_PORT:-9443}"
+# SINGLE-PORT model (Plex-style): the container listens on ONE port (:80, mapped
+# to the host's WebUI port, e.g. 9277). Before a cert exists we serve plain HTTP
+# there for LAN access. Once hs.direct has provisioned a cert, we serve HTTPS on
+# that SAME port instead - so hs.direct is https://<host>:<that port>, the user
+# forwards one port, and there is no second port to map. The backend reloads
+# nginx when the cert lands; on the next render this block flips HTTP->HTTPS.
 if [ -f /etc/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}" ]; then
-  echo "[aio] hs.direct: enabling HTTPS on :${HSDIRECT_HTTPS_PORT} with the provisioned wildcard cert"
+  echo "[aio] hs.direct: serving HTTPS on :80 (the WebUI port) with the provisioned cert"
   envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_STABLE_HOST}' \
     < /etc/nginx/templates/hsdirect_abs_proxy.conf.template \
     > /etc/nginx/hsdirect_abs_proxy.conf
-  envsubst '${ABS_SERVER_URL} ${HSDIRECT_STABLE_HOST} ${HSDIRECT_HTTPS_PORT}' \
+  # The SSL block listens on :80 ssl - it REPLACES the plain :80 block (we don't
+  # render default.conf), so there's exactly one server on the port.
+  envsubst '${ABS_SERVER_URL} ${HSDIRECT_STABLE_HOST}' \
     < /etc/nginx/templates/hsdirect-ssl.conf.template \
     > /etc/nginx/conf.d/hsdirect-ssl.conf
+  rm -f /etc/nginx/conf.d/default.conf
+else
+  # No cert yet: plain HTTP on :80 for LAN.
+  envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
+    < /etc/nginx/templates/default.conf.template \
+    > /etc/nginx/conf.d/default.conf
+  rm -f /etc/nginx/conf.d/hsdirect-ssl.conf
 fi
 
 # --- bundled AudiobookShelf ---
