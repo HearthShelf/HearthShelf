@@ -8,7 +8,9 @@ import {
   startPairing,
   checkReachability,
   getHsDirectState,
+  pollPairStatus,
   type HsDirectState,
+  type PairStatus,
   HostedError,
   type ReachabilityResult,
 } from '@/api/hosted'
@@ -59,8 +61,8 @@ function pairingErrorMessage(e: unknown): string {
 const DEFAULT_LIBRARY_PATH = '/audiobooks'
 
 // AIO wizard step labels, shown in the step rail. Order matches the flow:
-// create account -> add a library -> connect.
-const AIO_STEPS = ['Account', 'Library', 'Connect']
+// name the server -> create account -> add a library -> connect.
+const AIO_STEPS = ['Name', 'Account', 'Library', 'Connect']
 
 // The setup wizard a fresh install lands on. Two shapes share this page:
 //
@@ -76,7 +78,7 @@ const AIO_STEPS = ['Account', 'Library', 'Connect']
 //          (login) -> Connect -> Pair.
 //
 // 'hosted' instances never reach here (the control plane manages onboarding).
-type AioStep = 'account' | 'library' | 'connect-aio' | 'pairing' | 'done'
+type AioStep = 'name' | 'account' | 'library' | 'connect-aio' | 'pairing' | 'done'
 
 export function OnboardingPage() {
   const navigate = useNavigate()
@@ -90,16 +92,18 @@ export function OnboardingPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ----- account step (aio) -----
+  // ----- step machine (aio) -----
   // The dev rerun hatch (/hs/rerun-onboarding) lands on ?step=connect so we can
-  // iterate on the connect step without re-walking account + library. Maps the
+  // iterate on the connect step without re-walking the earlier steps. Maps the
   // friendly 'connect' param to the internal 'connect-aio' step.
   const [step, setStep] = useState<AioStep>(() => {
     const p = new URLSearchParams(window.location.search).get('step')
     if (p === 'connect') return 'connect-aio'
-    if (p === 'library' || p === 'account') return p
-    return 'account'
+    if (p === 'name' || p === 'library' || p === 'account') return p
+    return 'name'
   })
+  // ----- name step (aio): how the server is referred to everywhere (Plex-style) -----
+  const [serverName, setServerName] = useState('')
   const [adminUser, setAdminUser] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
   const [adminPass, setAdminPass] = useState('')
@@ -139,6 +143,8 @@ export function OnboardingPage() {
   const [pairCode, setPairCode] = useState<string | null>(null)
   // hs.direct provisioning, polled after pairing until the cert is ready.
   const [hsDirect, setHsDirect] = useState<HsDirectState | null>(null)
+  // Claim state, polled until a signed-in user redeems the code on the web app.
+  const [pairStatus, setPairStatus] = useState<PairStatus | null>(null)
 
   const setPublicUrl = (v: string) => setPublicUrlInput(v)
 
@@ -163,6 +169,27 @@ export function OnboardingPage() {
       clearTimeout(timer)
     }
   }, [onPairingScreen, ownDomain])
+
+  // While showing the code, poll the control plane until a signed-in user claims
+  // the server. Once claimed we stop polling and the screen shows the connected
+  // state + diagnostics (referring to the server by name).
+  const claimed = pairStatus?.claimed ?? false
+  useEffect(() => {
+    if (!onPairingScreen || !pairCode || claimed) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      const s = await pollPairStatus(pairCode).catch(() => null)
+      if (cancelled) return
+      if (s) setPairStatus(s)
+      if (!s || !s.claimed) timer = setTimeout(poll, 4000)
+    }
+    void poll()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [onPairingScreen, pairCode, claimed])
 
   // Ask the control plane (via our backend) whether a URL is reachable. Advisory.
   // Defaults to the connect field's URL; the Verify step passes the hs.direct
@@ -193,7 +220,15 @@ export function OnboardingPage() {
     setConnectChoice(next)
   }
 
-  // AIO step 1: create the admin account with the user's chosen credentials,
+  // AIO step 1: name the server. Just validates + advances; the name is sent
+  // through pairing later and is how the server is referred to everywhere.
+  function submitName() {
+    setError(null)
+    if (serverName.trim().length < 2) return setError('Give your server a name.')
+    setStep('account')
+  }
+
+  // AIO step 2: create the admin account with the user's chosen credentials,
   // then sign in. On success advance to the library step.
   async function submitAccount() {
     setError(null)
@@ -285,6 +320,7 @@ export function OnboardingPage() {
       // pairing demand a domain.)
       const result = await startPairing({
         publicUrl: publicUrlInput?.trim() || undefined,
+        name: serverName.trim() || undefined,
       })
       setPairCode(result.code)
       await markOnboarded()
@@ -325,16 +361,85 @@ export function OnboardingPage() {
     return null
   }
 
-  // ----- pairing code + hs.direct verify screen (shared) -----
+  // ----- pairing screen: phase 1 (waiting for the claim) then phase 2 (claimed
+  // -> plain-language reachability). We never show the technical hs.direct host;
+  // the server is referred to by its name. -----
   if (step === 'pairing' && pairCode) {
-    const hsActive = hsDirect?.status === 'active'
-    const reachOk = reach?.reachable
+    const label = serverName.trim() || pairStatus?.name || 'your server'
+
+    // Phase 2: a signed-in user has claimed the server. Show the connected state
+    // and, for the auto-address path, whether it's reachable from outside.
+    if (claimed) {
+      const hsReady = ownDomain || hsDirect?.status === 'active'
+      const reachUrl = ownDomain ? publicUrlInput?.trim() : hsDirect?.publicUrl ?? undefined
+      const reachOk = reach?.reachable
+      return (
+        <Shell>
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Icon name="check_circle" fill className="text-[32px] text-primary" />
+            <h1 className="text-xl font-semibold">{label} is connected</h1>
+            <p className="text-sm text-muted-foreground">
+              {pairStatus?.claimedByEmail
+                ? `Linked to ${pairStatus.claimedByEmail}. You can now reach it from the HearthShelf app.`
+                : 'You can now reach it from the HearthShelf app.'}
+            </p>
+          </div>
+
+          {!ownDomain && hsDirect?.status === 'pending' && (
+            <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <span className="hs-onboard-glow inline-block h-2 w-2 rounded-full bg-primary" />
+              Finishing the secure connection…
+            </p>
+          )}
+
+          {hsReady && (
+            <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
+              <div className="font-medium">Can people reach {label} from outside your home?</div>
+              {!reach && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={checking || !reachUrl}
+                  onClick={() => void runCheck(reachUrl)}
+                >
+                  {checking ? 'Checking…' : 'Check now'}
+                </Button>
+              )}
+              {checkError && <p className="text-amber-500">{checkError}</p>}
+              {reach && reachOk && (
+                <p className="flex items-center gap-1.5 text-primary">
+                  <Icon name="check_circle" fill className="text-[15px]" />
+                  Yes - {label} is reachable from anywhere.
+                </p>
+              )}
+              {reach && !reachOk && (
+                <>
+                  <p className="text-amber-500">
+                    Not yet. {label} works on your home network, but to reach it
+                    from outside, your router needs to send incoming connections to
+                    this machine (forward port 443).
+                  </p>
+                  <ReachabilityHelp />
+                </>
+              )}
+            </div>
+          )}
+
+          <Button className="w-full" onClick={() => navigate('/', { replace: true })}>
+            Continue to HearthShelf
+          </Button>
+        </Shell>
+      )
+    }
+
+    // Phase 1: waiting for the admin to enter the code + sign in on the web app.
     return (
       <Shell>
         <h1 className="text-center text-lg font-semibold">Almost there</h1>
         <p className="text-sm text-muted-foreground">
-          Finish connecting on app.hearthshelf.com by entering this pairing code.
-          It expires shortly.
+          Open the HearthShelf app, sign in, and enter this code to connect{' '}
+          <strong>{label}</strong> to your account.
         </p>
         <div className="rounded-md border bg-muted/40 px-4 py-3 text-center font-mono text-2xl tracking-widest">
           {pairCode}
@@ -345,68 +450,62 @@ export function OnboardingPage() {
             window.open(`${config?.controlPlaneUrl}/pair?code=${pairCode}`, '_blank')
           }}
         >
-          Open app.hearthshelf.com
+          Open the HearthShelf app
         </Button>
-
-        {/* hs.direct provisioning + reachability, only for the auto-address path
-            (own-domain users manage their own cert/reachability). */}
-        {!ownDomain && (
-          <div className="space-y-2 rounded-md border px-4 py-3 text-sm">
-            {!hsActive && (
-              <p className="flex items-center gap-2 text-muted-foreground">
-                <span className="hs-onboard-glow inline-block h-2 w-2 rounded-full bg-primary" />
-                Setting up your secure web address…
-              </p>
-            )}
-            {hsActive && hsDirect?.publicUrl && (
-              <>
-                <p className="text-muted-foreground">Your library’s address:</p>
-                <p className="break-all font-mono text-foreground">{hsDirect.publicUrl}</p>
-                {!reach && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={checking}
-                    onClick={() => void runCheck(hsDirect.publicUrl ?? undefined)}
-                  >
-                    {checking ? 'Testing…' : 'Test it’s reachable'}
-                  </Button>
-                )}
-                {checkError && <p className="text-amber-500">{checkError}</p>}
-                {reach && reachOk && (
-                  <p className="flex items-center gap-1.5 text-primary">
-                    <Icon name="check_circle" fill className="text-[15px]" />
-                    Reachable from the internet. You’re all set.
-                  </p>
-                )}
-                {reach && !reachOk && (
-                  <>
-                    <p className="text-amber-500">
-                      Not reachable yet
-                      {reach.probeDetail ? ` (${reach.probeDetail})` : ''}. Your
-                      router likely needs to forward port 443 to this machine.
-                    </p>
-                    <ReachabilityHelp />
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        <Button variant="outline" className="w-full" onClick={() => navigate('/', { replace: true })}>
-          Continue to HearthShelf
+        <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <span className="hs-onboard-glow inline-block h-2 w-2 rounded-full bg-primary" />
+          Waiting for you to confirm in the app…
+        </p>
+        <Button variant="ghost" className="w-full" onClick={() => navigate('/', { replace: true })}>
+          I’ll finish this later
         </Button>
       </Shell>
     )
   }
 
-  // ===== AIO step 1: create admin (no connect promise here yet) =====
-  if (isAio && step === 'account') {
+  // ===== AIO step 1: name the server =====
+  if (isAio && step === 'name') {
     return (
       <Shell>
         <StepRail steps={AIO_STEPS} active={0} />
+        <Eyebrow>First-run setup</Eyebrow>
+        <h1 className="text-2xl font-bold tracking-tight">Name your server</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Give your library a name. This is how it shows up for you and anyone you
+          invite - like “Living Room Library” or “The Smith Family Shelf.”
+        </p>
+        <form
+          className="flex flex-col gap-4"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault()
+            submitName()
+          }}
+        >
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="server-name">Server name</Label>
+            <Input
+              id="server-name"
+              autoFocus
+              value={serverName}
+              onChange={(e) => setServerName(e.target.value)}
+              placeholder="Living Room Library"
+            />
+          </div>
+          <ErrorLine error={error} />
+          <Button type="submit" className="w-full">
+            Continue
+          </Button>
+        </form>
+      </Shell>
+    )
+  }
+
+  // ===== AIO step 2: create admin (no connect promise here yet) =====
+  if (isAio && step === 'account') {
+    return (
+      <Shell>
+        <StepRail steps={AIO_STEPS} active={1} />
         <Eyebrow>First-run setup</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -480,7 +579,7 @@ export function OnboardingPage() {
   if (isAio && step === 'library') {
     return (
       <Shell>
-        <StepRail steps={AIO_STEPS} active={1} />
+        <StepRail steps={AIO_STEPS} active={2} />
         <Eyebrow>Set up your library</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Add your audiobooks</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -568,7 +667,7 @@ export function OnboardingPage() {
   if (isAio && step === 'connect-aio') {
     return (
       <Shell>
-        <StepRail steps={AIO_STEPS} active={2} />
+        <StepRail steps={AIO_STEPS} active={3} />
         <Eyebrow>Optional</Eyebrow>
         <h1 className="text-2xl font-bold tracking-tight">Reach your library from anywhere</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">

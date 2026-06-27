@@ -217,6 +217,40 @@ export async function handleHosted(req, res, url, _ctx) {
     return (json(res, 200, data), true)
   }
 
+  // Poll the control plane for the pairing claim. The SPA passes the code it was
+  // shown (the box doesn't persist it); we add the stored server_secret and ask
+  // the control plane whether a signed-in user has claimed the server yet. Lets
+  // the wizard auto-advance to diagnostics once claimed, without the admin
+  // bouncing back to click a button.
+  if (p === '/hs/hosted/pair-status' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    let body = {}
+    try {
+      const raw = await readBody(req)
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const code = typeof body.code === 'string' ? body.code.trim() : ''
+    if (!code) return (json(res, 400, { error: 'code_required' }), true)
+    const cfg = await getHostedConfig().catch(() => null)
+    if (!cfg?.serverSecret) return (json(res, 409, { error: 'not_paired' }), true)
+
+    try {
+      const cpRes = await fetch(`${DEFAULT_CP_API}/pairing/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, server_secret: cfg.serverSecret }),
+      })
+      const data = await cpRes.json().catch(() => ({}))
+      if (!cpRes.ok) return (json(res, 502, { error: 'status_check_failed', status: cpRes.status }), true)
+      return (json(res, 200, data), true)
+    } catch (err) {
+      return (json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }), true)
+    }
+  }
+
   // Start pairing with the control plane. HS announces itself; the control
   // plane returns a code (for the admin to enter on app.hearthshelf.com) plus
   // the trust details we persist (issuer, jwks_url, server secret).

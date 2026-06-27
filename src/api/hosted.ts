@@ -76,6 +76,22 @@ export interface PairResult {
   issuer: string
 }
 
+// Claim state for a pairing code, polled after pairing so the wizard can detect
+// when a signed-in user has redeemed it (claimed the server).
+export interface PairStatus {
+  claimed: boolean
+  expired: boolean
+  name: string | null
+  claimedByEmail: string | null
+}
+
+export function pollPairStatus(code: string): Promise<PairStatus> {
+  return hostedFetch<PairStatus>('/pair-status', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  })
+}
+
 /** Start pairing with the control plane; returns the code to enter on app.hs.com. */
 export function startPairing(opts?: {
   controlPlaneUrl?: string
