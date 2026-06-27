@@ -84,7 +84,11 @@ export interface MetadataProvider {
   value: string
 }
 export function getSearchProviders(): Promise<{
-  providers: { books: MetadataProvider[]; booksCovers: MetadataProvider[] }
+  providers: {
+    books: MetadataProvider[]
+    booksCovers: MetadataProvider[]
+    podcasts: MetadataProvider[]
+  }
 }> {
   return absRequest('/api/search/providers')
 }
