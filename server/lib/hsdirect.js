@@ -77,7 +77,7 @@ async function run(cmd, args, opts = {}) {
  * never throws into the pairing flow. Returns the hs.direct host + public URL on
  * success so the caller can report it / use it as the pairing public_url.
  */
-export async function acquireCert({ force = false } = {}) {
+export async function acquireCert({ force = false, reconcilePin = false } = {}) {
   const elig = await hsDirectEligible()
   if (!elig.ok) {
     log('skip:', elig.reason)
@@ -118,7 +118,9 @@ export async function acquireCert({ force = false } = {}) {
           : `https://${host}${portSuffix}`
         // Re-push to the CP if the IP (hence the address + Clerk redirect_uri pin)
         // changed since last time; then re-render nginx so ABS sees the new host.
-        await persistPublicUrl(serverId, serverSecret, publicUrl)
+        // reconcilePin forces the push even when unchanged (startup self-heal of a
+        // stale Clerk pin) - the CP only PATCHes Clerk when the URL actually differs.
+        await persistPublicUrl(serverId, serverSecret, publicUrl, { force: reconcilePin })
         log('existing cert valid until', new Date(existingNotAfter).toISOString(), '- skipping issuance')
         await reloadNginx()
         return { ok: true, host, publicUrl, reason: 'cert_still_valid', skipped: true }
@@ -269,9 +271,18 @@ async function reloadNginx() {
     warn('nginx re-render failed (will apply on next restart):', e.message)
     return
   }
+  // Validate BEFORE reloading: a `reload` into a broken config can take nginx
+  // down, which would brick LAN access too. `nginx -t` catches it first; if it
+  // fails we leave the running config untouched and try again next cycle.
+  try {
+    await run('nginx', ['-t'])
+  } catch (e) {
+    warn('rendered nginx config failed validation - NOT reloading:', (e.stderr || e.message || '').slice(0, 500))
+    return
+  }
   try {
     await run('nginx', ['-s', 'reload'])
-    log('nginx re-rendered + reloaded (HTTPS now active on the WebUI port)')
+    log('nginx re-rendered + reloaded (LAN HTTP + connect HTTPS on the WebUI port)')
   } catch (e) {
     // Not fatal: the entrypoint re-renders on next start. Log and move on.
     warn('nginx reload failed (will apply on next restart):', e.message)
@@ -279,20 +290,26 @@ async function reloadNginx() {
 }
 
 /**
- * Persist the computed public_url locally and, if it CHANGED from what we last
- * wrote, re-push it to the control plane (server_secret-authed). The CP records
- * the new address and re-PATCHes the Clerk OAuth client's pinned redirect_uri so
- * OIDC sign-in keeps working after a residential IP change. Best-effort: a write
- * always happens; the network push is non-fatal.
+ * Persist the computed public_url locally and re-push it to the control plane
+ * (server_secret-authed). The CP records the new address and re-PATCHes the Clerk
+ * OAuth client's pinned redirect_uri so OIDC sign-in keeps working after a
+ * residential IP change. Best-effort: a write always happens; the network push is
+ * non-fatal.
+ *
+ * `force` pushes even when the local URL is unchanged - used on startup to
+ * RECONCILE the Clerk pin (e.g. a server paired under older code whose pin is the
+ * stale stable host, with an unchanged IP, would otherwise never reconcile). The
+ * CP only actually PATCHes Clerk when the redirect_uri differs, so a forced push
+ * is cheap and idempotent.
  */
-async function persistPublicUrl(serverId, serverSecret, publicUrl) {
+async function persistPublicUrl(serverId, serverSecret, publicUrl, { force = false } = {}) {
   const urlPath = path.join(STATE_DIR, 'public_url')
   let previous = null
   try {
     previous = (await fs.readFile(urlPath, 'utf8')).trim() || null
   } catch { /* not written yet */ }
   await fs.writeFile(urlPath, publicUrl).catch(() => {})
-  if (previous === publicUrl) return // unchanged - nothing to re-push
+  if (previous === publicUrl && !force) return // unchanged - nothing to re-push
   try {
     await fetch(`${CP_URL}/servers/public-url`, {
       method: 'POST',
@@ -334,7 +351,9 @@ export async function hsDirectOnStartup() {
   const elig = await hsDirectEligible()
   if (!elig.ok) return
   log('paired box starting - refreshing hs.direct cert')
-  await acquireCert().catch((e) => warn('startup acquire failed:', e.message))
+  // reconcilePin: re-push public_url even if unchanged, so a stale Clerk
+  // redirect_uri pin (e.g. paired under older code) self-heals on boot.
+  await acquireCert({ reconcilePin: true }).catch((e) => warn('startup acquire failed:', e.message))
 
   // Periodically re-run acquireCert so a residential IP change is picked up
   // promptly: the cert-reuse path is cheap (no LE round-trip while the cert is

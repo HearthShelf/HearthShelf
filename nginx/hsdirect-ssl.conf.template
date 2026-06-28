@@ -1,24 +1,30 @@
 # hs.direct HTTPS server block - serves the runtime-provisioned wildcard cert.
 #
-# SINGLE-PORT (Plex-style): this listens on :80 WITH TLS - the SAME container port
-# the plain HTTP block normally uses. The entrypoint renders EITHER the plain
-# default.conf OR this block, never both, so the one WebUI port serves HTTP before
-# a cert and HTTPS after. The host maps that port (e.g. 9277); hs.direct is
-# https://<host>:<that port>. We do NOT take over 443. It mirrors the :80 routing
-# from default.conf but adds TLS and overrides the Host / X-Forwarded-Host ABS
-# sees (via hsdirect_abs_proxy.conf) to the BROWSER-REACHABLE public host:port, so
-# ABS builds its OIDC redirect_uri from an address the browser can actually load.
-# OidcAuthStrategy.js:292-293,327 derives redirect_uri from the Host header; the
-# Clerk client's single pinned redirect_uri is set to this reachable host at
-# pairing and re-pushed when the box IP changes (see hsdirect_abs_proxy.conf).
+# Internal HTTPS server behind the :80 stream demux (see aio-nginx.conf.template):
+# the demux pre-reads the first bytes and routes TLS handshakes here while plain
+# HTTP goes to the LAN server (hsdirect-http.conf). So the ONE host port (e.g.
+# 9277) serves connect-domain HTTPS AND plain-HTTP LAN access simultaneously - we
+# do NOT take over 443 and we do NOT lose LAN access when a cert lands.
+#
+# It listens on loopback with PROXY protocol so $remote_addr is the real client
+# (the demux prepends it). It overrides the Host / X-Forwarded-Host ABS sees (via
+# hsdirect_abs_proxy.conf) to the BROWSER-REACHABLE public host:port, so ABS builds
+# its OIDC redirect_uri from an address the browser can load (OidcAuthStrategy.js
+# :292-293,327 derives redirect_uri from the Host header). The Clerk client's
+# single pinned redirect_uri is set to this reachable host at pairing and re-pushed
+# when the box IP changes (see hsdirect_abs_proxy.conf).
 #
 # ${HSDIRECT_PUBLIC_HOST} = <ip-dashed>.<hash>.<zone>:<port>, substituted by
 # render-hsdirect.sh from /config/hsdirect/public_url.
 
 server {
-    listen 80 ssl;
+    listen 127.0.0.1:8443 ssl proxy_protocol;
     http2 on;
     server_name _;
+
+    # Trust the PROXY-protocol-supplied address from the local demux only.
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
 
     ssl_certificate     /etc/hsdirect/tls/fullchain.pem;
     ssl_certificate_key /etc/hsdirect/tls/server.key;

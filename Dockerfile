@@ -60,7 +60,15 @@ FROM nginx:alpine AS aio
 # tini are ABS runtime requirements (transcoding, PID 1 reaping).
 # openssl: the backend uses it to generate the hs.direct keypair + CSR at pairing
 # (the private key never leaves the container). nginx/node/ffmpeg/tini as before.
-RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl
+# nginx-module-stream: the stream module (incl. ssl_preread) is NOT compiled into
+# the official nginx:alpine image; we need it for the :80 TLS-detect demux that
+# serves LAN HTTP + connect-domain HTTPS on one port. The base image pins
+# NGINX_VERSION + PKG_RELEASE; pin the module to the exact same build so the
+# dynamic-module ABI matches. Then fail the BUILD if the module can't load (so a
+# bad demux config never bricks a running box - CI catches it here).
+RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl \
+      "nginx-module-stream=${NGINX_VERSION}-r${PKG_RELEASE}" \
+ && test -f /etc/nginx/modules/ngx_stream_module.so
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -75,7 +83,13 @@ COPY nginx/cors-headers.conf /etc/nginx/cors-headers.conf
 # the :443 block once the backend has provisioned a cert. openssl is needed by the
 # backend to generate the box's keypair + CSR (its private key never leaves here).
 COPY nginx/hsdirect-ssl.conf.template /etc/nginx/templates/hsdirect-ssl.conf.template
+COPY nginx/hsdirect-http.conf.template /etc/nginx/templates/hsdirect-http.conf.template
 COPY nginx/hsdirect_abs_proxy.conf.template /etc/nginx/templates/hsdirect_abs_proxy.conf.template
+# Top-level nginx.conf used when a cert exists: adds a stream{} TLS-detect demux so
+# the one host port serves BOTH plain-HTTP LAN access and connect-domain HTTPS.
+# Save the stock nginx.conf so render-hsdirect.sh can restore it in the no-cert state.
+COPY nginx/aio-nginx.conf.template /etc/nginx/templates/aio-nginx.conf.template
+RUN cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.stock
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
 
@@ -99,10 +113,33 @@ ENV ABS_PORT=13378 \
 COPY nginx/render-hsdirect.sh /usr/local/bin/render-hsdirect.sh
 RUN chmod +x /usr/local/bin/render-hsdirect.sh
 
+# Validate the cert-present demux config AT BUILD TIME so a structural error fails
+# the image build (caught in CI) instead of bricking a running box. We render the
+# templates with a fake cert + sample host, run `nginx -t`, then clean up.
+RUN set -e; \
+    export ABS_SERVER_URL=http://127.0.0.1:13378 \
+           HSDIRECT_PUBLIC_HOST=1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
+           HS_APP_ORIGIN=https://app.hearthshelf.com; \
+    mkdir -p /etc/hsdirect/tls; \
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/hsdirect/tls/server.key \
+      -out /etc/hsdirect/tls/fullchain.pem -days 1 -subj "/CN=test" >/dev/null 2>&1; \
+    envsubst '${HS_APP_ORIGIN}' < /etc/nginx/templates/cors-map.conf.template > /etc/nginx/conf.d/cors-map.conf; \
+    cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf; \
+    envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
+    envsubst '${ABS_SERVER_URL}' < /etc/nginx/templates/hsdirect-http.conf.template > /etc/nginx/hsdirect-http.conf; \
+    envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect-ssl.conf.template > /etc/nginx/hsdirect-ssl.conf; \
+    cp /etc/nginx/templates/aio-nginx.conf.template /etc/nginx/nginx.conf; \
+    rm -f /etc/nginx/conf.d/default.conf; \
+    nginx -t; \
+    cp /etc/nginx/nginx.conf.stock /etc/nginx/nginx.conf; \
+    rm -rf /etc/hsdirect /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf /etc/nginx/hsdirect_abs_proxy.conf \
+           /etc/nginx/conf.d/cors-map.conf /etc/nginx/conf.d/upgrade-map.conf
+
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh
 RUN chmod +x /docker-entrypoint-aio.sh
-# Single ingress port :80 - serves HTTP for LAN, then HTTPS on the SAME port once
-# hs.direct provisions a cert at runtime (Plex-style; we don't take over 443).
+# Single ingress port :80 - before a cert, plain HTTP. After hs.direct provisions
+# a cert, a stream TLS-detect demux serves BOTH plain-HTTP LAN access AND
+# connect-domain HTTPS on this same port (Plex-style; we don't take over 443).
 EXPOSE 80
 # tini as PID 1 reaps the node + nginx children the entrypoint spawns.
 ENTRYPOINT ["tini", "--", "/docker-entrypoint-aio.sh"]

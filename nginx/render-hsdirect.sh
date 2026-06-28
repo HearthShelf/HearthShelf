@@ -34,20 +34,36 @@ fi
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
 
 if [ -f /etc/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}" ] && [ -n "${HSDIRECT_PUBLIC_HOST:-}" ]; then
-  echo "[render-hsdirect] serving HTTPS on the WebUI port (ABS host=${HSDIRECT_PUBLIC_HOST})"
+  # CERT PRESENT: serve BOTH protocols on the one port via a stream TLS-detect
+  # demux (Plex-style). plain HTTP -> LAN server (:8081); TLS -> connect-domain
+  # HTTPS server (:8443). This keeps LAN/direct-IP access working AND serves the
+  # connect-domain cert, on the single host-mapped port.
+  echo "[render-hsdirect] cert present: TLS-demux on the WebUI port (LAN HTTP + connect HTTPS, ABS host=${HSDIRECT_PUBLIC_HOST})"
+
+  # Shared ABS proxy fragment, Host forced to the reachable public host:port.
   envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST}' \
     < /etc/nginx/templates/hsdirect_abs_proxy.conf.template \
     > /etc/nginx/hsdirect_abs_proxy.conf
-  # The SSL block listens on :80 ssl - it REPLACES the plain :80 block (we don't
-  # render default.conf), so there's exactly one server on the port.
+
+  # Internal LAN HTTP server (:8081) and connect-domain HTTPS server (:8443).
+  envsubst '${ABS_SERVER_URL}' \
+    < /etc/nginx/templates/hsdirect-http.conf.template \
+    > /etc/nginx/hsdirect-http.conf
   envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' \
     < /etc/nginx/templates/hsdirect-ssl.conf.template \
-    > /etc/nginx/conf.d/hsdirect-ssl.conf
-  rm -f /etc/nginx/conf.d/default.conf
+    > /etc/nginx/hsdirect-ssl.conf
+
+  # Swap in the top-level nginx.conf that adds the stream{} demux. Remove the
+  # conf.d server block so the base http{} glob doesn't also bind :80.
+  cp /etc/nginx/templates/aio-nginx.conf.template /etc/nginx/nginx.conf
+  rm -f /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/hsdirect-ssl.conf
 else
-  echo "[render-hsdirect] no cert yet: serving plain HTTP on the WebUI port"
+  echo "[render-hsdirect] no cert yet: plain HTTP on the WebUI port"
+  # Restore the stock top-level nginx.conf (saved at build time) and serve the
+  # plain HTTP server block on :80 directly (no demux needed without a cert).
+  cp /etc/nginx/nginx.conf.stock /etc/nginx/nginx.conf
   envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
     < /etc/nginx/templates/default.conf.template \
     > /etc/nginx/conf.d/default.conf
-  rm -f /etc/nginx/conf.d/hsdirect-ssl.conf
+  rm -f /etc/nginx/conf.d/hsdirect-ssl.conf /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf
 fi

@@ -39,13 +39,22 @@ envsubst '${HS_APP_ORIGIN}' \
 
 # SINGLE-PORT model (Plex-style): the container listens on ONE port (:80, mapped
 # to the host's WebUI port, e.g. 9277). Before a cert exists we serve plain HTTP
-# there for LAN access. Once hs.direct has provisioned a cert, we serve HTTPS on
-# that SAME port instead - so hs.direct is https://<host>:<that port>, the user
-# forwards one port, and there is no second port to map. The render decision (HTTP
-# vs HTTPS) lives in render-hsdirect.sh so the backend can re-run the SAME logic
-# when a cert lands at pairing time and reload nginx, flipping HTTP->HTTPS without
-# a restart (a bare `nginx -s reload` re-reads the old files and would not flip).
+# there for LAN access. Once hs.direct has provisioned a cert, a stream TLS-detect
+# demux serves BOTH plain-HTTP LAN access AND connect-domain HTTPS on that same
+# port. The render decision lives in render-hsdirect.sh so the backend can re-run
+# the SAME logic when a cert lands at pairing time and reload nginx.
 /usr/local/bin/render-hsdirect.sh
+# Safety net: if the rendered config is somehow invalid, fall back to plain HTTP so
+# the box ALWAYS comes up with LAN access rather than nginx refusing to start. The
+# cert-present render is validated at build time, so this should never trigger.
+if ! nginx -t >/dev/null 2>&1; then
+  echo "[aio] WARNING: rendered nginx config failed validation - falling back to plain HTTP for LAN access"
+  cp /etc/nginx/nginx.conf.stock /etc/nginx/nginx.conf
+  envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
+    < /etc/nginx/templates/default.conf.template \
+    > /etc/nginx/conf.d/default.conf
+  rm -f /etc/nginx/conf.d/hsdirect-ssl.conf /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf
+fi
 
 # --- bundled AudiobookShelf ---
 # ABS reads PORT/CONFIG_PATH/METADATA_PATH from the environment. We keep these

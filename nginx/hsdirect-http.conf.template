@@ -1,0 +1,56 @@
+# Internal PLAIN-HTTP server for LAN / direct-IP access, behind the :80 stream
+# demux (see aio-nginx.conf.template). Reached as http://<lan-ip>:<port> with no
+# cert. Listens on loopback with PROXY protocol so $remote_addr is the real client
+# (the demux prepends it). Mirrors default.conf's routing.
+#
+# ${ABS_SERVER_URL} substituted by render-hsdirect.sh.
+
+server {
+    listen 127.0.0.1:8081 proxy_protocol;
+    server_name _;
+
+    # Trust the PROXY-protocol-supplied address from the local demux only.
+    set_real_ip_from 127.0.0.1;
+    real_ip_header proxy_protocol;
+
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 0;
+
+    location /abs-api/ {
+        rewrite ^/abs-api/(.*) /$1 break;
+        proxy_pass ${ABS_SERVER_URL};
+        include /etc/nginx/abs_proxy.conf;
+    }
+    location /abs-socket/ {
+        rewrite ^/abs-socket/(.*) /$1 break;
+        proxy_pass ${ABS_SERVER_URL};
+        include /etc/nginx/abs_proxy.conf;
+    }
+
+    location ~ ^/(api|socket\.io|auth|public|feed|hls|s)/ {
+        include /etc/nginx/cors-headers.conf;
+        proxy_pass ${ABS_SERVER_URL};
+        include /etc/nginx/abs_proxy.conf;
+    }
+
+    location = /login    { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
+    location = /logout   { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
+    location = /status   { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
+    location = /healthcheck { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
+    location = /ping     { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
+
+    # HearthShelf backend. Host is the LAN address the client used; $scheme=http.
+    location /hs/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
