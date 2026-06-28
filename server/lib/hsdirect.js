@@ -235,6 +235,9 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
 
   // 4. Install the chain + compute the public URL from our current public IP.
   await fs.writeFile(crtPath, certPem, { mode: 0o644 })
+  // DIAGNOSTIC: confirm what we just wrote to disk (issuer of the NEW cert).
+  const newIssuer = await certIssuerString(crtPath).catch(() => '(read failed)')
+  log('newly installed cert issuer:', newIssuer)
   const ip = await detectPublicIp()
   // Plex-style: the externally-reachable port lives in the URL (we don't serve on
   // 443). Omit it only when it is 443, so the URL stays clean in that case.
@@ -247,13 +250,19 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
   log('cert installed for', wildcard, '->', publicUrl)
 
   // 5. Reload nginx so it serves the new cert (best-effort).
-  await reloadNginx()
+  const reloadResult = await reloadNginx()
+  log('nginx reload result:', reloadResult)
 
   // 6. Report success (notAfter for the picker's expiry hint).
   const notAfter = await certNotAfterMs(crtPath)
-  await reportStatus(serverId, serverSecret, 'active', null, notAfter)
+  // DIAGNOSTIC: if nginx did NOT actually reload, the box keeps serving the OLD
+  // cert even though issuance succeeded - so record the reload outcome + the new
+  // issuer in last_error even on success, so D1 shows whether the new cert is
+  // actually being served.
+  const diag = `diag-ok: newIssuer="${newIssuer}" reload=${reloadResult}`
+  await reportStatus(serverId, serverSecret, 'active', diag, notAfter)
 
-  return { ok: true, host, publicUrl, hash }
+  return { ok: true, host, publicUrl, hash, reloadResult }
 }
 
 // Best-effort public IP lookup via several echo services. Returns the IPv4
@@ -327,7 +336,7 @@ async function reloadNginx() {
     await run('/usr/local/bin/render-hsdirect.sh')
   } catch (e) {
     warn('nginx re-render failed (will apply on next restart):', e.message)
-    return
+    return `render_failed: ${e.message}`
   }
   // Validate BEFORE reloading: a `reload` into a broken config can take nginx
   // down, which would brick LAN access too. `nginx -t` catches it first; if it
@@ -336,14 +345,16 @@ async function reloadNginx() {
     await run('nginx', ['-t'])
   } catch (e) {
     warn('rendered nginx config failed validation - NOT reloading:', (e.stderr || e.message || '').slice(0, 500))
-    return
+    return `validate_failed: ${(e.stderr || e.message || '').slice(0, 200)}`
   }
   try {
     await run('nginx', ['-s', 'reload'])
     log('nginx re-rendered + reloaded (LAN HTTP + connect HTTPS on the WebUI port)')
+    return 'reloaded'
   } catch (e) {
     // Not fatal: the entrypoint re-renders on next start. Log and move on.
     warn('nginx reload failed (will apply on next restart):', e.message)
+    return `reload_failed: ${e.message}`
   }
 }
 
