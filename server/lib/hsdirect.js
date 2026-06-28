@@ -221,13 +221,23 @@ async function certNotAfterMs(crtPath) {
 }
 
 async function reloadNginx() {
-  // In the AIO container nginx runs as a sibling process; signal it to reload.
+  // A bare `nginx -s reload` only re-reads the config files ALREADY on disk. At
+  // pairing time those are still the plain-HTTP default.conf (the SSL block isn't
+  // rendered until a cert exists), so a plain reload would keep serving HTTP on
+  // the WebUI port and every TLS handshake fails (400 -> ERR_SSL_PROTOCOL_ERROR).
+  // So we re-run the SAME render step the entrypoint uses - now that the cert +
+  // stable_host exist it swaps default.conf -> hsdirect-ssl.conf - THEN reload.
+  try {
+    await run('/usr/local/bin/render-hsdirect.sh')
+  } catch (e) {
+    warn('nginx re-render failed (will apply on next restart):', e.message)
+    return
+  }
   try {
     await run('nginx', ['-s', 'reload'])
-    log('nginx reloaded')
+    log('nginx re-rendered + reloaded (HTTPS now active on the WebUI port)')
   } catch (e) {
-    // Not fatal: on first pairing nginx may not yet have the :443 block; the
-    // entrypoint re-templates on next start. Log and move on.
+    // Not fatal: the entrypoint re-renders on next start. Log and move on.
     warn('nginx reload failed (will apply on next restart):', e.message)
   }
 }

@@ -94,6 +94,11 @@ ENV ABS_PORT=13378 \
     HS_MODE=aio \
     ABS_SERVER_URL=http://127.0.0.1:13378
 
+# Shared nginx render step (HTTP vs HTTPS for the WebUI port). The entrypoint runs
+# it at start; the backend runs it when a cert lands at pairing time, then reloads.
+COPY nginx/render-hsdirect.sh /usr/local/bin/render-hsdirect.sh
+RUN chmod +x /usr/local/bin/render-hsdirect.sh
+
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh
 RUN chmod +x /docker-entrypoint-aio.sh
 # Single ingress port :80 - serves HTTP for LAN, then HTTPS on the SAME port once

@@ -115,6 +115,20 @@ export function ConfigHosted() {
     onError: () => show('Could not run the connection check'),
   })
 
+  // Auto-run the connection check on page load once the server is paired, so the
+  // admin sees reachability without clicking Check. Fires only when we don't yet
+  // have a known-good result this session (paired, no port result, not already in
+  // flight). The mutate() lives in the async-safe effect body via a guard, not a
+  // synchronous setState, so the set-state-in-effect lint rule is satisfied.
+  const portChecked = portResult !== null
+  useEffect(() => {
+    if (!status?.paired) return
+    if (portChecked || testPort.isPending) return
+    testPort.mutate()
+    // testPort is a stable mutation object; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.paired, portChecked])
+
   // After the admin redeems the code on app.hearthshelf.com, finish federation:
   // pull this server's OAuth client and configure ABS for OIDC sign-in.
   const finishOidc = useMutation({
