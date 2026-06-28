@@ -196,9 +196,15 @@ async function mintAbsApiKey(adminToken, absUserId) {
   })
   if (!res.ok) return null
   const data = await res.json()
-  // ABS returns the raw key once on creation (field has varied across builds;
-  // accept the common spellings).
-  return data?.apiKey || data?.key || data?.apiKey?.apiKey || null
+  // ABS 2.35.1 returns { apiKey: { apiKey: "<JWT>", ... } } - the raw key STRING
+  // is nested under apiKey.apiKey. The outer `apiKey` is an OBJECT, so check the
+  // nested string FIRST (a bare `data.apiKey` would otherwise return the object).
+  // ApiKeyController.create:97-102. Fall back to flatter shapes for older builds.
+  const k =
+    (typeof data?.apiKey === 'object' ? data.apiKey?.apiKey : data?.apiKey) ||
+    data?.key ||
+    null
+  return typeof k === 'string' && k ? k : null
 }
 
 async function getCachedKey(serverId, subject) {
