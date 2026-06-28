@@ -9,7 +9,6 @@ import { ConnectivityDiagram } from '@/components/hosted/ConnectivityDiagram'
 import {
   getHostedStatus,
   startPairing,
-  configureOidc,
   inviteFromServer,
   getHsDirectState,
   checkPort,
@@ -129,32 +128,13 @@ export function ConfigHosted() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.paired, portChecked])
 
-  // After the admin redeems the code on app.hearthshelf.com, finish federation:
-  // pull this server's OAuth client and configure ABS for OIDC sign-in.
-  const finishOidc = useMutation({
-    mutationFn: () => configureOidc(),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['hosted-status'] })
-      // Setup is fully done - dismiss the whole pairing block; the top row now
-      // shows "Connected to app.hearthshelf.com".
-      setPairResult(null)
-      setClaimed(false)
-      show('Sign-in with HearthShelf is now enabled')
-    },
-    onError: (e: Error) => {
-      const m = e.message || ''
-      if (m.includes('not_provisioned')) show('Redeem the code on app.hearthshelf.com first, then retry')
-      else if (m.includes('secret_consumed')) show('Already set up. Re-pair to reset the connection.')
-      else show(m || 'Could not finish setup')
-    },
-  })
-
   // Poll the control plane for the claim while a code is showing. As soon as the
-  // admin redeems it on app.hearthshelf.com we detect it here - no need to come
-  // back and click "Finish setup". On claim we hide the CODE prompt, refresh
-  // status, and finish OIDC automatically (the block stays until OIDC resolves so
-  // a failure still has a retry). The setState happens in the async callback (not
-  // the effect body), so the lint rule is satisfied.
+  // admin redeems it on app.hearthshelf.com we detect it here and the server is
+  // connected - no post-pair step needed (users get a per-user ABS token on demand
+  // via /hs/hosted/connect; there's no OIDC to configure). On claim we dismiss the
+  // whole pairing block; the top row then shows "Connected to app.hearthshelf.com".
+  // The setState happens in the async callback (not the effect body), so the lint
+  // rule is satisfied.
   useEffect(() => {
     const code = pairResult?.code
     if (!code || claimed) return
@@ -166,8 +146,8 @@ export function ConfigHosted() {
       if (s?.claimed) {
         setClaimed(true)
         qc.invalidateQueries({ queryKey: ['hosted-status'] })
-        show('Connected - finishing sign-in setup…')
-        finishOidc.mutate()
+        setPairResult(null)
+        show('Connected to app.hearthshelf.com')
         return // stop polling
       }
       if (!s || !s.expired) timer = setTimeout(poll, 4000)
@@ -177,8 +157,6 @@ export function ConfigHosted() {
       cancelled = true
       clearTimeout(timer)
     }
-    // finishOidc is a stable mutation object; intentionally not a dep.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairResult?.code, claimed, qc])
 
   const [email, setEmail] = useState('')
@@ -309,33 +287,6 @@ export function ConfigHosted() {
                   the moment you do.
                 </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Claimed: the redeem was detected. Show finishing / success, with a
-            retry if the OIDC step failed (so a failure isn't a dead end). */}
-        {pairResult && claimed && (
-          <div className="banner info" style={{ marginTop: 'var(--s4)' }}>
-            <Icon name={finishOidc.isError ? 'error' : 'check_circle'} />
-            <div style={{ width: '100%' }}>
-              <strong>Connected.</strong>{' '}
-              {finishOidc.isPending
-                ? 'Turning on one-click sign-in…'
-                : finishOidc.isError
-                  ? 'Connected, but turning on one-click sign-in didn’t finish.'
-                  : 'One-click sign-in is on.'}
-              {finishOidc.isError && (
-                <div style={{ marginTop: 'var(--s2)' }}>
-                  <button
-                    className="btn-sm btn-accent"
-                    disabled={finishOidc.isPending}
-                    onClick={() => finishOidc.mutate()}
-                  >
-                    <Icon name="refresh" /> Retry
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         )}
