@@ -121,6 +121,7 @@ RUN set -e; \
       -out /etc/hsdirect/tls/fullchain.pem -days 1 -subj "/CN=test" >/dev/null 2>&1; \
     envsubst '${HS_APP_ORIGIN}' < /etc/nginx/templates/cors-map.conf.template > /etc/nginx/conf.d/cors-map.conf; \
     cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf; \
+    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' < /etc/nginx/templates/abs_proxy.conf.template > /etc/nginx/abs_proxy.conf; \
     envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
     envsubst '${ABS_SERVER_URL}' < /etc/nginx/templates/hsdirect-http.conf.template > /etc/nginx/hsdirect-http.conf; \
     envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect-ssl.conf.template > /etc/nginx/hsdirect-ssl.conf; \
@@ -129,7 +130,7 @@ RUN set -e; \
     nginx -t; \
     cp /etc/nginx/nginx.conf.stock /etc/nginx/nginx.conf; \
     rm -rf /etc/hsdirect /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf /etc/nginx/hsdirect_abs_proxy.conf \
-           /etc/nginx/conf.d/cors-map.conf /etc/nginx/conf.d/upgrade-map.conf
+           /etc/nginx/abs_proxy.conf /etc/nginx/conf.d/cors-map.conf /etc/nginx/conf.d/upgrade-map.conf
 
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh
 RUN chmod +x /docker-entrypoint-aio.sh
