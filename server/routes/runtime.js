@@ -271,6 +271,9 @@ export async function handleRuntime(req, res, url, ctx) {
     serviceUsername: mode === 'aio' ? prov.rootUsername || SERVICE_USERNAME : null,
     // Admin-chosen server name (how it's referred to + the pairing default).
     serverName,
+    // This server's control-plane id, so the login page can build the on-box
+    // "Sign in with HearthShelf" bounce (app.hearthshelf.com/connect-box?server=).
+    serverId: await getServerId(),
   })
   return true
 }

@@ -20,6 +20,9 @@ export interface RuntimeConfig {
   // Admin-chosen server name (how it's referred to + the pairing default). Null
   // until set in onboarding or Server Settings.
   serverName: string | null
+  // This server's control-plane id, for the on-box "Sign in with HearthShelf"
+  // bounce (app.hearthshelf.com/connect-box?server=<serverId>).
+  serverId: string | null
 }
 
 export interface InitAdminResult {

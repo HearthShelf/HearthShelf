@@ -1,16 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { absRequest } from '@/api/client'
-import { openIdInitUrl } from '@/api/auth'
-import { createPkcePair, createState } from '@/lib/pkce'
 import { useAuth } from '@/hooks/useAuth'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
-import type { ABSStatusResponse } from '@/api/types'
-
-// Survives the provider round-trip (the callback page reads these back).
-export const OIDC_VERIFIER_KEY = 'hearthshelf.oidc.verifier'
-export const OIDC_STATE_KEY = 'hearthshelf.oidc.state'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,12 +23,6 @@ export function LoginPage() {
 
   const { data: runtime } = useRuntimeConfig()
 
-  const { data: status } = useQuery({
-    queryKey: ['server-status'],
-    queryFn: () => absRequest<ABSStatusResponse>('/status'),
-    staleTime: Infinity,
-  })
-
   // A fresh AIO box that hasn't finished setup belongs in the onboarding wizard,
   // not this bare login form: the wizard reveals the generated root credentials
   // and signs the admin in. Without this redirect a first-run AIO visitor lands
@@ -48,8 +33,13 @@ export function LoginPage() {
   const needsOnboarding =
     runtime && !runtime.onboarded && runtime.mode === 'aio'
 
-  const openIdEnabled = status?.authMethods.includes('openid') ?? false
-  const openIdLabel = status?.authFormData.authOpenIDButtonText || 'Login with OpenId'
+  // Hosted SSO bounce target: only when the box is paired to the control plane and
+  // we know our server id. The app authenticates the user (Clerk) and redirects
+  // back to /connect-land with a grant. Replaces the old ABS-OIDC button.
+  const hostedSsoUrl =
+    runtime?.paired && runtime.serverId && runtime.controlPlaneUrl
+      ? `${runtime.controlPlaneUrl.replace(/\/$/, '')}/connect-box?server=${encodeURIComponent(runtime.serverId)}`
+      : null
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -65,16 +55,6 @@ export function LoginPage() {
     }
   }
 
-  // Start the OpenID PKCE flow: stash the verifier + state, then full-navigate
-  // to ABS so it can set its session cookies and redirect to the provider.
-  async function startOpenId() {
-    setError(null)
-    const { verifier, challenge } = await createPkcePair()
-    const state = createState()
-    sessionStorage.setItem(OIDC_VERIFIER_KEY, verifier)
-    sessionStorage.setItem(OIDC_STATE_KEY, state)
-    window.location.href = openIdInitUrl(challenge, state)
-  }
 
   if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />
@@ -122,15 +102,21 @@ export function LoginPage() {
             </Button>
           </form>
 
-          {openIdEnabled && (
+          {/* Hosted SSO: a paired box lets users sign in with their HearthShelf
+              (Clerk) account. We bounce to app.hearthshelf.com, which authenticates
+              the user and redirects back here (/connect-land) with a grant the box
+              redeems. Shown only when paired AND we know our server id. */}
+          {hostedSsoUrl && (
             <div className="mt-4">
               <Button
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => void startOpenId()}
+                onClick={() => {
+                  window.location.href = hostedSsoUrl
+                }}
               >
-                {openIdLabel}
+                Sign in with HearthShelf
               </Button>
             </div>
           )}

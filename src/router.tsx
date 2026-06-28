@@ -8,7 +8,7 @@ import { LibraryPage } from '@/pages/LibraryPage'
 import { BookDetailPage } from '@/pages/BookDetailPage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { SeriesDetailPage } from '@/pages/SeriesDetailPage'
-import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage'
+import { ConnectLandPage } from '@/pages/ConnectLandPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { UploadPage } from '@/pages/UploadPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -39,8 +39,10 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
-    path: '/oauth/callback',
-    element: <OAuthCallbackPage />,
+    // On-box "Sign in with HearthShelf" landing: app.hearthshelf.com bounces the
+    // signed-in user back here with a control-plane grant in the fragment.
+    path: '/connect-land',
+    element: <ConnectLandPage />,
   },
   {
     path: '/onboarding',
