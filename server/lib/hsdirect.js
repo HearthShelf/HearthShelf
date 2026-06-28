@@ -40,6 +40,11 @@ const ACME_ENV = process.env.HSDIRECT_ACME_ENV || 'production'
 // is the externally-reachable port (default 9277, the AIO WebUI port). The
 // reverse-proxy/own-domain user sets PUBLIC_URL instead and this is unused.
 const PUBLIC_PORT = Number(process.env.HSDIRECT_PUBLIC_PORT || '9277')
+// Renew only when the existing cert has less than this much life left. Let's
+// Encrypt certs last 90 days; 30 days of headroom means a paired box renews ~once
+// every two months and never re-issues on a plain restart (which would otherwise
+// hit LE's duplicate-cert rate limit now that the broker forces issuance).
+const RENEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 const log = (...a) => console.log('[hsdirect]', ...a)
 const warn = (...a) => console.warn('[hsdirect]', ...a)
@@ -92,6 +97,33 @@ export async function acquireCert({ force = false } = {}) {
   const keyPath = path.join(CERT_DIR, 'server.key')
   const csrPath = path.join(CERT_DIR, 'server.csr')
   const crtPath = path.join(CERT_DIR, 'fullchain.pem')
+
+  // Skip the network round-trip when we already hold a cert with comfortable
+  // life left (e.g. a plain restart). The broker now forces a real Let's Encrypt
+  // issuance on every call, so re-issuing on each boot would burn LE's duplicate-
+  // cert rate limit. Only renew when within RENEW_WINDOW_MS of expiry (or forced,
+  // e.g. at pairing). We still re-render+reload nginx so HTTPS comes up on boot.
+  if (!force) {
+    const existingNotAfter = await certNotAfterMs(crtPath).catch(() => null)
+    if (existingNotAfter && existingNotAfter - Date.now() > RENEW_WINDOW_MS) {
+      // Reuse the still-valid wildcard cert (no LE round-trip), but recompute the
+      // public URL from the CURRENT public IP - the cert is *.<hash>.<zone>, so a
+      // changed residential IP only needs a new dashed-IP label, not a new cert.
+      const host = await fs.readFile(path.join(STATE_DIR, 'stable_host'), 'utf8').then((s) => s.trim()).catch(() => null)
+      if (host) {
+        const ip = await detectPublicIp()
+        const portSuffix = PUBLIC_PORT === 443 ? '' : `:${PUBLIC_PORT}`
+        const publicUrl = ip
+          ? `https://${ip.replace(/\./g, '-')}.${host}${portSuffix}`
+          : `https://${host}${portSuffix}`
+        await fs.writeFile(path.join(STATE_DIR, 'public_url'), publicUrl).catch(() => {})
+        log('existing cert valid until', new Date(existingNotAfter).toISOString(), '- skipping issuance')
+        await reloadNginx()
+        return { ok: true, host, publicUrl, reason: 'cert_still_valid', skipped: true }
+      }
+      // Cert present but stable_host missing - fall through and re-issue to rebuild it.
+    }
+  }
 
   // 1. Ask the control plane to authorize issuance. Returns the broker URL, the
   //    stable <hash> + host, and a short-lived grant the broker verifies.
@@ -151,7 +183,9 @@ export async function acquireCert({ force = false } = {}) {
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
-      warn('broker issue failed', res.status, detail.slice(0, 200))
+      // Log the full broker detail (acme.sh's combined output) - truncating to 200
+      // chars hid the real failure line behind the "Copying CSR to:" header.
+      warn('broker issue failed', res.status, detail.slice(0, 2000))
       await reportStatus(serverId, serverSecret, 'failed', `broker ${res.status}`)
       return { ok: false, reason: 'broker_failed', status: res.status }
     }
