@@ -114,6 +114,7 @@ RUN chmod +x /usr/local/bin/render-hsdirect.sh
 # templates with a fake cert + sample host, run `nginx -t`, then clean up.
 RUN set -e; \
     export ABS_SERVER_URL=http://127.0.0.1:13378 \
+           PUBLIC_URL=https://1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HSDIRECT_PUBLIC_HOST=1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HS_APP_ORIGIN=https://app.hearthshelf.com; \
     mkdir -p /etc/hsdirect/tls; \
@@ -122,7 +123,7 @@ RUN set -e; \
     envsubst '${HS_APP_ORIGIN}' < /etc/nginx/templates/cors-map.conf.template > /etc/nginx/conf.d/cors-map.conf; \
     cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf; \
     envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' < /etc/nginx/templates/abs_proxy.conf.template > /etc/nginx/abs_proxy.conf; \
-    envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
+    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
     envsubst '${ABS_SERVER_URL}' < /etc/nginx/templates/hsdirect-http.conf.template > /etc/nginx/hsdirect-http.conf; \
     envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect-ssl.conf.template > /etc/nginx/hsdirect-ssl.conf; \
     cp /etc/nginx/templates/aio-nginx.conf.template /etc/nginx/nginx.conf; \
