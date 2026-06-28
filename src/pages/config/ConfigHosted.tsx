@@ -317,9 +317,11 @@ export function ConfigHosted() {
           <div className="set-row" style={{ marginTop: 'var(--s4)' }}>
             <div className="sr-meta" style={{ width: '100%' }}>
               <div className="sr-t">Reachable from outside your network?</div>
-              {hsDirect?.status === 'active' && hsDirect.publicUrl && (
-                <div className="sr-d t-mono" style={{ wordBreak: 'break-all', marginBottom: 6 }}>
-                  {hsDirect.publicUrl}
+              {hsDirect?.status === 'active' && (
+                <div className="sr-d" style={{ marginBottom: 6 }}>
+                  {runtime?.serverName || 'Your server'} has a secure web address set
+                  up by HearthShelf. People you invite reach it through the
+                  HearthShelf app - there's nothing to copy or share.
                 </div>
               )}
               {hsDirect?.status === 'pending' && (
