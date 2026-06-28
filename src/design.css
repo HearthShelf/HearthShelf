@@ -719,6 +719,12 @@
   align-items: center;
   justify-content: center;
   gap: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 20px;
+  border-radius: var(--r-card);
+  background: var(--fill);
+  color: var(--text);
   transition:
     background 0.18s,
     transform 0.12s,
