@@ -33,7 +33,7 @@ fi
 
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
 
-if [ -f /etc/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}" ] && [ -n "${HSDIRECT_PUBLIC_HOST:-}" ]; then
+if [ -f /config/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}" ] && [ -n "${HSDIRECT_PUBLIC_HOST:-}" ]; then
   # CERT PRESENT: serve BOTH protocols on the one port via a stream TLS-detect
   # demux (Plex-style). plain HTTP -> LAN server (:8081); TLS -> connect-domain
   # HTTPS server (:8443). This keeps LAN/direct-IP access working AND serves the

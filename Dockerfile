@@ -117,9 +117,9 @@ RUN set -e; \
            PUBLIC_URL=https://1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HSDIRECT_PUBLIC_HOST=1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HS_APP_ORIGIN=https://app.hearthshelf.com; \
-    mkdir -p /etc/hsdirect/tls; \
-    openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/hsdirect/tls/server.key \
-      -out /etc/hsdirect/tls/fullchain.pem -days 1 -subj "/CN=test" >/dev/null 2>&1; \
+    mkdir -p /config/hsdirect/tls; \
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /config/hsdirect/tls/server.key \
+      -out /config/hsdirect/tls/fullchain.pem -days 1 -subj "/CN=test" >/dev/null 2>&1; \
     envsubst '${HS_APP_ORIGIN}' < /etc/nginx/templates/cors-map.conf.template > /etc/nginx/conf.d/cors-map.conf; \
     cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf; \
     envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' < /etc/nginx/templates/abs_proxy.conf.template > /etc/nginx/abs_proxy.conf; \
@@ -130,7 +130,7 @@ RUN set -e; \
     rm -f /etc/nginx/conf.d/default.conf; \
     nginx -t; \
     cp /etc/nginx/nginx.conf.stock /etc/nginx/nginx.conf; \
-    rm -rf /etc/hsdirect /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf /etc/nginx/hsdirect_abs_proxy.conf \
+    rm -rf /config/hsdirect /etc/nginx/hsdirect-http.conf /etc/nginx/hsdirect-ssl.conf /etc/nginx/hsdirect_abs_proxy.conf \
            /etc/nginx/abs_proxy.conf /etc/nginx/conf.d/cors-map.conf /etc/nginx/conf.d/upgrade-map.conf
 
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh

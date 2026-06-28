@@ -31,7 +31,12 @@ import { getMode } from './context.js'
 const execFileP = promisify(execFile)
 
 const CP_URL = (process.env.HSDIRECT_CP_URL || process.env.HS_CONTROL_PLANE || 'https://api.hearthshelf.com').replace(/\/$/, '')
-const CERT_DIR = process.env.HSDIRECT_CERT_DIR || '/etc/hsdirect/tls'
+// Cert lives on the DATA VOLUME (/config), not an ephemeral container path, so it
+// SURVIVES container recreation (image updates). Storing it under /etc/hsdirect
+// meant every recreate lost the cert and re-issued from Let's Encrypt - which
+// burns LE's 5-duplicate-certs-per-week rate limit (a real 429 we hit). Persisted,
+// the cert-reuse guard re-issues only on genuine renewal, never on recreate.
+const CERT_DIR = process.env.HSDIRECT_CERT_DIR || '/config/hsdirect/tls'
 const STATE_DIR = process.env.HSDIRECT_STATE_DIR || '/config/hsdirect'
 const ACME_ENV = process.env.HSDIRECT_ACME_ENV || 'production'
 // hs.direct serves HTTPS on the SAME container port as the WebUI (:80), and the
