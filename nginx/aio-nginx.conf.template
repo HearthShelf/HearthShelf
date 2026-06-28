@@ -21,6 +21,13 @@ user  nginx;
 worker_processes  auto;
 pid        /var/run/nginx.pid;
 
+# Log to the container's stdout/stderr (Docker convention - the stock nginx image
+# does this). Setting it explicitly at the top level is REQUIRED: without it nginx
+# falls back to the compiled-in /var/log/nginx/error.log path, which in this image
+# is a /dev/stderr symlink that `nginx -t` can't open ("No such device or address")
+# - failing validation and blocking the reload.
+error_log /dev/stderr notice;
+
 # The stream module (incl. ssl_preread) is compiled into nginx.org's official
 # alpine nginx package (--with-stream), so no load_module is needed.
 
@@ -44,7 +51,7 @@ stream {
         proxy_pass $backend;
         # Hand the real client IP to the internal servers via PROXY protocol.
         proxy_protocol on;
-        access_log /var/log/nginx/demux.log demux;
+        access_log /dev/stdout demux;
     }
 }
 
@@ -53,6 +60,7 @@ http {
     default_type  application/octet-stream;
     sendfile        on;
     keepalive_timeout  65;
+    access_log /dev/stdout;
 
     # Maps + CORS the server blocks rely on (rendered into conf.d by the entrypoint).
     include /etc/nginx/conf.d/upgrade-map.conf;
