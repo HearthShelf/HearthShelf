@@ -57,11 +57,12 @@ for free. Do not cross that line.
 
 - This repo is **AGPLv3** (see `LICENSE.md`). All contributions are AGPLv3 and
   require a DCO sign-off (`git commit -s`); see `CONTRIBUTING.md`.
-- The hosted web app (`app.hearthshelf.com`, in `HearthShelf-WebApp`) is a
-  **separate, closed-source** product. It is an arm's-length API client of the
-  public HearthShelf/ABS APIs and must never import or link AGPL code from this
-  repo. Do not blur that boundary - do not copy code from this repo into the
-  hosted app, and do not assume code here will be reused there.
+- The whole ecosystem is open source. The **servers** (this repo and
+  `HearthShelf-WebApp`) are **AGPLv3** - the copyleft protects the service. The
+  **client app** (`HearthShelf-Mobile`) and the shared **`@hearthshelf/core`**
+  library are **MIT** (AGPL buys little on a phone app and conflicts with App
+  Store terms, so MIT is the low-friction choice). MIT links cleanly into the
+  AGPL servers, so consuming `@hearthshelf/core` everywhere is fine and expected.
 
 ## Standard engineering rules
 
@@ -69,6 +70,19 @@ The full engineering rules (Evidence-Based Development, TypeScript strict mode,
 the `/abs-api/*` CORS discipline, persistent player bar, progress-sync cadence,
 "never git push") live in `CLAUDE.md`. Read it. AGENTS.md adds the legal
 guardrails on top; it does not replace `CLAUDE.md`.
+
+## Related repositories
+
+| Repo | What it is | License |
+| --- | --- | --- |
+| **HearthShelf** | This repo - self-hosted SPA + Node backend (`server/`) + Docker | AGPLv3 |
+| **HearthShelf-WebApp** | Hosted front door (`app.hearthshelf.com`): SPA + control-plane Worker | AGPLv3 |
+| **HearthShelf-Mobile** | Mobile app (Expo/RN); Android Auto via a native Media3 `MediaLibraryService` | MIT |
+| **HearthShelf-Core** | `@hearthshelf/core`: shared ABS types + pure logic (git submodule) | MIT |
+| **HearthShelf-Website** | Marketing site (`hearthshelf.com`) | AGPLv3 |
+| **HearthShelf-Docs** | Docs site (`docs.hearthshelf.com`) | - |
+| **HearthShelf-Direct-Infra** | VPS-side infra for the connect domain | - |
+| **HearthShelf-DesignSystem** | Logos, favicon, shared design assets | - |
 
 ## If in doubt
 
