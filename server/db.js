@@ -145,6 +145,19 @@ const SCHEMA = [
      updated_at   INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
    )`,
+  // The user's up-next listening queue, so it follows them across devices.
+  // One row per user; items_json is the ordered QueueEntry[] (see
+  // @hearthshelf/core QueueState). Queue MODE and auto-rules are preferences
+  // and live in app_settings instead - only the item list churns often enough
+  // (every auto-advance rebuild) to warrant its own table.
+  `CREATE TABLE IF NOT EXISTS listening_queue (
+     server_id    TEXT NOT NULL DEFAULT 'local',
+     user_id      TEXT NOT NULL,
+     items_json   TEXT NOT NULL DEFAULT '[]',
+     playlist_id  TEXT,
+     updated_at   INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id)
+   )`,
   // Hosted-mode config: a single row holding how this instance trusts the
   // control plane (app.hearthshelf.com) and acts on ABS for federated users.
   // Only present/used when HS_MODE=hosted. Written by the pairing flow.

@@ -11,6 +11,7 @@
 //   /hs/questgiver/*  -> config, admin AI config, recommend, runs, health
 //   /hs/discover/*    -> monthly AI shelf, feedback, popular signals
 //   /hs/settings      -> per-user app settings sync
+//   /hs/queue         -> per-user listening queue sync
 //   /hs/social/*      -> cross-user leaderboard + per-book finished counts
 //   /hs/stats         -> the caller's computed listening stats (streak, week, ...)
 //   /hs/narrators/*   -> narrator photos (HearthShelf-native; ABS has none)
@@ -38,6 +39,7 @@ import { isProviderConfigured } from './providers.js'
 import { handleQuestGiver } from './routes/questgiver.js'
 import { handleDiscover } from './routes/discover.js'
 import { handleSettings } from './routes/settings.js'
+import { handleQueue } from './routes/queue.js'
 import { handleSocial } from './routes/social.js'
 import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
@@ -96,6 +98,7 @@ const ROUTES = [
   handleQuestGiver,
   handleDiscover,
   handleSettings,
+  handleQueue,
   handleSocial,
   handleFinishedBooks,
   handleStats,

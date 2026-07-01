@@ -35,6 +35,7 @@ Full specs live in `docs/`. Read the relevant file when working on a specific ar
 - @docs/component-system.md - shadcn/ui usage and v0.1 component list
 - @docs/docker-setup.md - Dockerfile, nginx config, runtime env injection
 - @docs/database.md - HearthShelf's embedded SQLite store (settings sync, QuestGiver config/history)
+- @docs/queue.md - Server-backed listening queue: /hs/queue, mode/rules-in-settings split, cross-device sync
 - @docs/social-stats.md - Cross-user leaderboard + "finished by" via read-only ABS db; sharing privacy + admin default
 - @docs/coding-conventions.md - TypeScript, components, state, CSS standards
 - @docs/scope.md - v0.1 in-scope and out-of-scope features
