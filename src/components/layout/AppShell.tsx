@@ -7,6 +7,7 @@ import { PlayerBar } from '@/components/player/PlayerBar'
 import { AudioEngine } from '@/components/player/AudioEngine'
 import { useApplySettings } from '@/hooks/useApplySettings'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
+import { useQueueSync } from '@/hooks/useQueueSync'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 
@@ -25,6 +26,7 @@ export function AppShell() {
 
   useApplySettings()
   useSettingsSync()
+  useQueueSync()
 
   return (
     <div

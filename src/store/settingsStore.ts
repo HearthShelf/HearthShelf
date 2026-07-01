@@ -1,13 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { QueueMode, AutoRuleId } from '@/store/queueStore'
-
-// The default order/priority of the Auto-queue rules. All on by default.
-export const DEFAULT_AUTO_RULES: AutoRuleId[] = [
-  'finish-series',
-  'in-progress',
-  'new-in-series',
-]
+import type { QueueMode, AutoRulePref } from '@hearthshelf/core'
+import { DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS } from '@hearthshelf/core'
 
 // Client-only user preferences (appearance, playback, library, sleep). No ABS
 // dependency - persisted to localStorage. Field names and defaults are ported
@@ -53,15 +47,11 @@ export type AccentMode = 'dynamic' | 'manual'
 export type CoverStyle = 'floating' | 'cards'
 export type ScrubberScope = 'chapter' | 'book'
 
-// An Auto-queue rule with its enabled flag. The array order is the priority.
-export interface AutoRulePref {
-  id: AutoRuleId
-  on: boolean
-}
+export type { AutoRulePref } from '@hearthshelf/core'
 
-export const DEFAULT_AUTO_RULE_PREFS: AutoRulePref[] = DEFAULT_AUTO_RULES.map(
-  (id) => ({ id, on: true })
-)
+// The default order/priority of the Auto-queue rules, all on. Owned by
+// @hearthshelf/core so web and mobile agree on the same defaults.
+export const DEFAULT_AUTO_RULE_PREFS: AutoRulePref[] = CORE_DEFAULT_AUTO_RULE_PREFS
 
 export interface SettingsState {
   // Appearance

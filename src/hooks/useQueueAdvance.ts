@@ -13,14 +13,14 @@ import {
   libraryKeys,
 } from '@/api/libraries'
 import { getMe, meKeys } from '@/api/me'
-import { buildAutoQueue } from '@/lib/queueRules'
+import { buildAutoQueue } from '@hearthshelf/core'
 import type {
   ABSLibraryItemsResponse,
   ABSSeriesResponse,
   ABSMediaProgress,
   ABSPlaylistsResponse,
+  QueueEntry,
 } from '@/api/types'
-import type { QueueEntry } from '@/store/queueStore'
 
 // Encapsulates "what plays next when a book ends", honoring the queue mode.
 // Returns a single advance() the AudioEngine calls from onEnded.
