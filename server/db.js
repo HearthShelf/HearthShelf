@@ -138,11 +138,51 @@ const SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_qg_runs_user
      ON qg_runs (server_id, user_id, created_at DESC)`,
+  // Legacy per-user settings blob. Superseded by user_settings (per-key rows);
+  // kept in place so the one-time fan-out (see migrateSettingsToRows) can read it
+  // and so a rollback is possible. No longer written after the migration runs.
   `CREATE TABLE IF NOT EXISTS app_settings (
      server_id    TEXT NOT NULL DEFAULT 'local',
      user_id      TEXT NOT NULL,
      values_json  TEXT NOT NULL,
      updated_at   INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id)
+   )`,
+  // Centralized per-key user settings (replaces the app_settings blob). One row
+  // per (server_id, user_id, scope, device_id, key), each with its own
+  // updated_at so sync merges at the setting level (per-key last-writer-wins) -
+  // a change on one device never clobbers an unrelated change on another. The
+  // catalog in @hearthshelf/core defines every key's scope + default; absence of
+  // a row means "use the default" (sparse storage). scope='account' has
+  // device_id='' and syncs to every device; scope='device' rows carry a stable
+  // per-install device_id and only round-trip for that device. Reading one key
+  // server-side (e.g. shareReadBooks) is now one indexed query, not a blob scan.
+  `CREATE TABLE IF NOT EXISTS user_settings (
+     server_id   TEXT NOT NULL DEFAULT 'local',
+     user_id     TEXT NOT NULL,
+     scope       TEXT NOT NULL DEFAULT 'account',
+     device_id   TEXT NOT NULL DEFAULT '',
+     key         TEXT NOT NULL,
+     value_json  TEXT NOT NULL,
+     updated_at  INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id, scope, device_id, key)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_user_settings_lookup
+     ON user_settings (server_id, user_id, scope, device_id)`,
+  // The user's syncable bookshelf (ABS) connection, so it can follow them to a
+  // new platform. abs_url + label are non-secret and may surface to the client;
+  // abs_user_key is the minted per-user ABS key and is a SECRET - written
+  // server-side, never returned to the browser (only a connected flag is), the
+  // same handling as hardcover_accounts.token. One row per user for now; add a
+  // conn_id to the key if multi-bookshelf-per-user is ever needed.
+  `CREATE TABLE IF NOT EXISTS connections (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     user_id       TEXT NOT NULL,
+     abs_url       TEXT NOT NULL,
+     abs_user_key  TEXT,
+     label         TEXT,
+     last_used_at  INTEGER,
+     updated_at    INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
    )`,
   // The user's up-next listening queue, so it follows them across devices.
@@ -297,6 +337,60 @@ const MIGRATIONS = [
   `ALTER TABLE ai_config ADD COLUMN discover_enabled INTEGER NOT NULL DEFAULT 1`,
 ]
 
+// Account-scoped setting keys, for the one-time app_settings fan-out below.
+// Everything the old blob held that ISN'T in this set is treated as device
+// scope. This mirrors the scope column of the @hearthshelf/core settings
+// catalog (src/lib/settings.ts) - the server can't import that .ts directly (it
+// runs plain .js, no bundler), so this list must stay in step with the catalog's
+// account entries, same as stats.js mirrors core's stats math. Only used once at
+// migration time; live reads/writes go through the catalog on the client.
+const ACCOUNT_SETTING_KEYS = new Set([
+  'theme', 'accentMode', 'accentHex', 'glow', 'coverStyle', 'colorEverywhere',
+  'hearthBgPlayer', 'cardBg', 'scrubber', 'skipForward', 'skipBack',
+  'chapterBarrier', 'queueMode', 'queueAutoRules', 'libraryFill', 'unifiedHome',
+  'showOthersBooks', 'sleepRewindSec', 'sleepFade', 'sleepFadeLen', 'sleepChime',
+  'autoSleep', 'autoSleepStart', 'autoSleepEnd', 'autoSleepDur', 'useGravatar',
+  'shareReadBooks',
+])
+
+// One-time fan-out of the legacy app_settings blob into per-key user_settings
+// rows. Idempotent: skips any (server_id, user_id) that already has rows, so it
+// re-running or a later blob write can't double-import. Each key becomes an
+// account or device row (device rows use device_id='' - a pre-sync backup the
+// owning device adopts on first pull) stamped with the blob's updated_at as the
+// seed LWW timestamp. Unknown keys (not in the catalog's account set and not a
+// known device key) still import as device rows rather than being dropped, so no
+// user data is lost; the client ignores keys it doesn't recognise. app_settings
+// is left intact for rollback.
+async function migrateSettingsToRows() {
+  const blobs = await db.execute('SELECT server_id, user_id, values_json, updated_at FROM app_settings')
+  for (const row of blobs.rows) {
+    const serverId = String(row.server_id)
+    const userId = String(row.user_id)
+    const existing = await db.execute({
+      sql: 'SELECT 1 FROM user_settings WHERE server_id = ? AND user_id = ? LIMIT 1',
+      args: [serverId, userId],
+    })
+    if (existing.rows.length) continue // already migrated
+    let values = null
+    try {
+      values = JSON.parse(String(row.values_json))
+    } catch {
+      values = null
+    }
+    if (!values || typeof values !== 'object') continue
+    const updatedAt = Number(row.updated_at) || Date.now()
+    for (const key of Object.keys(values)) {
+      const scope = ACCOUNT_SETTING_KEYS.has(key) ? 'account' : 'device'
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO user_settings (server_id, user_id, scope, device_id, key, value_json, updated_at)
+              VALUES (?, ?, ?, '', ?, ?, ?)`,
+        args: [serverId, userId, scope, key, JSON.stringify(values[key]), updatedAt],
+      })
+    }
+  }
+}
+
 let ready = null
 
 // Initialise the database exactly once. Callers await this before first use;
@@ -313,6 +407,7 @@ export function initDb() {
           // Column already exists (migration already ran) - ignore.
         }
       }
+      await migrateSettingsToRows()
     })()
   }
   return ready
