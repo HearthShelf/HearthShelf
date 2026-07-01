@@ -1,9 +1,14 @@
-// Per-user app settings (theme, accent, cover size, sleep prefs, etc.), stored
-// server-side so they follow a user across devices. The whole settings object
-// is kept as one JSON blob keyed by (server_id, ABS user id) - the backend
-// treats it as opaque; the frontend owns the shape.
+// Per-user app settings, stored server-side so they follow a user across
+// devices. Backed by the per-key user_settings table (replaced the old
+// app_settings JSON blob): one row per (server_id, user_id, scope, device_id,
+// key), each with its own updated_at, so sync merges at the setting level
+// (per-key last-writer-wins). The catalog (lib/settingsCatalog.js, mirrored from
+// @hearthshelf/core) defines each key's scope + validation; unset keys fall back
+// to the catalog default on the client (sparse storage - the DB holds only what
+// the user changed).
 
 import { db, initDb } from './db.js'
+import { settingScope, validateSetting } from './lib/settingsCatalog.js'
 
 let ready = null
 function ensure() {
@@ -11,66 +16,141 @@ function ensure() {
   return ready
 }
 
-export async function getSettings(serverId, userId) {
+// All of a user's settings, split by scope. Account rows always apply; device
+// rows are returned only for the given deviceId (or none when deviceId is
+// falsy). Each value is { value, updatedAt }.
+export async function getSettings(serverId, userId, deviceId = '') {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT values_json, updated_at FROM app_settings WHERE server_id = ? AND user_id = ?`,
-    args: [serverId, userId],
+    sql: `SELECT scope, device_id, key, value_json, updated_at
+          FROM user_settings
+          WHERE server_id = ? AND user_id = ? AND (scope = 'account' OR (scope = 'device' AND device_id = ?))`,
+    args: [serverId, userId, deviceId || ''],
+  })
+  const account = {}
+  const device = {}
+  for (const row of r.rows) {
+    let value = null
+    try {
+      value = JSON.parse(row.value_json)
+    } catch {
+      continue
+    }
+    const bucket = row.scope === 'device' ? device : account
+    bucket[String(row.key)] = { value, updatedAt: Number(row.updated_at) }
+  }
+  return { account, device }
+}
+
+// Read one key out of a user's settings, or null when unset. Account scope only
+// (the callers - e.g. the avatar route's Gravatar opt-out - want the account
+// value). One indexed query, no blob scan.
+export async function getUserSetting(serverId, userId, key) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT value_json FROM user_settings
+          WHERE server_id = ? AND user_id = ? AND scope = 'account' AND device_id = '' AND key = ?`,
+    args: [serverId, userId, key],
   })
   const row = r.rows[0]
-  if (!row) return { values: null, updatedAt: 0 }
-  let values = null
+  if (!row) return null
   try {
-    values = JSON.parse(row.values_json)
+    return JSON.parse(row.value_json)
   } catch {
-    values = null
+    return null
   }
-  return { values, updatedAt: Number(row.updated_at) }
 }
 
-// Read one key out of a user's settings blob, or null when unset / no settings.
-// Used by the avatar route to honor the per-user Gravatar opt-out without pulling
-// the whole settings object into that path.
-export async function getUserSetting(serverId, userId, key) {
-  const { values } = await getSettings(serverId, userId)
-  if (!values || typeof values !== 'object') return null
-  return key in values ? values[key] : null
-}
-
-// Map of user id -> their EXPLICIT leaderboard-sharing choice, for the users
-// (within a server) who have actually set one. shareReadBooks is tri-state:
-// present in a user's settings means they chose (true = share, false = hide);
-// absent from this map means they never chose, so the admin's default applies
-// (see server/community.js). The social leaderboard merges this with the default
-// to decide who appears - flipping the default is retroactive for absent users
-// but never overrides an explicit choice here.
+// Map of user id -> their EXPLICIT leaderboard-sharing choice (true/false), for
+// the users within a server who actually set one. shareReadBooks is tri-state:
+// a row with a boolean value means they chose; no row means they never chose, so
+// the admin default applies (see server/community.js). Now a single WHERE key =
+// query instead of parsing every user's blob.
 export async function getExplicitSharePrefs(serverId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT user_id, values_json FROM app_settings WHERE server_id = ?`,
+    sql: `SELECT user_id, value_json FROM user_settings
+          WHERE server_id = ? AND scope = 'account' AND device_id = '' AND key = 'shareReadBooks'`,
     args: [serverId],
   })
   const out = new Map()
   for (const row of r.rows) {
     try {
-      const values = JSON.parse(row.values_json)
-      if (values && typeof values.shareReadBooks === 'boolean') {
-        out.set(String(row.user_id), values.shareReadBooks)
-      }
+      const v = JSON.parse(row.value_json)
+      if (typeof v === 'boolean') out.set(String(row.user_id), v)
     } catch {
-      // Unparseable settings blob - treat as "no explicit choice".
+      // Unparseable - treat as no explicit choice.
     }
   }
   return out
 }
 
-export async function setSettings(serverId, userId, values) {
+// Apply a batch of per-key changes. Each change is { scope, key, value,
+// updatedAt }. A change is validated against the catalog and only written when
+// its updatedAt is at least as new as the stored row (per-key LWW). Returns
+// { applied, rejected, invalid } buckets so the caller can report per-key
+// results. deviceId scopes any device-scope writes (required for them).
+export async function applyChanges(serverId, userId, deviceId, changes) {
   await ensure()
-  const now = Date.now()
-  await db.execute({
-    sql: `INSERT INTO app_settings (server_id, user_id, values_json, updated_at) VALUES (?, ?, ?, ?)
-          ON CONFLICT (server_id, user_id) DO UPDATE SET values_json = excluded.values_json, updated_at = excluded.updated_at`,
-    args: [serverId, userId, JSON.stringify(values ?? {}), now],
-  })
-  return { values, updatedAt: now }
+  const applied = []
+  const rejected = []
+  const invalid = []
+
+  for (const change of changes) {
+    const key = String(change?.key ?? '')
+    const scope = settingScope(key)
+    if (!scope) {
+      invalid.push({ key, value: change?.value ?? null, reason: 'unknown_key' })
+      continue
+    }
+    // The catalog owns each key's scope; ignore a mislabeled scope from the client.
+    const devId = scope === 'device' ? deviceId || '' : ''
+    if (scope === 'device' && !devId) {
+      invalid.push({ key, value: change?.value ?? null, reason: 'device_id_required' })
+      continue
+    }
+
+    const result = validateSetting(key, change?.value)
+    if (!result.ok) {
+      invalid.push({ key, value: change?.value ?? null, reason: result.reason })
+      continue
+    }
+
+    const updatedAt = Number(change?.updatedAt)
+    if (!Number.isFinite(updatedAt)) {
+      invalid.push({ key, value: result.value, reason: 'bad_timestamp' })
+      continue
+    }
+
+    // Per-key LWW: skip if a newer value is already stored (ties overwrite).
+    const cur = await db.execute({
+      sql: `SELECT value_json, updated_at FROM user_settings
+            WHERE server_id = ? AND user_id = ? AND scope = ? AND device_id = ? AND key = ?`,
+      args: [serverId, userId, scope, devId, key],
+    })
+    const curRow = cur.rows[0]
+    const curUpdated = curRow ? Number(curRow.updated_at) : -1
+    if (updatedAt < curUpdated) {
+      let curValue = null
+      try {
+        curValue = JSON.parse(curRow.value_json)
+      } catch {
+        curValue = null
+      }
+      // The stored value wins; report it so the stale client adopts it.
+      rejected.push({ key, value: curValue, updatedAt: curUpdated })
+      continue
+    }
+
+    await db.execute({
+      sql: `INSERT INTO user_settings (server_id, user_id, scope, device_id, key, value_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (server_id, user_id, scope, device_id, key)
+            DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      args: [serverId, userId, scope, devId, key, JSON.stringify(result.value), updatedAt],
+    })
+    applied.push(key)
+  }
+
+  return { applied, rejected, invalid }
 }
