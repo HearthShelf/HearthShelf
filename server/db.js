@@ -304,6 +304,28 @@ const SCHEMA = [
      updated_at          INTEGER NOT NULL,
      UNIQUE (server_id, user_id, source, library_item_id, title)
    )`,
+  // Public + club notes on books (see docs/social.md). One row per note or
+  // reply. club_id '' = a public note (house sentinel, like user_settings
+  // device_id); parent_id '' = top-level (a reply gates at its PARENT's
+  // time_sec). time_sec NULL = a general, ungated note. username is snapshotted
+  // at write time so names render without an absdb mount. Soft delete (deleted=1)
+  // keeps reply threads intact. The server route is the authoritative spoiler
+  // gate (a WHERE + body-strip), never a mirror of core's client-side gateNotes.
+  `CREATE TABLE IF NOT EXISTS book_notes (
+     id              TEXT PRIMARY KEY,
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     user_id         TEXT NOT NULL,
+     username        TEXT NOT NULL DEFAULT '',
+     library_item_id TEXT NOT NULL,
+     club_id         TEXT NOT NULL DEFAULT '',
+     parent_id       TEXT NOT NULL DEFAULT '',
+     time_sec        REAL,
+     body            TEXT NOT NULL,
+     created_at      INTEGER NOT NULL,
+     deleted         INTEGER NOT NULL DEFAULT 0
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_book_notes_item
+     ON book_notes (server_id, library_item_id, club_id, created_at)`,
   // One Hardcover Personal Access Token per ABS user (not server-wide - a
   // Hardcover account belongs to a person, not a household's HearthShelf box).
   // The token is never returned to the client once saved; only connection

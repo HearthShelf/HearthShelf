@@ -12,7 +12,9 @@
 //   /hs/discover/*    -> monthly AI shelf, feedback, popular signals
 //   /hs/settings      -> per-user app settings sync
 //   /hs/queue         -> per-user listening queue sync
-//   /hs/social/*      -> cross-user leaderboard + per-book finished counts
+//   /hs/social/*      -> cross-user leaderboard + finished counts + listening-now
+//   /hs/notes         -> public + club notes (spoiler-gated)
+//   /hs/clubs/*       -> book clubs (multi-book groups, per-book chat)
 //   /hs/stats         -> the caller's computed listening stats (streak, week, ...)
 //   /hs/narrators/*   -> narrator photos (HearthShelf-native; ABS has none)
 //   /hs/rmab/*        -> ReadMeABook acquisition proxy
@@ -41,6 +43,7 @@ import { handleDiscover } from './routes/discover.js'
 import { handleSettings } from './routes/settings.js'
 import { handleQueue } from './routes/queue.js'
 import { handleSocial } from './routes/social.js'
+import { handleNotes } from './routes/notes.js'
 import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
 import { handleAudplexus } from './routes/audplexus.js'
@@ -100,6 +103,7 @@ const ROUTES = [
   handleSettings,
   handleQueue,
   handleSocial,
+  handleNotes,
   handleFinishedBooks,
   handleStats,
   handleRmab,
