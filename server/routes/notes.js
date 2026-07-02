@@ -22,10 +22,14 @@ import {
   insertNote,
   softDeleteNote,
 } from '../lib/notesQuery.js'
-import { getClub, isClubMember, bookInClub } from '../clubs.js'
+import { getClub, isClubMember, bookInClub, currentBook } from '../clubs.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
 const BODY_MAX = 2000
+// ABS library-item / club / note ids are opaque tokens (UUIDs, nanoids). Reject
+// anything outside this shape early with 400 invalid_id, for consistency with
+// the club routes and to keep ids safe to interpolate into URLs/queries.
+const ID_RE = /^[A-Za-z0-9_-]+$/
 
 // Verify the club exists and the caller is a member. Returns an error token
 // ('club_not_found' | 'not_member') or null when OK.
@@ -65,15 +69,23 @@ export async function handleNotes(req, res, url, ctx) {
     if (!cfg.notesEnabled) return (json(res, 200, { enabled: false }), true)
     const libraryItemId = url.searchParams.get('libraryItemId') || ''
     if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const clubId = url.searchParams.get('clubId') || ''
+    if (clubId && !ID_RE.test(clubId)) return (json(res, 400, { error: 'invalid_id' }), true)
+    let isClubCurrentBook = false
     if (clubId) {
       const err = await checkClubAccess(ctx.serverId, clubId, ctx.userId)
       if (err === 'club_not_found') return (json(res, 404, { error: 'club_not_found' }), true)
       if (err === 'not_member') return (json(res, 403, { error: 'not_member' }), true)
+      // Locked stubs (timeline ticks) are only correct for the club's CURRENT
+      // book - a past book has no "ahead" to tease. Match clubs.js's detail path.
+      const current = await currentBook(ctx.serverId, clubId)
+      isClubCurrentBook = Boolean(current) && current.libraryItemId === libraryItemId
     }
     const position = Number.parseFloat(url.searchParams.get('position') ?? '')
     const afterRaw = url.searchParams.get('after')
-    const after = afterRaw != null ? Number.parseInt(afterRaw, 10) : null
+    const afterParsed = afterRaw != null ? Number.parseInt(afterRaw, 10) : null
+    const after = afterParsed != null && Number.isFinite(afterParsed) ? afterParsed : null
     const finishedClaim = url.searchParams.get('finished') === '1'
 
     const { position: pos, isFinished } = await resolveGatePosition(
@@ -82,19 +94,19 @@ export async function handleNotes(req, res, url, ctx) {
       position,
       finishedClaim,
     )
-    const rows = await loadNotes(
-      ctx.serverId,
-      libraryItemId,
-      clubId,
-      after != null && Number.isFinite(after) ? after : null,
-    )
-    // Locked stubs are club-scope only (public-note stubs would render as
-    // timeline ticks but the public GET withholds them per docs/social.md).
+    // Load the FULL scope (including deleted rows for the gate's parent map);
+    // `after` is a post-gate filter, never a DB filter, so a reply's parent is
+    // always present to gate it (see lib/notesQuery.js).
+    const rows = await loadNotes(ctx.serverId, libraryItemId, clubId, true)
+    // Locked stubs are club-scope only, and only for the club's CURRENT book
+    // (public-note stubs would render as timeline ticks but the public GET
+    // withholds them per docs/social.md).
     const gated = gateNotes(rows, {
       position: pos,
       meId: ctx.userId,
       isFinished,
-      includeLocked: Boolean(clubId),
+      includeLocked: isClubCurrentBook,
+      after,
     })
     return (
       json(res, 200, {
@@ -118,8 +130,11 @@ export async function handleNotes(req, res, url, ctx) {
     }
     const libraryItemId = String(body?.libraryItemId ?? '')
     if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const clubId = String(body?.clubId ?? '')
+    if (clubId && !ID_RE.test(clubId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const parentId = String(body?.parentId ?? '')
+    if (parentId && !ID_RE.test(parentId)) return (json(res, 400, { error: 'invalid_id' }), true)
 
     // Body: trimmed, 1..2000 chars.
     const text = typeof body?.body === 'string' ? body.body.trim() : ''
@@ -135,13 +150,16 @@ export async function handleNotes(req, res, url, ctx) {
       timeSec = t
     }
 
-    // Club scope: the club must exist, the caller must be a member, and the book
-    // must be in the club's reading history (a note can only attach to a book the
-    // club is or was reading).
+    // Club scope: the club must exist and be non-archived, the caller must be a
+    // member, and the book must be in the club's reading history (a note can only
+    // attach to a book the club is or was reading).
     if (clubId) {
-      const err = await checkClubAccess(ctx.serverId, clubId, ctx.userId)
-      if (err === 'club_not_found') return (json(res, 404, { error: 'club_not_found' }), true)
-      if (err === 'not_member') return (json(res, 403, { error: 'not_member' }), true)
+      const club = await getClub(ctx.serverId, clubId)
+      if (!club) return (json(res, 404, { error: 'club_not_found' }), true)
+      if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+      if (!(await isClubMember(ctx.serverId, clubId, ctx.userId))) {
+        return (json(res, 403, { error: 'not_member' }), true)
+      }
       if (!(await bookInClub(ctx.serverId, clubId, libraryItemId))) {
         return (json(res, 400, { error: 'book_not_in_club' }), true)
       }

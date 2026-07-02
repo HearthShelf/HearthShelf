@@ -13,7 +13,8 @@
 // whatever its own timestamp). Locked TIMESTAMPED TOP-LEVEL notes become
 // anonymous stubs { id, timeSec }; replies never get stubs (the parent's stub
 // already marks the timestamp) but a locked reply still counts in hiddenAhead.
-// Deleted rows are excluded everywhere.
+// Soft-deleted rows are kept in the gate's PARENT MAP (so a deleted locked
+// parent still gates its replies) but are never emitted or counted.
 
 import crypto from 'node:crypto'
 import { db, initDb } from '../db.js'
@@ -25,19 +26,23 @@ function ensure() {
   return ready
 }
 
-// Load non-deleted notes for one scope (server + item + club), oldest first.
-// clubId '' selects public notes. `afterMs` (optional) returns only rows with
-// created_at > afterMs, for delta polling. Returns the raw rows.
-export async function loadNotes(serverId, libraryItemId, clubId, afterMs = null) {
+// Load notes for one scope (server + item + club), oldest first. clubId ''
+// selects public notes. `includeDeleted` (default false) controls whether
+// soft-deleted rows are returned - the gate needs deleted rows in its parent
+// map (a deleted locked parent must keep gating its replies), so gateNotes is
+// fed the full set including deleted rows and filters them out of its output.
+//
+// Note: this deliberately does NOT filter by `after`. The spoiler gate must run
+// over the COMPLETE scope so a reply's parent (which may predate any `after`
+// cutoff) is always in the gate's parent map; `after` is applied to the gated
+// output afterwards (see gateNotes' `after` option), never to the DB read.
+export async function loadNotes(serverId, libraryItemId, clubId, includeDeleted = false) {
   await ensure()
   const args = [serverId, libraryItemId, clubId]
-  let sql = `SELECT id, user_id, username, library_item_id, club_id, parent_id, time_sec, body, created_at
+  let sql = `SELECT id, user_id, username, library_item_id, club_id, parent_id, time_sec, body, created_at, deleted
              FROM book_notes
-             WHERE server_id = ? AND library_item_id = ? AND club_id = ? AND deleted = 0`
-  if (afterMs != null && Number.isFinite(afterMs)) {
-    sql += ' AND created_at > ?'
-    args.push(afterMs)
-  }
+             WHERE server_id = ? AND library_item_id = ? AND club_id = ?`
+  if (!includeDeleted) sql += ' AND deleted = 0'
   sql += ' ORDER BY created_at ASC'
   const r = await db.execute({ sql, args })
   return r.rows.map((row) => ({
@@ -50,6 +55,7 @@ export async function loadNotes(serverId, libraryItemId, clubId, afterMs = null)
     timeSec: row.time_sec == null ? null : Number(row.time_sec),
     body: String(row.body ?? ''),
     createdAt: Number(row.created_at),
+    deleted: Boolean(row.deleted),
   }))
 }
 
@@ -80,13 +86,17 @@ export async function getNote(serverId, id) {
 
 // The effective gate timestamp for a note: a reply inherits its parent's
 // time_sec; a top-level note uses its own. Returns null (= ungated) when the
-// controlling time_sec is null. `byId` maps note id -> row for parent lookup.
+// controlling time_sec is null, or Infinity when a reply's parent is missing.
+// `byId` maps note id -> row for parent lookup (built from the FULL scope,
+// including deleted rows, so a deleted locked parent still gates its replies).
 function gateTime(note, byId) {
   if (note.parentId) {
     const parent = byId.get(note.parentId)
-    // A reply whose parent is missing (deleted/absent) falls back to its own
-    // time_sec rather than becoming ungated - conservative for spoilers.
-    return parent ? parent.timeSec : note.timeSec
+    // A reply whose parent is genuinely absent from the scope is treated as
+    // maximally gated (Infinity) - author/finished bypasses still apply, but
+    // nobody else sees a reply whose parent we can't confirm. Matches core's
+    // "missing parent = locked" rule (HearthShelf-Core src/lib/social.ts).
+    return parent ? parent.timeSec : Infinity
   }
   return note.timeSec
 }
@@ -99,35 +109,53 @@ function gateTime(note, byId) {
 // `position` (seconds) and `isFinished` come from resolveGatePosition. `meId` is
 // the caller (author-bypass). `includeLocked` gates whether stubs are returned
 // (public scope: false per docs; club scope: true for the current book).
-export function gateNotes(rows, { position, meId, isFinished, includeLocked }) {
+//
+// `rows` must be the COMPLETE scope (loadNotes with includeDeleted=true): the
+// parent map is built from every row so a reply's parent - even a soft-deleted
+// or ahead-of-cutoff one - always gates it. Deleted rows themselves are never
+// emitted or counted. `after` (ms, optional) is applied to the GATED output, not
+// the DB read: only gated notes/stubs with createdAt > after are returned, so a
+// delta poll can't leak an ahead-note's body by outrunning its parent lookup.
+export function gateNotes(rows, { position, meId, isFinished, includeLocked, after = null }) {
   const byId = new Map(rows.map((n) => [n.id, n]))
   const pos = Number.isFinite(position) ? position : 0
+  const cutoff = after != null && Number.isFinite(after) ? after : null
   const visible = []
   const locked = []
   let hiddenAhead = 0
 
   for (const note of rows) {
+    // Deleted rows stay in the parent map (above) but are never output/counted.
+    if (note.deleted) continue
     const t = gateTime(note, byId)
     const unlocked =
       t == null || isFinished || note.userId === meId || t <= pos
     if (unlocked) {
-      visible.push({
-        id: note.id,
-        userId: note.userId,
-        username: note.username,
-        libraryItemId: note.libraryItemId,
-        clubId: note.clubId,
-        parentId: note.parentId,
-        timeSec: note.timeSec,
-        body: note.body,
-        createdAt: note.createdAt,
-      })
+      if (cutoff == null || note.createdAt > cutoff) {
+        visible.push({
+          id: note.id,
+          userId: note.userId,
+          username: note.username,
+          libraryItemId: note.libraryItemId,
+          clubId: note.clubId,
+          parentId: note.parentId,
+          timeSec: note.timeSec,
+          body: note.body,
+          createdAt: note.createdAt,
+        })
+      }
       continue
     }
     // Locked. Count it, and (for top-level timestamped notes) emit an anonymous
     // stub. Replies never get their own stub - the parent's stub marks the tick.
+    // The `after` cutoff also applies to stubs so a delta poll stays consistent.
     hiddenAhead++
-    if (includeLocked && !note.parentId && note.timeSec != null) {
+    if (
+      includeLocked &&
+      !note.parentId &&
+      note.timeSec != null &&
+      (cutoff == null || note.createdAt > cutoff)
+    ) {
       locked.push({ id: note.id, timeSec: note.timeSec })
     }
   }

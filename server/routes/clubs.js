@@ -25,6 +25,7 @@ import {
   getActiveListeners,
 } from '../lib/absdb.js'
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
+import { getExplicitSharePrefs } from '../settings.js'
 import {
   getClub,
   getMembership,
@@ -45,13 +46,16 @@ import {
 const CLUB_CREATE_LIMIT = '10/day'
 const NAME_MAX = 120
 const LISTENING_CUTOFF_MS = 3 * 60 * 1000
+// ABS library-item ids are opaque tokens (UUIDs, nanoids). Validate their shape
+// before we interpolate one into an ABS URL or a club_books row.
+const ID_RE = /^[A-Za-z0-9_-]+$/
 
 // Fetch a book's title/author from ABS as the caller (the routes/stats.js
 // pattern), for the club_books snapshot. Returns { title, author }, both '' on
 // any failure so a snapshot never blocks adding a book.
 async function fetchBookSnapshot(ctx, libraryItemId) {
   try {
-    const r = await fetch(`${ctx.absUrl}/api/items/${libraryItemId}`, {
+    const r = await fetch(`${ctx.absUrl}/api/items/${encodeURIComponent(libraryItemId)}`, {
       headers: { Authorization: `Bearer ${ctx.absToken}` },
     })
     if (!r.ok) return { title: '', author: '' }
@@ -135,6 +139,9 @@ export async function handleClubs(req, res, url, ctx) {
       }
       const libraryItemId =
         typeof body.libraryItemId === 'string' && body.libraryItemId ? body.libraryItemId : ''
+      if (libraryItemId && !ID_RE.test(libraryItemId)) {
+        return (json(res, 400, { error: 'invalid_id' }), true)
+      }
 
       const rl = await check(ctx.serverId, ctx.userId, CLUB_CREATE_LIMIT, 'clubs')
       if (!rl.allowed) return (json(res, 429, { error: 'rate_limited' }), true)
@@ -193,18 +200,31 @@ export async function handleClubs(req, res, url, ctx) {
     const memberIds = members.map((m) => m.userId)
 
     // Per-member progress in the viewed book + who's listening now (current book
-    // only), both from absdb when available.
+    // only), both from absdb when available. Membership consent covers the live
+    // pulse when a member hasn't set shareCurrentlyListening, but an EXPLICIT
+    // false always wins - the member's progress still shows, only the live pulse
+    // hides (docs/social.md privacy table). The community default is NOT
+    // consulted in-club; the caller always sees their own pulse.
     let progress = new Map()
     let listeningIds = new Set()
+    let listenPrefs = new Map()
     if (viewedBookId && (await absDbAvailable())) {
       progress = await getMemberProgress(memberIds, viewedBookId)
       if (isCurrent) {
-        const rows = await getActiveListeners([viewedBookId], LISTENING_CUTOFF_MS)
+        const [rows, prefs] = await Promise.all([
+          getActiveListeners([viewedBookId], LISTENING_CUTOFF_MS),
+          getExplicitSharePrefs(ctx.serverId, 'shareCurrentlyListening'),
+        ])
         listeningIds = new Set(rows.map((r) => r.userId))
+        listenPrefs = prefs
       }
     }
     const memberOut = members.map((m) => {
       const pr = progress.get(m.userId) || null
+      // An explicit shareCurrentlyListening=false hides the live pulse even from
+      // fellow members; the caller always sees their own.
+      const optedOut =
+        m.userId !== ctx.userId && listenPrefs.has(m.userId) && listenPrefs.get(m.userId) === false
       return {
         userId: m.userId,
         username: m.username,
@@ -213,7 +233,7 @@ export async function handleClubs(req, res, url, ctx) {
         currentTime: pr ? pr.currentTime : null,
         duration: pr ? pr.duration : null,
         isFinished: pr ? pr.isFinished : null,
-        listeningNow: listeningIds.has(m.userId),
+        listeningNow: listeningIds.has(m.userId) && !optedOut,
       }
     })
 
@@ -229,7 +249,10 @@ export async function handleClubs(req, res, url, ctx) {
         position,
         false,
       )
-      const rows = await loadNotes(ctx.serverId, viewedBookId, clubId, null)
+      // Full scope (incl. deleted rows) so the gate's parent map is complete;
+      // deleted rows are gated out of the output (see lib/notesQuery.js). The
+      // club detail has no `after` cursor - it returns the whole gated thread.
+      const rows = await loadNotes(ctx.serverId, viewedBookId, clubId, true)
       notes = gateNotes(rows, {
         position: pos,
         meId: ctx.userId,
@@ -256,11 +279,13 @@ export async function handleClubs(req, res, url, ctx) {
   if (action === 'books' && req.method === 'POST') {
     if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
     if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
     const body = await readJson(req)
     if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
     const libraryItemId =
       typeof body.libraryItemId === 'string' && body.libraryItemId ? body.libraryItemId : ''
     if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const snapshot = await fetchBookSnapshot(ctx, libraryItemId)
     await setCurrentBook(ctx.serverId, clubId, {
       libraryItemId,

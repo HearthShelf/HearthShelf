@@ -133,7 +133,7 @@ export async function handleSocial(req, res, url, ctx) {
     const requested = url.searchParams.get('window') || 'all'
     const window = WINDOWS.has(requested) ? requested : 'all'
     const [rows, explicit, community] = await Promise.all([
-      getLeaderboard({ limit: LEADERBOARD_LIMIT, window }),
+      getLeaderboard({ window }),
       getExplicitSharePrefs(ctx.serverId),
       getCommunityConfig(),
     ])
@@ -141,21 +141,28 @@ export async function handleSocial(req, res, url, ctx) {
     // window we actually served (the DB serves all-time when windowing is off).
     const windowsAvailable = getWindowsAvailable()
     const servedWindow = windowsAvailable ? window : 'all'
-    // Keep users who share (explicit choice, else the admin default). The caller
-    // always sees their own row (even if hidden from others), flagged isMe so
-    // the UI can highlight it.
-    const visible = rows.filter((r) =>
-      shares(r.userId, explicit, community.defaultShare, ctx.userId),
-    )
-    const entries = visible.map((r, i) => ({
-      rank: i + 1,
-      userId: r.userId,
-      username: r.username,
-      booksFinished: r.booksFinished,
-      secondsListened: r.secondsListened,
-      isMe: r.userId === ctx.userId,
-    }))
-    const me = entries.find((e) => e.isMe) ?? null
+    // Privacy-filter BEFORE truncating: keep users who share (explicit choice,
+    // else the admin default). getLeaderboard returns the full ranked set, so
+    // opted-out users don't consume top-N slots. Ranks are assigned over this
+    // filtered ordering (rows already sorted by books then hours). The caller
+    // always sees their own row (even if hidden from others), flagged isMe.
+    const ranked = rows
+      .filter((r) => shares(r.userId, explicit, community.defaultShare, ctx.userId))
+      .map((r, i) => ({
+        rank: i + 1,
+        userId: r.userId,
+        username: r.username,
+        booksFinished: r.booksFinished,
+        secondsListened: r.secondsListened,
+        isMe: r.userId === ctx.userId,
+      }))
+    // Truncate to the display page AFTER filtering.
+    const entries = ranked.slice(0, LEADERBOARD_LIMIT)
+    // The caller's row carries its true (pre-slice) rank. If it didn't survive
+    // the cut, append it so the user always sees where they stand.
+    const meRanked = ranked.find((e) => e.isMe) ?? null
+    if (meRanked && !entries.some((e) => e.isMe)) entries.push(meRanked)
+    const me = meRanked
     return (
       json(res, 200, {
         available: true,
@@ -213,6 +220,7 @@ export async function handleSocial(req, res, url, ctx) {
     }
     const ids = Array.isArray(body?.libraryItemIds) ? body.libraryItemIds : null
     if (!ids) return (json(res, 400, { error: 'missing_libraryItemIds' }), true)
+    if (ids.length > MAX_BULK_IDS) return (json(res, 400, { error: 'too_many_ids' }), true)
     const counts = await getFinishedCountsBulk(ids)
     return (json(res, 200, { available: true, counts }), true)
   }

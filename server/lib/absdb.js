@@ -79,6 +79,10 @@ export async function absDbAvailable() {
 // a shelf render) into one scan. Returns clones are unnecessary - callers treat
 // results as read-only.
 const CACHE_TTL_MS = 45 * 1000
+// Bound the cache so caller-controlled key material (id lists, item ids) can't
+// grow it without limit over the process lifetime. Well above the working set a
+// few concurrent Stats/shelf renders produce; entries also expire by TTL.
+const CACHE_MAX_ENTRIES = 500
 const cache = new Map() // key -> { at, value }
 
 async function cached(key, produce) {
@@ -87,6 +91,20 @@ async function cached(key, produce) {
   if (hit && now - hit.at < CACHE_TTL_MS) return hit.value
   const value = await produce()
   cache.set(key, { at: now, value })
+  // Sweep expired entries, then evict oldest-first until under the cap. Map
+  // preserves insertion order, so the first keys are the oldest inserts.
+  for (const [k, v] of cache) {
+    if (now - v.at >= CACHE_TTL_MS) cache.delete(k)
+  }
+  if (cache.size > CACHE_MAX_ENTRIES) {
+    const overflow = cache.size - CACHE_MAX_ENTRIES
+    let removed = 0
+    for (const k of cache.keys()) {
+      if (removed >= overflow) break
+      cache.delete(k)
+      removed++
+    }
+  }
   return value
 }
 
@@ -153,11 +171,16 @@ async function probeWindowFormat(c) {
 // columns; if the boot-time format probe fails, we serve all-time regardless of
 // the requested window (the route reads getWindowsAvailable() to tell the UI).
 //
+// Returns the FULL ranked set (no display LIMIT) so the route can privacy-filter
+// BEFORE truncating to the top N - otherwise opted-out users would consume slots
+// and the caller's own row could fall off the visible page. User counts are
+// small; an internal safety cap (2000) guards against a pathological instance.
 // Returns [] on any failure so callers can treat "unavailable" and "empty" alike.
-export async function getLeaderboard({ limit = 100, window = 'all' } = {}) {
+const LEADERBOARD_INTERNAL_CAP = 2000
+export async function getLeaderboard({ window = 'all' } = {}) {
   const c = await ensureClient()
   if (!c) return []
-  return cached(`leaderboard:${window}:${limit}`, async () => {
+  return cached(`leaderboard:${window}`, async () => {
     try {
       let cutoff = null
       if (window === 'week' || window === 'month') {
@@ -246,7 +269,7 @@ export async function getLeaderboard({ limit = 100, window = 'all' } = {}) {
       entries.sort(
         (a, b) => b.booksFinished - a.booksFinished || b.secondsListened - a.secondsListened,
       )
-      return entries.slice(0, Math.max(1, limit))
+      return entries.slice(0, LEADERBOARD_INTERNAL_CAP)
     } catch {
       return []
     }
