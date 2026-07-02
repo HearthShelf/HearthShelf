@@ -16,6 +16,17 @@ function isAutoRules(v) {
   )
 }
 
+const ACTION_PLACEMENTS = ['onscreen', 'tray', 'hidden']
+
+// Validate a playerActions arrangement's shape only (the action-key whitelist
+// lives on the mobile client). Mirrors core's isPlayerActions.
+function isPlayerActions(v) {
+  if (!Array.isArray(v)) return false
+  return v.every(
+    (a) => !!a && typeof a === 'object' && typeof a.key === 'string' && ACTION_PLACEMENTS.includes(a.placement),
+  )
+}
+
 // Mirror of core's DEFS. Each entry: { scope, type, ...constraint }. Keep in
 // step with packages/core/src/lib/settings.ts.
 const DEFS = {
@@ -33,6 +44,10 @@ const DEFS = {
   skipForward: { scope: 'account', type: 'number', min: 5, max: 300, int: true },
   skipBack: { scope: 'account', type: 'number', min: 5, max: 300, int: true },
   chapterBarrier: { scope: 'account', type: 'boolean' },
+  defaultSpeed: { scope: 'account', type: 'number', min: 0.5, max: 3.5 },
+  // Cover display (account) - mobile
+  coverAspect: { scope: 'account', type: 'enum', values: ['square', 'portrait'] },
+  glowMode: { scope: 'account', type: 'enum', values: ['gradient', 'image'] },
   // Queue (account)
   queueMode: { scope: 'account', type: 'enum', values: ['off', 'manual', 'auto', 'playlist'] },
   queueAutoRules: { scope: 'account', type: 'json', validate: isAutoRules },
@@ -63,6 +78,11 @@ const DEFS = {
   carFadeEnabled: { scope: 'device', type: 'boolean' },
   carFadeSec: { scope: 'device', type: 'number', min: 0, max: 120, int: true },
   showAdvanced: { scope: 'device', type: 'boolean' },
+  // Haptics + player-button layout (device) - mobile
+  haptics: { scope: 'device', type: 'enum', values: ['off', 'minimal', 'all'] },
+  hapticIntensity: { scope: 'device', type: 'enum', values: ['light', 'medium'] },
+  playerActionsIconOnly: { scope: 'device', type: 'boolean' },
+  playerActions: { scope: 'device', type: 'json', validate: isPlayerActions },
 }
 
 // The catalogued scope for a key, or null if the key isn't catalogued.
