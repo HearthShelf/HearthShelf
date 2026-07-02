@@ -32,21 +32,22 @@ const SHELF_ICONS: Record<string, string> = {
   'continue-listening': 'play_circle',
 }
 
-// Shelf display order on Home. "continue-series" is intentionally absent - it
-// is dropped below. "listen-again" sits after "discover" by request. Any shelf
-// id not listed falls to the end in its original order.
-const SHELF_ORDER = [
-  'continue-listening',
-  'recently-added',
-  'recent-series',
-  'discover',
-  'listen-again',
-]
+// Display order for the ABS shelves we keep on Home (progress + library rows).
+// Recommendation shelves are dropped (TAINTED_ABS_SHELVES) and replaced by the
+// taste engine. Any kept shelf id not listed falls to the end in original order.
+const SHELF_ORDER = ['continue-listening', 'continue-series', 'recently-added', 'recent-series']
 
 function shelfRank(id: string): number {
   const i = SHELF_ORDER.indexOf(id)
   return i === -1 ? SHELF_ORDER.length : i
 }
+
+// ABS personalized shelves we suppress on Home: its recommendation +
+// finished-again rows, which the HearthShelf taste engine replaces ("discover"
+// also mixes in other users' books). The kept rows - continue-listening,
+// continue-series, recently-added - are the user's own progress / library, not
+// cross-user recommendations.
+const TAINTED_ABS_SHELVES = new Set(['discover', 'listen-again', 'read-again'])
 
 function greetingWord(): string {
   const h = new Date().getHours()
@@ -374,9 +375,10 @@ export function HomePage() {
         ?.filter(
           (sh) =>
             (sh.type === 'book' || sh.type === 'series') &&
-            sh.id !== 'continue-series' &&
-            sh.id !== 'discover' &&
-            sh.id !== 'listen-again',
+            // Drop ABS's own recommendation + finished-again rows: our taste
+            // engine handles recommendations (above), and "discover" mixes in
+            // other users' books. "continue-series" is folded into the hero flow.
+            !TAINTED_ABS_SHELVES.has(sh.id),
         )
         .sort((a: ABSShelf, b: ABSShelf) => shelfRank(a.id) - shelfRank(b.id))
         .map((sh) => (

@@ -25,6 +25,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      // Honor a PORT env when set (e.g. a preview harness assigning a free port),
+      // otherwise Vite's default with its own fallback climb applies.
+      port: process.env.PORT ? Number(process.env.PORT) : undefined,
       proxy: {
         // Mirror the production nginx proxy: /abs-api/* maps to the ABS origin
         // root. ABS auth routes live at the root (/login, /api/authorize), so we
