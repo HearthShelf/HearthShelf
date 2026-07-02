@@ -64,7 +64,7 @@ export function useSettingsSync() {
   // Push changed keys back (debounced) once hydrated.
   useEffect(() => {
     if (!token) return
-    const unsub = useSettingsStore.subscribe((state) => {
+    const unsub = useSettingsStore.subscribe(() => {
       if (!hydrated.current || hydrating.current) return
       if (timer.current) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => {
