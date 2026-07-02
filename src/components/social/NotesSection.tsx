@@ -99,7 +99,11 @@ export function NotesSection({
     queryKey: notesKeys.forItem(libraryItemId),
     queryFn: () => getNotes({ libraryItemId, position, finished }),
     enabled: Boolean(libraryItemId),
-    staleTime: 30 * 1000,
+    staleTime: 15 * 1000,
+    // Poll while the section is on screen so new notes appear; pulls also happen
+    // on window focus (TanStack default), matching the queue/settings sync
+    // precedent.
+    refetchInterval: 15 * 1000,
   })
 
   const invalidate = () =>

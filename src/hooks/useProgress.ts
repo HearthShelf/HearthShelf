@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePlayerStore } from '@/store/playerStore'
 import { syncSession, closeSessionBeacon } from '@/api/playback'
 import { meKeys } from '@/api/me'
+import { notesKeys } from '@/api/notes'
 
 const SYNC_INTERVAL_MS = 30_000
 
@@ -31,16 +32,22 @@ export function useProgress() {
       .then(() => setSyncError(false))
       .catch(() => setSyncError(true))
 
-  // Periodic sync while playing.
+  // Periodic sync while playing. Piggyback a refresh of the playing book's notes
+  // on the same 30s cadence so seek-bar note markers and any open notes/club
+  // surface stay fresh without their own timer while the book plays.
   useEffect(() => {
     if (!sessionId || !isPlaying) return
     lastSyncAt.current = performance.now()
     const id = setInterval(() => {
       const sid = usePlayerStore.getState().sessionId
       if (sid) void syncOnce(sid)
+      const itemId = usePlayerStore.getState().libraryItemId
+      if (itemId) {
+        queryClient.invalidateQueries({ queryKey: notesKeys.forItem(itemId) })
+      }
     }, SYNC_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [sessionId, isPlaying])
+  }, [sessionId, isPlaying, queryClient])
 
   // One sync when playback pauses (captures the position promptly), then
   // refresh progress-derived queries so tiles/shelves update.
