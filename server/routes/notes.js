@@ -198,7 +198,11 @@ export async function handleNotes(req, res, url, ctx) {
         parent.deleted ||
         parent.parentId ||
         parent.libraryItemId !== libraryItemId ||
-        parent.clubId !== clubId
+        parent.clubId !== clubId ||
+        // Another user's personal note is invisible - replying to it must be
+        // indistinguishable from replying to a nonexistent note, or the
+        // accept/reject response leaks that the private note exists.
+        (parent.visibility === 'personal' && parent.userId !== ctx.userId)
       ) {
         return (json(res, 400, { error: 'invalid_parent' }), true)
       }
