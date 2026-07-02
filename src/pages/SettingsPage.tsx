@@ -289,8 +289,10 @@ export function SettingsPage() {
     staleTime: 5 * 60 * 1000,
   })
   const defaultShare = community?.defaultShare ?? true
-  // Effective state shown on the toggle: explicit choice if made, else default.
+  const defaultShareListening = community?.defaultShareListening ?? false
+  // Effective state shown on each toggle: explicit choice if made, else default.
   const sharesEffective = s.shareReadBooks ?? defaultShare
+  const listeningEffective = s.shareCurrentlyListening ?? defaultShareListening
 
   return (
     <div className="page fade-in settings-shell">
@@ -561,6 +563,27 @@ export function SettingsPage() {
                       onClick={() => put('shareReadBooks', !sharesEffective)}
                     />
                   }
+                />
+                <SetRow
+                  title="Show when I'm listening"
+                  desc={
+                    s.shareCurrentlyListening === null
+                      ? `Let other listeners see you as recently listening on a book you're playing. Following the server default (currently ${defaultShareListening ? 'shown' : 'hidden'}) until you choose.`
+                      : "Let other listeners see you as recently listening on a book you're playing. Turn this off to keep what you're listening to private."
+                  }
+                  control={
+                    <Toggle
+                      on={listeningEffective}
+                      onClick={() =>
+                        put('shareCurrentlyListening', !listeningEffective)
+                      }
+                    />
+                  }
+                />
+                <SetRow
+                  title="Book club note pops"
+                  desc="Get a little pop when your listening crosses a club note, so you can read and reply. Turn off to silence pops on this device without leaving any club."
+                  control={<Toggle on={s.notePops} onClick={() => put('notePops', !s.notePops)} />}
                 />
               </div>
             </>
