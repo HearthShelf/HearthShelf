@@ -473,6 +473,48 @@ export async function handleHosted(req, res, url, _ctx) {
     return (json(res, 200, { ok: true }), true)
   }
 
+  // Recover connection: paste a server_secret the owner just minted via the
+  // hosted app's "reset connection secret" action (POST /servers/:id/reset-secret)
+  // and store it locally, so a box that lost/desynced its secret re-syncs WITHOUT
+  // deregistering (links/certs/default survive). Admin-only. We validate the
+  // pasted secret against the control plane FIRST (side-effect-free verify) so a
+  // typo can't overwrite a still-valid stored secret with garbage. issuer/jwksUrl
+  // are untouched - only the secret changed on the CP side.
+  if (p === '/hs/hosted/recover-secret' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    let body = {}
+    try {
+      const raw = await readBody(req)
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const secret = typeof body.server_secret === 'string' ? body.server_secret.trim() : ''
+    if (!secret) return (json(res, 400, { error: 'server_secret_required' }), true)
+
+    const serverId = await getServerId()
+    let vRes
+    try {
+      vRes = await fetch(`${DEFAULT_CP_API}/servers/verify-secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_id: serverId, server_secret: secret }),
+      })
+    } catch (err) {
+      return (
+        json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }),
+        true
+      )
+    }
+    if (vRes.status === 401) return (json(res, 400, { error: 'bad_server_secret' }), true)
+    if (!vRes.ok) return (json(res, 502, { error: 'verify_failed', status: vRes.status }), true)
+
+    // Verified live - persist it. Keeps issuer/jwksUrl/absAdminToken as they are.
+    await setHostedConfig({ serverSecret: secret })
+    return (json(res, 200, { ok: true }), true)
+  }
+
   // Poll the control plane for the pairing claim. The SPA passes the code it was
   // shown (the box doesn't persist it); we add the stored server_secret and ask
   // the control plane whether a signed-in user has claimed the server yet. Lets
@@ -541,6 +583,11 @@ export async function handleHosted(req, res, url, _ctx) {
     ).replace(/\/$/, '')
 
     const serverId = await getServerId()
+    // If this box has paired before, it still holds the current server_secret.
+    // Forward it so the control plane can authorize re-keying an already-owned
+    // server (a stranger who only knows the public server_id cannot). Absent on a
+    // genuine first pair, which the control plane allows without proof.
+    const existingSecret = (await getHostedConfig().catch(() => null))?.serverSecret || undefined
     // Prefer an explicit name from the caller, else the persisted server name.
     const name =
       (typeof body.name === 'string' && body.name.trim()) || (await getServerName()) || undefined
@@ -556,7 +603,12 @@ export async function handleHosted(req, res, url, _ctx) {
       startRes = await fetch(`${cpApi}/pairing/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ server_id: serverId, public_url: startUrl, name }),
+        body: JSON.stringify({
+          server_id: serverId,
+          public_url: startUrl,
+          name,
+          ...(existingSecret ? { server_secret: existingSecret } : {}),
+        }),
       })
     } catch (err) {
       return (

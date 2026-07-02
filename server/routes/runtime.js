@@ -69,23 +69,6 @@ async function absInitializedFromAbs() {
 }
 
 export async function handleRuntime(req, res, url, ctx) {
-  // TEMPORARY dev helper: flip onboarded=false and bounce to the wizard so we can
-  // re-run onboarding while iterating on the flow. Visit /hs/rerun-onboarding in a
-  // browser (nginx only forwards /hs/* to this backend). NOTE: it only resets the
-  // FLAG - ABS already has a root user, so the account step's init-admin returns
-  // 'already_initialized'; this is for iterating on the library/connect/copy
-  // steps. REMOVE before this flow stabilises.
-  if (url.pathname === '/hs/rerun-onboarding' && req.method === 'GET') {
-    await setProvisioning({ onboarded: false })
-    // Land on the connect step by default - on a provisioned box the account +
-    // library steps are already done, so connect is what we iterate on. Override
-    // with ?step=account to walk the whole flow.
-    const step = url.searchParams.get('step') || 'connect'
-    res.writeHead(302, { Location: `/onboarding?step=${step}`, 'Cache-Control': 'no-store' })
-    res.end()
-    return true
-  }
-
   // Mark the onboarding wizard finished so the SPA stops redirecting to it. An
   // admin-only write; the flag is read back via GET /hs/runtime.
   if (url.pathname === '/hs/runtime/onboarded' && req.method === 'POST') {
@@ -215,6 +198,28 @@ export async function handleRuntime(req, res, url, ctx) {
     const serviceToken = svcData?.user?.token || null
     if (!serviceToken) {
       return (json(res, 502, { error: 'service_login_failed' }), true)
+    }
+
+    // Structural guard against re-provisioning: init-admin is gated only by the
+    // resettable `onboarded` flag, so a caller who clears it must still not be
+    // able to mint a second admin on an already-set-up box. Once the operator's
+    // own admin exists, refuse. On a genuine first run only the service root
+    // exists here, so this is a no-op; an interrupted run (service root created,
+    // user step failed) also has no non-service admin yet and proceeds cleanly.
+    const usersRes = await fetch(`${ABS_URL}/api/users`, {
+      headers: { Authorization: `Bearer ${serviceToken}` },
+    }).catch(() => null)
+    if (usersRes && usersRes.ok) {
+      const usersData = await usersRes.json().catch(() => null)
+      const users = Array.isArray(usersData?.users) ? usersData.users : []
+      const nonServiceAdmin = users.some(
+        (u) =>
+          (u?.type === 'admin' || u?.type === 'root') && u?.username !== SERVICE_USERNAME,
+      )
+      if (nonServiceAdmin) {
+        await setProvisioning({ absInitialized: true })
+        return (json(res, 409, { error: 'already_initialized' }), true)
+      }
     }
 
     // Create the user's personal admin account (with their email for federation).
