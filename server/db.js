@@ -318,8 +318,10 @@ const SCHEMA = [
      username        TEXT NOT NULL DEFAULT '',
      library_item_id TEXT NOT NULL,
      club_id         TEXT NOT NULL DEFAULT '',
+     visibility      TEXT NOT NULL DEFAULT 'public',
      parent_id       TEXT NOT NULL DEFAULT '',
      time_sec        REAL,
+     safe            INTEGER NOT NULL DEFAULT 0,
      body            TEXT NOT NULL,
      created_at      INTEGER NOT NULL,
      deleted         INTEGER NOT NULL DEFAULT 0
@@ -405,6 +407,23 @@ const MIGRATIONS = [
   `ALTER TABLE community_config ADD COLUMN default_share_listening INTEGER DEFAULT 0`,
   `ALTER TABLE community_config ADD COLUMN notes_enabled INTEGER DEFAULT 1`,
   `ALTER TABLE community_config ADD COLUMN clubs_enabled INTEGER DEFAULT 1`,
+  // Note visibility (public/personal) + spoiler-safe flag (see docs/social.md).
+  // On existing installs pre-migration a note's audience was overloaded onto
+  // club_id (empty = public); the backfill below promotes club_id != '' rows to
+  // visibility='club', leaving empties at the DEFAULT 'public'. No personal rows
+  // exist pre-migration. safe defaults 0.
+  `ALTER TABLE book_notes ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
+  `ALTER TABLE book_notes ADD COLUMN safe INTEGER NOT NULL DEFAULT 0`,
+]
+
+// One-time data backfills that must run AFTER their ALTERs land. Each is
+// best-effort and idempotent (it only rewrites rows still at the default), so
+// re-running on every boot is a no-op once the data is correct.
+const BACKFILLS = [
+  // Existing club notes carried club_id but no visibility column; give them
+  // visibility='club'. Only touches rows still at the 'public' default, so it's
+  // idempotent and never clobbers a later real 'public'/'personal' choice.
+  `UPDATE book_notes SET visibility = 'club' WHERE club_id != '' AND visibility = 'public'`,
 ]
 
 // Account-scoped setting keys, for the one-time app_settings fan-out below.
@@ -501,6 +520,14 @@ export function initDb() {
           await db.execute(stmt)
         } catch {
           // Column already exists (migration already ran) - ignore.
+        }
+      }
+      for (const stmt of BACKFILLS) {
+        try {
+          await db.execute(stmt)
+        } catch {
+          // Best-effort: a fresh DB already has the right shape, so a backfill
+          // that references a just-added column is harmless if it no-ops.
         }
       }
       await migrateSettingsToRows()
