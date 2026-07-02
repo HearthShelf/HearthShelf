@@ -102,13 +102,16 @@ export function ClubPanel({
   const qc = useQueryClient()
   const [viewBookId, setViewBookId] = useState<string>('')
   const [draft, setDraft] = useState('')
+  const [replyTo, setReplyTo] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Position for the spoiler gate: the live position when the viewed book is the
-  // one playing, else 0 (past/other books rely on the finished-bypass).
-  const gatePosition = playingItemId && playingItemId === (viewBookId || playingItemId)
-    ? playingPosition
-    : 0
+  // Position for the spoiler gate. When the selected book is the one playing (or
+  // no book is explicitly selected, so the default resolves to the current book
+  // the player is on), send the live position; a past book we aren't playing
+  // sends 0 and relies on the finished-bypass. The server clamps to the caller's
+  // own progress when it can, so an over-optimistic position can't leak.
+  const gatePosition =
+    playingItemId && (viewBookId === '' || viewBookId === playingItemId) ? playingPosition : 0
 
   const { data } = useQuery({
     queryKey: clubsKeys.detail(clubId, viewBookId),
@@ -133,7 +136,7 @@ export function ClubPanel({
   // Composer stamps a position only when the player is on the viewed book.
   const canStamp = Boolean(playingItemId && playingItemId === shownBookId)
 
-  const notes = data?.notes.notes ?? []
+  const notes = useMemo(() => data?.notes.notes ?? [], [data?.notes.notes])
   const hiddenAhead = data?.notes.hiddenAhead ?? 0
   const threads = useMemo(() => buildThreads(notes), [notes])
 
@@ -245,8 +248,6 @@ export function ClubPanel({
       </div>
     )
   }
-
-  const [replyTo, setReplyTo] = useState<string | null>(null)
 
   return (
     <div className="pp-inner">
