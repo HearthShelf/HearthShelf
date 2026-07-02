@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getNotes, postNote, deleteNote, notesKeys } from '@/api/notes'
-import type { HSNote } from '@hearthshelf/core'
+import type { HSNote, NoteVisibility } from '@hearthshelf/core'
 import type { ABSChapter } from '@/api/types'
 import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
+import { VisibilityToggle, SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
+import { useSettingsStore } from '@/store/settingsStore'
 
 // A relative "2h ago" / date label for a note's created_at.
 function agoLabel(ms: number): string {
@@ -48,6 +50,7 @@ function NoteBubble({
               <Icon name="schedule" style={{ fontSize: 13, verticalAlign: '-2px' }} /> {stamp}
             </span>
           )}
+          <NoteChips note={note} />
           <span className="note-ago">{agoLabel(note.createdAt)}</span>
         </div>
         <div className="note-text">{note.body}</div>
@@ -94,6 +97,14 @@ export function NotesSection({
   const [replyTo, setReplyTo] = useState<HSNote | null>(null)
   const [replyDraft, setReplyDraft] = useState('')
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
+  // Public/Personal seeds from the remembered device default; Safe always
+  // starts off (a deliberate opt-in each time).
+  const noteDefaultVisibility = useSettingsStore((s) => s.noteDefaultVisibility)
+  const setSetting = useSettingsStore((s) => s.set)
+  const [visibility, setVisibility] = useState<'public' | 'personal'>(
+    noteDefaultVisibility === 'personal' ? 'personal' : 'public',
+  )
+  const [safe, setSafe] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: notesKeys.forItem(libraryItemId),
@@ -110,15 +121,29 @@ export function NotesSection({
     qc.invalidateQueries({ queryKey: notesKeys.forItem(libraryItemId) })
 
   const post = useMutation({
-    mutationFn: (vars: { body: string; parentId?: string }) =>
-      postNote({ libraryItemId, body: vars.body, parentId: vars.parentId }),
+    mutationFn: (vars: { body: string; parentId?: string; visibility?: NoteVisibility; safe?: boolean }) =>
+      postNote({
+        libraryItemId,
+        body: vars.body,
+        parentId: vars.parentId,
+        visibility: vars.visibility,
+        safe: vars.safe,
+      }),
     onSuccess: () => {
       setDraft('')
       setReplyDraft('')
       setReplyTo(null)
+      setSafe(false)
       invalidate()
     },
   })
+
+  // Post a general (top-level) note with the composer's chosen visibility + safe,
+  // and remember the Public/Personal choice for next time.
+  const postGeneral = () => {
+    if (noteDefaultVisibility !== visibility) setSetting('noteDefaultVisibility', visibility)
+    post.mutate({ body: draft.trim(), visibility, safe })
+  }
 
   const del = useMutation({
     mutationFn: (id: string) => deleteNote(id),
@@ -149,13 +174,17 @@ export function NotesSection({
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
         />
-        <button
-          className="btn-sm btn-green"
-          disabled={!draft.trim() || post.isPending}
-          onClick={() => post.mutate({ body: draft.trim() })}
-        >
-          <Icon name="send" /> Post
-        </button>
+        <VisibilityToggle value={visibility} onChange={setVisibility} disabled={post.isPending} />
+        <div className="note-composer-foot">
+          <SafeToggle checked={safe} onChange={setSafe} disabled={post.isPending} />
+          <button
+            className="btn-sm btn-green"
+            disabled={!draft.trim() || post.isPending}
+            onClick={postGeneral}
+          >
+            <Icon name="send" /> Post
+          </button>
+        </div>
       </div>
 
       {isLoading ? (

@@ -6,7 +6,7 @@
 // query-key conventions.
 
 import { useAuthStore } from '@/store/authStore'
-import type { HSNote, HSNotesResponse } from '@hearthshelf/core'
+import type { HSNote, HSNotesResponse, NoteVisibility } from '@hearthshelf/core'
 
 async function nFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -67,12 +67,20 @@ interface PostNoteArgs {
   clubId?: string
   parentId?: string
   timeSec?: number | null
+  // General (non-club) top-level notes only: 'public' (default) or 'personal'.
+  // The server forces 'club' when clubId is set, so omit it for club posts.
+  visibility?: NoteVisibility
+  // Author-declared spoiler-free: shows to everyone regardless of position. Only
+  // honored on top-level notes (the server drops it on replies).
+  safe?: boolean
   body: string
 }
 
 // Post a note. timeSec null/omitted = a general (ungated) note; a number stamps
 // it to a playback position. parentId makes it a reply (gates at the parent).
-// Throws on failure so mutations can surface an error toast.
+// `visibility` / `safe` are omitted from the wire when unset so older servers
+// (which ignore both fields) degrade cleanly. Throws on failure so mutations can
+// surface an error toast.
 export async function postNote(args: PostNoteArgs): Promise<HSNote> {
   const payload: Record<string, unknown> = {
     libraryItemId: args.libraryItemId,
@@ -81,6 +89,11 @@ export async function postNote(args: PostNoteArgs): Promise<HSNote> {
   if (args.clubId) payload.clubId = args.clubId
   if (args.parentId) payload.parentId = args.parentId
   if (args.timeSec != null) payload.timeSec = args.timeSec
+  // Only send visibility for general posts (never for club/reply). A 'public'
+  // value is the server default anyway, but sending it is harmless.
+  if (args.visibility && !args.clubId && !args.parentId) payload.visibility = args.visibility
+  // Safe is top-level only; the server ignores it on replies regardless.
+  if (args.safe && !args.parentId) payload.safe = true
   return nFetch<HSNote>('', { method: 'POST', body: JSON.stringify(payload) })
 }
 

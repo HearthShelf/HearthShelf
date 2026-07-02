@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { QueueMode, AutoRulePref, SettingScope, SettingValue } from '@hearthshelf/core'
+import type { QueueMode, AutoRulePref, SettingScope, SettingValue, NoteVisibility } from '@hearthshelf/core'
 import {
   DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS,
   SETTINGS_CATALOG,
@@ -109,6 +109,10 @@ export interface SettingsState {
   // pops on this device without leaving any club.
   notePops: boolean
 
+  // Device-scoped: the composer's remembered last Public/Personal choice for a
+  // general (non-club) note. Written on each general post so it sticks.
+  noteDefaultVisibility: NoteVisibility
+
   // Device-scoped: when false, this device ignores account settings pulled from
   // the server and runs on its local values only (see useSettingsSync).
   useSharedSettings: boolean
@@ -182,6 +186,7 @@ export const useSettingsStore = create<SettingsState>()(
       autoSleepDur: 30,
 
       notePops: true,
+      noteDefaultVisibility: 'public',
 
       useSharedSettings: true,
 

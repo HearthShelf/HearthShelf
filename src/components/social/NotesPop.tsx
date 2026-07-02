@@ -8,6 +8,8 @@ import { formatTimestamp } from '@/lib/format'
 import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
+import { VisibilityToggle, SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
+import { useSettingsStore } from '@/store/settingsStore'
 
 // The player's notes pop (styled like the bookmark pop): a composer that stamps
 // the note at the current playback position, and the list of unlocked notes for
@@ -37,6 +39,12 @@ export function NotesPop({
   const qc = useQueryClient()
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const noteDefaultVisibility = useSettingsStore((s) => s.noteDefaultVisibility)
+  const setSetting = useSettingsStore((s) => s.set)
+  const [visibility, setVisibility] = useState<'public' | 'personal'>(
+    noteDefaultVisibility === 'personal' ? 'personal' : 'public',
+  )
+  const [safe, setSafe] = useState(false)
 
   const { data } = useQuery({
     queryKey: notesKeys.forItem(libraryItemId),
@@ -48,14 +56,22 @@ export function NotesPop({
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: notesKeys.forItem(libraryItemId) })
 
-  // Post stamped at the current position (a timestamped note, gated for others).
+  // Post stamped at the current position (a timestamped note, gated for others
+  // unless marked safe). Carries the composer's visibility + safe choice.
   const post = useMutation({
-    mutationFn: () => postNote({ libraryItemId, timeSec: position, body: draft.trim() }),
+    mutationFn: () =>
+      postNote({ libraryItemId, timeSec: position, body: draft.trim(), visibility, safe }),
     onSuccess: () => {
       setDraft('')
+      setSafe(false)
       invalidate()
     },
   })
+
+  const submit = () => {
+    if (noteDefaultVisibility !== visibility) setSetting('noteDefaultVisibility', visibility)
+    post.mutate()
+  }
 
   const del = useMutation({
     mutationFn: (id: string) => deleteNote(id),
@@ -93,6 +109,7 @@ export function NotesPop({
                 <Icon name="schedule" style={{ fontSize: 12, verticalAlign: '-2px' }} /> {stamp}
               </span>
             )}
+            <NoteChips note={note} />
           </div>
           <div className="note-text">{note.body}</div>
           {note.userId === meId && (
@@ -124,13 +141,17 @@ export function NotesPop({
           rows={2}
           onChange={(e) => setDraft(e.target.value)}
         />
-        <button
-          className="btn-sm btn-green"
-          disabled={!draft.trim() || post.isPending}
-          onClick={() => post.mutate()}
-        >
-          <Icon name="add_comment" /> Note at {formatTimestamp(position)}
-        </button>
+        <VisibilityToggle value={visibility} onChange={setVisibility} disabled={post.isPending} />
+        <div className="note-composer-foot">
+          <SafeToggle checked={safe} onChange={setSafe} disabled={post.isPending} />
+          <button
+            className="btn-sm btn-green"
+            disabled={!draft.trim() || post.isPending}
+            onClick={submit}
+          >
+            <Icon name="add_comment" /> Note at {formatTimestamp(position)}
+          </button>
+        </div>
       </div>
       {threads.length === 0 ? (
         <div className="pop-empty">No notes here yet</div>

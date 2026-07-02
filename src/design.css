@@ -10681,8 +10681,95 @@ select.fld {
   line-height: 1.5;
 }
 
-.note-composer .btn-sm {
+.note-composer > .btn-sm {
   align-self: flex-end;
+}
+
+/* Composer footer: the Safe toggle on the left, Submit on the right. */
+.note-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.note-composer-foot .btn-sm {
+  margin-left: auto;
+}
+
+/* Public / Personal segmented toggle + its consequence hint. */
+.note-vis {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.note-vis-seg {
+  flex: none;
+}
+.note-vis-hint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* Safe (spoiler-free) opt-in checkbox. */
+.note-safe {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.note-safe input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+.note-safe .ms {
+  color: var(--text-faint);
+}
+.note-safe.on {
+  color: var(--accent);
+}
+.note-safe.on .ms {
+  color: var(--accent);
+}
+
+/* Received-note status chips (Only you / Safe) in the meta row. */
+.note-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.note-chip .ms {
+  font-size: 13px;
+}
+.note-chip-safe {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+.note-chip-safe .ms {
+  color: var(--accent);
+}
+
+/* Club composer stacked with its Safe toggle. */
+.club-composer-safe {
+  flex-direction: column;
+  align-items: stretch;
+}
+.club-composer-row {
+  display: flex;
+  gap: 8px;
+}
+.club-composer-row .fld {
+  flex: 1;
+}
+.club-composer-safe .note-safe {
+  padding-left: 2px;
 }
 
 .note-list {

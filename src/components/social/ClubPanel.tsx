@@ -9,6 +9,7 @@ import { formatTimestamp } from '@/lib/format'
 import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
+import { SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
 
 // A single member's progress rail in the race: chapter tick marks, a filled bar
 // to their position, an avatar dot, a finished flag, and a listening-now pulse.
@@ -102,6 +103,7 @@ export function ClubPanel({
   const qc = useQueryClient()
   const [viewBookId, setViewBookId] = useState<string>('')
   const [draft, setDraft] = useState('')
+  const [safe, setSafe] = useState(false)
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -150,16 +152,20 @@ export function ClubPanel({
   const invalidate = () => qc.invalidateQueries({ queryKey: clubsKeys.detail(clubId, viewBookId) })
 
   const post = useMutation({
-    mutationFn: (vars: { body: string; parentId?: string }) =>
+    mutationFn: (vars: { body: string; parentId?: string; safe?: boolean }) =>
       postNote({
         libraryItemId: shownBookId,
         clubId,
         parentId: vars.parentId,
         timeSec: canStamp ? playingPosition : null,
+        // Safe is top-level only; the server also drops it on replies. Visibility
+        // is implicit 'club' here, so the composer never offers Public/Personal.
+        safe: vars.parentId ? undefined : vars.safe,
         body: vars.body,
       }),
     onSuccess: () => {
       setDraft('')
+      setSafe(false)
       invalidate()
     },
   })
@@ -235,6 +241,7 @@ export function ClubPanel({
                 <Icon name="schedule" style={{ fontSize: 12, verticalAlign: '-2px' }} /> {stamp}
               </span>
             )}
+            <NoteChips note={note} />
           </div>
           <div className="note-text">{note.body}</div>
           {onReply && (
@@ -335,28 +342,31 @@ export function ClubPanel({
       </div>
 
       {/* Composer */}
-      <div className="club-composer">
-        <input
-          className="fld"
-          placeholder={
-            canStamp ? `Message at ${formatTimestamp(playingPosition)}…` : 'Message the club…'
-          }
-          value={draft}
-          maxLength={2000}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && draft.trim() && !post.isPending) {
-              post.mutate({ body: draft.trim() })
+      <div className="club-composer club-composer-safe">
+        <div className="club-composer-row">
+          <input
+            className="fld"
+            placeholder={
+              canStamp ? `Message at ${formatTimestamp(playingPosition)}…` : 'Message the club…'
             }
-          }}
-        />
-        <button
-          className="btn-sm btn-green"
-          disabled={!draft.trim() || post.isPending}
-          onClick={() => post.mutate({ body: draft.trim() })}
-        >
-          <Icon name="send" />
-        </button>
+            value={draft}
+            maxLength={2000}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && draft.trim() && !post.isPending) {
+                post.mutate({ body: draft.trim(), safe })
+              }
+            }}
+          />
+          <button
+            className="btn-sm btn-green"
+            disabled={!draft.trim() || post.isPending}
+            onClick={() => post.mutate({ body: draft.trim(), safe })}
+          >
+            <Icon name="send" />
+          </button>
+        </div>
+        <SafeToggle checked={safe} onChange={setSafe} disabled={post.isPending} />
       </div>
     </div>
   )
