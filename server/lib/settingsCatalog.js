@@ -74,6 +74,7 @@ const DEFS = {
   // Device-scoped
   useSharedSettings: { scope: 'device', type: 'boolean' },
   notePops: { scope: 'device', type: 'boolean' },
+  noteDefaultVisibility: { scope: 'device', type: 'enum', values: ['public', 'personal'] },
   libraryView: { scope: 'device', type: 'enum', values: ['grid', 'list'] },
   libraryScale: { scope: 'device', type: 'number', min: 120, max: 240, int: true },
   homeHero: { scope: 'device', type: 'enum', values: ['comfy', 'compact'] },
