@@ -252,7 +252,7 @@ export async function handleClubs(req, res, url, ctx) {
       // Full scope (incl. deleted rows) so the gate's parent map is complete;
       // deleted rows are gated out of the output (see lib/notesQuery.js). The
       // club detail has no `after` cursor - it returns the whole gated thread.
-      const rows = await loadNotes(ctx.serverId, viewedBookId, clubId, true)
+      const rows = await loadNotes(ctx.serverId, viewedBookId, clubId, ctx.userId, true)
       notes = gateNotes(rows, {
         position: pos,
         meId: ctx.userId,

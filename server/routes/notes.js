@@ -97,7 +97,7 @@ export async function handleNotes(req, res, url, ctx) {
     // Load the FULL scope (including deleted rows for the gate's parent map);
     // `after` is a post-gate filter, never a DB filter, so a reply's parent is
     // always present to gate it (see lib/notesQuery.js).
-    const rows = await loadNotes(ctx.serverId, libraryItemId, clubId, true)
+    const rows = await loadNotes(ctx.serverId, libraryItemId, clubId, ctx.userId, true)
     // Locked stubs are club-scope only, and only for the club's CURRENT book
     // (public-note stubs would render as timeline ticks but the public GET
     // withholds them per docs/social.md).
@@ -135,6 +135,29 @@ export async function handleNotes(req, res, url, ctx) {
     if (clubId && !ID_RE.test(clubId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const parentId = String(body?.parentId ?? '')
     if (parentId && !ID_RE.test(parentId)) return (json(res, 400, { error: 'invalid_id' }), true)
+
+    // Visibility (docs/social.md): a club post is always 'club' (implicit, from
+    // posting in the club room); a general post is 'public' (default) or
+    // 'personal'. Enforce the visibility<->clubId pairing:
+    //   - clubId set   -> force visibility='club' (membership checked below).
+    //   - no clubId     -> visibility must be 'public' or 'personal'; a 'club'
+    //                      value with no clubId is rejected (invalid_visibility).
+    let visibility
+    const visRaw = body?.visibility == null ? '' : String(body.visibility)
+    if (clubId) {
+      // A clubId with an explicit non-club visibility is contradictory.
+      if (visRaw && visRaw !== 'club') return (json(res, 400, { error: 'invalid_visibility' }), true)
+      visibility = 'club'
+    } else {
+      visibility = visRaw || 'public'
+      if (visibility !== 'public' && visibility !== 'personal') {
+        return (json(res, 400, { error: 'invalid_visibility' }), true)
+      }
+    }
+
+    // safe: author-declared spoiler-free (bypasses the position gate). Coerced to
+    // a bool; forced false on replies (only top-level notes may be safe).
+    const safe = parentId ? false : Boolean(body?.safe)
 
     // Body: trimmed, 1..2000 chars.
     const text = typeof body?.body === 'string' ? body.body.trim() : ''
@@ -190,8 +213,10 @@ export async function handleNotes(req, res, url, ctx) {
       username: ctx.username,
       libraryItemId,
       clubId,
+      visibility,
       parentId,
       timeSec,
+      safe,
       body: text,
     })
     await consume(ctx.serverId, ctx.userId, NOTES_RATE_LIMIT, 'notes')
