@@ -14,16 +14,22 @@ import { useBookmarks } from '@/hooks/useBookmarks'
 import { AddToListMenu } from '@/components/library/AddToListMenu'
 import { useQueueStore, type QueueMode, type AutoRuleId } from '@/store/queueStore'
 import { getItem, libraryKeys } from '@/api/libraries'
+import { getMe, meKeys } from '@/api/me'
+import { getNotes, notesKeys } from '@/api/notes'
 import { syncSession } from '@/api/playback'
 import { formatTimestamp, stripHtml } from '@/lib/format'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { Stars } from '@/components/common/Stars'
+import { NotesPop } from '@/components/social/NotesPop'
+import { ClubPanel } from '@/components/social/ClubPanel'
+import { TimelineMarkers } from '@/components/social/TimelineMarkers'
+import { useMediaProgress } from '@/hooks/useMediaProgress'
 import type { ABSChapter } from '@/api/types'
 import cozyHearth from '@/assets/img/SittingInTheHearth.webp'
 
-type Panel = 'chapters' | 'details' | 'queue' | 'reader' | null
-type Pop = 'speed' | 'sleep' | 'bookmark' | 'recent' | null
+type Panel = 'chapters' | 'details' | 'queue' | 'reader' | 'club' | null
+type Pop = 'speed' | 'sleep' | 'bookmark' | 'recent' | 'notes' | null
 
 function PanelHead({
   icon,
@@ -342,8 +348,34 @@ export function PlayerPage() {
   const [panel, setPanel] = useState<Panel>(null)
   const [pop, setPop] = useState<Pop>(null)
   const [toast, setToast] = useState<string | null>(null)
+  // The club whose panel is open, and a note to scroll to when a pop/marker
+  // deep-links into the notes pop or club panel.
+  const [openClubId, setOpenClubId] = useState<string | null>(null)
+  const [focusNoteId, setFocusNoteId] = useState<string | null>(null)
 
   const { bookmarks, addBookmark: addBookmarkApi, removeBookmark } = useBookmarks(libraryItemId)
+
+  // The caller's id (for delete-own on notes) and their finished/position state
+  // in this book (drives the notes spoiler gate + marker overlay).
+  const { data: me } = useQuery({
+    queryKey: meKeys.me,
+    queryFn: getMe,
+    staleTime: 5 * 60 * 1000,
+  })
+  const progressById = useMediaProgress()
+  const myProgress = libraryItemId ? progressById.get(libraryItemId) : undefined
+  const finishedHere = myProgress?.isFinished ?? false
+
+  // Public notes for the playing book, for the seek-bar markers. Shares the
+  // NotesSection/NotesPop query key so they invalidate together; the 30s
+  // staleTime keeps it off the per-tick path. Degrades to nothing.
+  const { data: notesData } = useQuery({
+    queryKey: notesKeys.forItem(libraryItemId ?? ''),
+    queryFn: () =>
+      getNotes({ libraryItemId: libraryItemId as string, position: pos, finished: finishedHere }),
+    enabled: !!libraryItemId,
+    staleTime: 30 * 1000,
+  })
 
   // Full metadata for the details panel (narrator, year, genre, series,
   // description, rating) - the player store only carries title/author/duration.
@@ -368,16 +400,28 @@ export function PlayerPage() {
     setPop(null)
   }, [sessionId])
 
-  // The mini play bar can ask us to open a panel on arrival.
+  // The mini play bar / a note pop can ask us to open a panel on arrival.
   const requestedPanel = usePlayerStore((s) => s.requestedPanel)
+  const requestedClubId = usePlayerStore((s) => s.requestedClubId)
+  const requestedNoteId = usePlayerStore((s) => s.requestedNoteId)
   const clearRequestedPanel = usePlayerStore((s) => s.clearRequestedPanel)
   useEffect(() => {
     if (!requestedPanel) return
     if (requestedPanel === 'bookmarks') setPop('bookmark')
     else if (requestedPanel === 'chapters') setPanel('chapters')
     else if (requestedPanel === 'queue') setPanel('queue')
+    else if (requestedPanel === 'notes') {
+      setFocusNoteId(requestedNoteId)
+      setPanel(null)
+      setPop('notes')
+    } else if (requestedPanel === 'club') {
+      setFocusNoteId(requestedNoteId)
+      if (requestedClubId) setOpenClubId(requestedClubId)
+      setPop(null)
+      setPanel('club')
+    }
     clearRequestedPanel()
-  }, [requestedPanel, clearRequestedPanel])
+  }, [requestedPanel, requestedClubId, requestedNoteId, clearRequestedPanel])
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -479,6 +523,27 @@ export function PlayerPage() {
     return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
   }
   const seekClamp = (sec: number) => seek(Math.max(0, Math.min(duration, sec)))
+
+  // Seek-bar note markers: unlocked public notes (avatar dots) and any locked
+  // club stubs (anonymous ticks) for the playing book. Clicking a passed marker
+  // opens the notes pop scrolled to it; an ahead tick shows a teaser toast.
+  const openNoteFromMarker = (noteId: string) => {
+    setFocusNoteId(noteId)
+    setPanel(null)
+    setPop('notes')
+  }
+  const teaseAhead = (timeSec: number) =>
+    setToast(`A note awaits at ${formatTimestamp(timeSec)}`)
+  const markersEl =
+    notesData && notesData.enabled ? (
+      <TimelineMarkers
+        notes={notesData.notes}
+        stubs={notesData.locked}
+        duration={duration}
+        onOpenNote={openNoteFromMarker}
+        onTease={teaseAhead}
+      />
+    ) : null
   const prevCh = () =>
     seekClamp(chPos > 4 ? cur.start : (chapters[Math.max(0, ci - 1)]?.start ?? 0))
   const nextCh = () =>
@@ -605,10 +670,11 @@ export function PlayerPage() {
         ) : (
           <>
             <div
-              className="prog-line seekable"
+              className="prog-line seekable has-markers"
               onClick={(e) => seekClamp(clickRatio(e) * duration)}
             >
               <i style={{ width: bookRatio * 100 + '%' }} />
+              {markersEl}
             </div>
             <div className="p-times">
               <span>{formatTimestamp(pos)} elapsed</span>
@@ -623,9 +689,13 @@ export function PlayerPage() {
             {scrubber === 'book' ? 'Full book' : cur.title}
           </div>
           {scrubber === 'book' ? (
-            <div className="scrub seekable" onClick={(e) => seekClamp(clickRatio(e) * duration)}>
+            <div
+              className="scrub seekable has-markers"
+              onClick={(e) => seekClamp(clickRatio(e) * duration)}
+            >
               <i style={{ width: bookRatio * 100 + '%' }} />
               <b style={{ left: bookRatio * 100 + '%' }} />
+              {markersEl}
             </div>
           ) : (
             <div
@@ -757,6 +827,23 @@ export function PlayerPage() {
               </div>
             </div>
           )}
+          {pop === 'notes' && me && (
+            <div className="p-pop">
+              <NotesPop
+                libraryItemId={libraryItemId}
+                chapters={chapters}
+                meId={me.id}
+                position={pos}
+                finished={finishedHere}
+                scrollToNoteId={focusNoteId}
+                onClose={() => {
+                  setPop(null)
+                  setFocusNoteId(null)
+                }}
+                onSeek={(sec) => seekClamp(sec)}
+              />
+            </div>
+          )}
 
           <div className="action-grid">
             <button
@@ -808,6 +895,18 @@ export function PlayerPage() {
               onClick={() => togglePop('recent')}
             >
               <Icon name="history" /> Recent listens
+            </button>
+            <button
+              className={'pill' + (pop === 'notes' ? ' on' : '')}
+              onClick={() => {
+                setFocusNoteId(null)
+                togglePop('notes')
+              }}
+            >
+              <Icon name="forum" /> Notes
+              {notesData?.enabled && notesData.notes.length > 0 && (
+                <span className="badge-dot">{notesData.notes.length}</span>
+              )}
             </button>
             <AddToListMenu
               libraryItemId={libraryItemId}
@@ -947,6 +1046,20 @@ export function PlayerPage() {
             nowAuthor={author ?? ''}
             onClose={() => setPanel(null)}
             onPlay={(id) => void playItem(id)}
+          />
+        )}
+        {panel === 'club' && openClubId && me && (
+          <ClubPanel
+            clubId={openClubId}
+            playingItemId={libraryItemId}
+            playingPosition={pos}
+            playingChapters={chapters}
+            scrollToNoteId={focusNoteId}
+            onClose={() => {
+              setPanel(null)
+              setFocusNoteId(null)
+            }}
+            onSeek={(sec) => seekClamp(sec)}
           />
         )}
       </div>

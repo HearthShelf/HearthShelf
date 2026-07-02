@@ -10827,3 +10827,210 @@ select.fld {
   font-size: 12.5px;
   color: var(--text-muted);
 }
+
+/* --- Player: timeline note markers --- */
+.prog-line.has-markers,
+.scrub.has-markers {
+  position: relative;
+}
+
+.tl-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.tl-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.tl-marker.tl-note {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--c-high);
+  transition: transform 0.12s;
+}
+
+.tl-marker.tl-note:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.tl-marker.tl-mixed {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.tl-marker.tl-stub {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--text-faint);
+  opacity: 0.7;
+}
+
+.tl-marker.tl-stub:hover {
+  opacity: 1;
+  background: var(--text-muted);
+}
+
+.tl-count {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* --- Club panel (player) --- */
+.club-book-select {
+  padding: 8px 20px 4px;
+}
+
+.club-race {
+  padding: 10px 20px 6px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.club-race-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.club-rail-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 36px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.club-rail-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.crn-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crn-owner {
+  font-size: 13px;
+  color: var(--accent);
+  flex: none;
+}
+
+.crn-live {
+  font-size: 14px;
+  color: var(--accent);
+  flex: none;
+  animation: pulseLive 1.6s ease-in-out infinite;
+}
+
+@keyframes pulseLive {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.club-rail-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  overflow: visible;
+}
+
+.crt-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--hairline);
+}
+
+.crt-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+.crt-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px var(--c-high);
+}
+
+.crt-dot.done {
+  background: #a7c896;
+}
+
+.club-rail-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.club-chat {
+  padding: 8px 16px;
+}
+
+.pop-note-reply,
+.note-row.pop-note-reply {
+  margin-left: 40px;
+}
+
+.club-composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--hairline);
+}
+
+.club-composer .fld {
+  flex: 1;
+}
