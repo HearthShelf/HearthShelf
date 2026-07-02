@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import type { LeaderboardWindow } from '@hearthshelf/core'
 import { getListeningStats, meKeys } from '@/api/me'
 import { getLeaderboard, socialKeys } from '@/api/social'
 import { Cover, tintFor } from '@/components/common/Cover'
@@ -11,6 +12,12 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+const WINDOW_PILLS: { key: LeaderboardWindow; label: string }[] = [
+  { key: 'week', label: 'Week' },
+  { key: 'month', label: 'Month' },
+  { key: 'all', label: 'All time' },
+]
 
 // Whole hours, for the compact leaderboard listening column.
 function hoursLabel(seconds: number): string {
@@ -27,12 +34,16 @@ export function StatsPage() {
   // Cross-user leaderboard (HearthShelf backend, reads ABS's db). Degrades to an
   // unavailable response when ABS's db isn't mapped, in which case we hide the
   // whole section rather than show an error.
+  const [lbWindow, setLbWindow] = useState<LeaderboardWindow>('all')
   const { data: leaderboard } = useQuery({
-    queryKey: socialKeys.leaderboard,
-    queryFn: getLeaderboard,
+    queryKey: socialKeys.leaderboard(lbWindow),
+    queryFn: () => getLeaderboard(lbWindow),
     staleTime: 5 * 60 * 1000,
   })
   const lbEntries = leaderboard?.available ? leaderboard.entries : []
+  // Older servers omit windowsAvailable; treat absent as "no windows" and hide
+  // the pills (they still serve all-time).
+  const lbWindows = leaderboard?.available && leaderboard.windowsAvailable === true
 
   // Top items by listening time, resolved with cover + metadata.
   const mostListened = useMemo(() => {
@@ -222,10 +233,28 @@ export function StatsPage() {
         </div>
       </div>
 
-      {lbEntries.length > 0 && (
+      {leaderboard?.available && (lbEntries.length > 0 || lbWindows) && (
         <div className="section">
           <SectionHead icon="groups" title="Leaderboard" />
+          {lbWindows && (
+            <div className="toolbar2" style={{ marginBottom: 12 }}>
+              {WINDOW_PILLS.map((w) => (
+                <button
+                  key={w.key}
+                  className={'pill' + (lbWindow === w.key ? ' on' : '')}
+                  onClick={() => setLbWindow(w.key)}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="chart-card" style={{ marginTop: 0 }}>
+            {lbEntries.length === 0 && (
+              <div style={{ color: 'var(--text-muted)', fontSize: 14, padding: 'var(--s4) 0' }}>
+                No listening recorded in this window yet.
+              </div>
+            )}
             <div className="ml-list">
               {lbEntries.map((e) => (
                 <div

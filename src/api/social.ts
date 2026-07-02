@@ -6,7 +6,12 @@
 // happens (e.g. ABS's db isn't mapped on a slim deploy).
 
 import { useAuthStore } from '@/store/authStore'
-import type { HSLeaderboardResponse, HSFinishedCount } from '@/api/types'
+import type {
+  HSLeaderboardResponse,
+  HSFinishedCount,
+  HSFinishedByResponse,
+  LeaderboardWindow,
+} from '@hearthshelf/core'
 
 async function sFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -23,8 +28,9 @@ async function sFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const socialKeys = {
-  leaderboard: ['social', 'leaderboard'] as const,
+  leaderboard: (window: LeaderboardWindow) => ['social', 'leaderboard', window] as const,
   finishedCount: (id: string) => ['social', 'finished-count', id] as const,
+  finishedBy: (id: string) => ['social', 'finished-by', id] as const,
   communityConfig: ['social', 'community-config'] as const,
 }
 
@@ -57,11 +63,28 @@ const EMPTY_LEADERBOARD: HSLeaderboardResponse = {
   entries: [],
 }
 
-export async function getLeaderboard(): Promise<HSLeaderboardResponse> {
+export async function getLeaderboard(
+  window: LeaderboardWindow = 'all',
+): Promise<HSLeaderboardResponse> {
   try {
-    return await sFetch<HSLeaderboardResponse>('/leaderboard')
+    return await sFetch<HSLeaderboardResponse>(
+      `/leaderboard?window=${encodeURIComponent(window)}`,
+    )
   } catch {
     return EMPTY_LEADERBOARD
+  }
+}
+
+const EMPTY_FINISHED_BY: HSFinishedByResponse = { available: false, users: [] }
+
+export async function getFinishedBy(libraryItemId: string): Promise<HSFinishedByResponse> {
+  if (!libraryItemId) return EMPTY_FINISHED_BY
+  try {
+    return await sFetch<HSFinishedByResponse>(
+      `/finished-by?libraryItemId=${encodeURIComponent(libraryItemId)}`,
+    )
+  } catch {
+    return EMPTY_FINISHED_BY
   }
 }
 
