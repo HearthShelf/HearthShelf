@@ -71,18 +71,120 @@ export async function absDbAvailable() {
   }
 }
 
+// --- Small in-memory TTL cache -------------------------------------------
+//
+// playbackSessions has NO secondary indexes and the db is read-only (we cannot
+// add any), so the leaderboard/finished-users scans are relatively expensive.
+// A short TTL cache keyed by function+args collapses bursts (a Stats page load,
+// a shelf render) into one scan. Returns clones are unnecessary - callers treat
+// results as read-only.
+const CACHE_TTL_MS = 45 * 1000
+const cache = new Map() // key -> { at, value }
+
+async function cached(key, produce) {
+  const hit = cache.get(key)
+  const now = Date.now()
+  if (hit && now - hit.at < CACHE_TTL_MS) return hit.value
+  const value = await produce()
+  cache.set(key, { at: now, value })
+  return value
+}
+
+// --- Leaderboard windowing ------------------------------------------------
+//
+// Windows are lexicographic string compares against ABS's own date columns
+// (its userStats.js does the same). playbackSessions.date is a plain
+// 'YYYY-MM-DD' TEXT column; mediaProgresses.finishedAt is a Sequelize DATE
+// stored as text. A plain 'YYYY-MM-DD' cutoff compares correctly against any
+// ISO-ish stored format ('2026-07-02...' >= '2026-06-25'), so we NEVER call
+// SQLite datetime() on these columns - that would break on the DATE text shape.
+//
+// windowsAvailable is gated on a one-time probe of a real finishedAt value: if
+// the stored text doesn't start with YYYY-MM-DD, we can't trust the compare and
+// fall back to serving all-time only. Probed lazily on the first windowed call.
+let windowsAvailable = null // null = not yet probed
+
+export function getWindowsAvailable() {
+  // Callers (the route) want a definite boolean; treat "not probed yet" as
+  // available so the first request doesn't have to await the probe here (the
+  // probe runs inside getLeaderboard, which sets this before the route reads it).
+  return windowsAvailable !== false
+}
+
+// UTC 'YYYY-MM-DD' cutoff for a rolling window, or null for all-time.
+function windowCutoff(window) {
+  const days = window === 'week' ? 7 : window === 'month' ? 30 : 0
+  if (!days) return null
+  const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  return d.toISOString().slice(0, 10)
+}
+
+// Probe one real finishedAt to confirm the stored text is lexicographic-safe.
+// Runs at most once (result cached in windowsAvailable). Any failure -> assume
+// unavailable so we serve all-time only rather than a wrong windowed result.
+async function probeWindowFormat(c) {
+  if (windowsAvailable !== null) return windowsAvailable
+  try {
+    const res = await c.execute(`
+      SELECT finishedAt FROM mediaProgresses
+      WHERE finishedAt IS NOT NULL
+      LIMIT 1
+    `)
+    const sample = res.rows[0]?.finishedAt
+    // No finished rows at all: nothing to compare against, but the column shape
+    // is fine to window on. Treat as available.
+    if (sample == null) return (windowsAvailable = true)
+    return (windowsAvailable = /^\d{4}-\d{2}-\d{2}/.test(String(sample)))
+  } catch {
+    return (windowsAvailable = false)
+  }
+}
+
 // Leaderboard rows: per ABS user, how many books they've finished and how many
 // seconds they've spent listening to books. Guests and inactive users are left
-// out. Two grouped queries (finished counts, listening totals) merged by userId,
-// so a user with finishes but no recorded sessions (or vice versa) still appears.
+// out of BOTH queries. The two grouped queries (finished counts, listening
+// totals) are merged into ONE user set keyed by userId, so a user with listening
+// time but zero finishes (or finishes but no recorded sessions) still appears -
+// the earlier code built entries only from the finished query and silently
+// dropped listen-only users.
+//
+// `window`: 'week' (rolling 7 days), 'month' (rolling 30 days), or 'all'
+// (default). Windowing is a lexicographic string compare against ABS's date
+// columns; if the boot-time format probe fails, we serve all-time regardless of
+// the requested window (the route reads getWindowsAvailable() to tell the UI).
 //
 // Returns [] on any failure so callers can treat "unavailable" and "empty" alike.
-export async function getLeaderboard({ limit = 100 } = {}) {
+export async function getLeaderboard({ limit = 100, window = 'all' } = {}) {
   const c = await ensureClient()
   if (!c) return []
-  try {
-    const [finishedRes, listenRes] = await Promise.all([
-      c.execute(`
+  return cached(`leaderboard:${window}:${limit}`, async () => {
+    try {
+      let cutoff = null
+      if (window === 'week' || window === 'month') {
+        // Probe once; if the stored date text isn't lexicographic-safe, fall
+        // back to all-time (cutoff stays null).
+        if (await probeWindowFormat(c)) cutoff = windowCutoff(window)
+      } else {
+        // 'all' still needs windowsAvailable set for the route's echo, but only
+        // if it hasn't been probed yet - a cheap no-op when it has.
+        await probeWindowFormat(c)
+      }
+
+      // The user join (with guest/inactive exclusion) is applied to BOTH queries
+      // so the merged set only ever contains eligible users.
+      const finishedSql = cutoff
+        ? `
+        SELECT u.id AS userId, u.username AS username, COUNT(*) AS booksFinished
+        FROM mediaProgresses mp
+        JOIN users u ON u.id = mp.userId
+        WHERE mp.isFinished = 1
+          AND mp.mediaItemType = 'book'
+          AND mp.finishedAt >= ?
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        GROUP BY u.id
+      `
+        : `
         SELECT u.id AS userId, u.username AS username, COUNT(*) AS booksFinished
         FROM mediaProgresses mp
         JOIN users u ON u.id = mp.userId
@@ -91,37 +193,64 @@ export async function getLeaderboard({ limit = 100 } = {}) {
           AND u.type != 'guest'
           AND u.isActive = 1
         GROUP BY u.id
-      `),
-      c.execute(`
-        SELECT ps.userId AS userId, SUM(ps.timeListening) AS secondsListened
+      `
+      const listenSql = cutoff
+        ? `
+        SELECT u.id AS userId, u.username AS username, SUM(ps.timeListening) AS secondsListened
         FROM playbackSessions ps
+        JOIN users u ON u.id = ps.userId
         WHERE ps.mediaItemType = 'book'
-        GROUP BY ps.userId
-      `),
-    ])
+          AND ps.date >= ?
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        GROUP BY u.id
+      `
+        : `
+        SELECT u.id AS userId, u.username AS username, SUM(ps.timeListening) AS secondsListened
+        FROM playbackSessions ps
+        JOIN users u ON u.id = ps.userId
+        WHERE ps.mediaItemType = 'book'
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        GROUP BY u.id
+      `
 
-    const listenBy = new Map()
-    for (const row of listenRes.rows) {
-      listenBy.set(String(row.userId), Number(row.secondsListened) || 0)
-    }
+      const [finishedRes, listenRes] = await Promise.all([
+        c.execute(cutoff ? { sql: finishedSql, args: [cutoff] } : finishedSql),
+        c.execute(cutoff ? { sql: listenSql, args: [cutoff] } : listenSql),
+      ])
 
-    const entries = finishedRes.rows.map((row) => {
-      const userId = String(row.userId)
-      return {
-        userId,
-        username: String(row.username ?? ''),
-        booksFinished: Number(row.booksFinished) || 0,
-        secondsListened: listenBy.get(userId) ?? 0,
+      // Merge both result sets into one map keyed by userId.
+      const byUser = new Map()
+      const ensure = (userId, username) => {
+        let e = byUser.get(userId)
+        if (!e) {
+          e = { userId, username: username || '', booksFinished: 0, secondsListened: 0 }
+          byUser.set(userId, e)
+        } else if (!e.username && username) {
+          e.username = username
+        }
+        return e
       }
-    })
 
-    entries.sort(
-      (a, b) => b.booksFinished - a.booksFinished || b.secondsListened - a.secondsListened,
-    )
-    return entries.slice(0, Math.max(1, limit))
-  } catch {
-    return []
-  }
+      for (const row of finishedRes.rows) {
+        const e = ensure(String(row.userId), String(row.username ?? ''))
+        e.booksFinished = Number(row.booksFinished) || 0
+      }
+      for (const row of listenRes.rows) {
+        const e = ensure(String(row.userId), String(row.username ?? ''))
+        e.secondsListened = Number(row.secondsListened) || 0
+      }
+
+      const entries = [...byUser.values()]
+      entries.sort(
+        (a, b) => b.booksFinished - a.booksFinished || b.secondsListened - a.secondsListened,
+      )
+      return entries.slice(0, Math.max(1, limit))
+    } catch {
+      return []
+    }
+  })
 }
 
 // One user's email, read read-only from ABS (the source of truth for accounts).
@@ -196,6 +325,48 @@ export async function getFinishedCountsBulk(libraryItemIds = []) {
   } catch {
     return {}
   }
+}
+
+// Who finished a given library item: the finished-count join plus a users join
+// to name each finisher. Same media-id hop as getFinishedCount (libraryItems ->
+// books/mediaProgresses). Guests and inactive users are excluded. finishedAt is
+// returned as a ms epoch (via Date.parse of the stored DATE text), null when it
+// can't be parsed. Ordered newest finish first. Returns [] on any failure.
+export async function getFinishedUsers(libraryItemId) {
+  if (!libraryItemId) return []
+  const c = await ensureClient()
+  if (!c) return []
+  return cached(`finishedUsers:${libraryItemId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `
+          SELECT u.id AS userId, u.username AS username, mp.finishedAt AS finishedAt
+          FROM libraryItems li
+          JOIN mediaProgresses mp
+            ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
+          JOIN users u ON u.id = mp.userId
+          WHERE li.id = ?
+            AND li.mediaType = 'book'
+            AND mp.isFinished = 1
+            AND u.type != 'guest'
+            AND u.isActive = 1
+          ORDER BY mp.finishedAt DESC
+        `,
+        args: [libraryItemId],
+      })
+      return res.rows.map((row) => {
+        const raw = row.finishedAt
+        const ms = raw != null ? Date.parse(String(raw)) : NaN
+        return {
+          userId: String(row.userId),
+          username: String(row.username ?? ''),
+          finishedAt: Number.isNaN(ms) ? null : ms,
+        }
+      })
+    } catch {
+      return []
+    }
+  })
 }
 
 export const ABS_DB_PATH_RESOLVED = ABS_DB_PATH

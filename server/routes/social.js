@@ -13,13 +13,16 @@ import { isAdmin } from '../lib/context.js'
 import {
   absDbAvailable,
   getLeaderboard,
+  getWindowsAvailable,
   getFinishedCount,
   getFinishedCountsBulk,
+  getFinishedUsers,
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
 
 const LEADERBOARD_LIMIT = 100
+const WINDOWS = new Set(['week', 'month', 'all'])
 
 // Does this user appear on the leaderboard? Their explicit choice wins; absent a
 // choice, the admin default applies. The caller always sees their own row.
@@ -60,11 +63,18 @@ export async function handleSocial(req, res, url, ctx) {
     if (!(await absDbAvailable())) {
       return (json(res, 200, { available: false, me: null, entries: [] }), true)
     }
+    // Accept ?window=week|month|all; anything else falls back to 'all'.
+    const requested = url.searchParams.get('window') || 'all'
+    const window = WINDOWS.has(requested) ? requested : 'all'
     const [rows, explicit, community] = await Promise.all([
-      getLeaderboard({ limit: LEADERBOARD_LIMIT }),
+      getLeaderboard({ limit: LEADERBOARD_LIMIT, window }),
       getExplicitSharePrefs(ctx.serverId),
       getCommunityConfig(),
     ])
+    // If the date-format probe failed, only all-time is trustworthy. Echo the
+    // window we actually served (the DB serves all-time when windowing is off).
+    const windowsAvailable = getWindowsAvailable()
+    const servedWindow = windowsAvailable ? window : 'all'
     // Keep users who share (explicit choice, else the admin default). The caller
     // always sees their own row (even if hidden from others), flagged isMe so
     // the UI can highlight it.
@@ -80,7 +90,37 @@ export async function handleSocial(req, res, url, ctx) {
       isMe: r.userId === ctx.userId,
     }))
     const me = entries.find((e) => e.isMe) ?? null
-    return (json(res, 200, { available: true, me, entries }), true)
+    return (
+      json(res, 200, {
+        available: true,
+        me,
+        entries,
+        window: servedWindow,
+        windowsAvailable,
+      }),
+      true
+    )
+  }
+
+  // Who finished a book (privacy-filtered), for the detail-page avatar chips.
+  // /hs/social/finished-by?libraryItemId=...
+  if (req.method === 'GET' && p === '/hs/social/finished-by') {
+    if (!(await absDbAvailable())) {
+      return (json(res, 200, { available: false, users: [] }), true)
+    }
+    const id = url.searchParams.get('libraryItemId') || ''
+    if (!id) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    const [users, explicit, community] = await Promise.all([
+      getFinishedUsers(id),
+      getExplicitSharePrefs(ctx.serverId),
+      getCommunityConfig(),
+    ])
+    // Same privacy pipeline as the leaderboard: explicit choice wins, else the
+    // admin default; the caller always sees themselves.
+    const visible = users.filter((u) =>
+      shares(u.userId, explicit, community.defaultShare, ctx.userId),
+    )
+    return (json(res, 200, { available: true, users: visible }), true)
   }
 
   // Single item: how many people finished it. /hs/social/finished-count?libraryItemId=...
