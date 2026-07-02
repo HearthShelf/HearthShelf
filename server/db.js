@@ -326,6 +326,48 @@ const SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_book_notes_item
      ON book_notes (server_id, library_item_id, club_id, created_at)`,
+  // Book clubs (see docs/social.md). A club is a persistent group; the book is
+  // an attribute of its timeline (club_books), not of the club. is_open is 1 for
+  // open-join v1 (the column is shaped for invite-only later); archived hides a
+  // finished club while keeping its chat readable.
+  `CREATE TABLE IF NOT EXISTS clubs (
+     id              TEXT PRIMARY KEY,
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     name            TEXT NOT NULL,
+     created_by      TEXT NOT NULL,
+     is_open         INTEGER NOT NULL DEFAULT 1,
+     archived        INTEGER NOT NULL DEFAULT 0,
+     created_at      INTEGER NOT NULL
+   )`,
+  // A club's reading history: past books (finished_at stamped) + exactly one
+  // CURRENT book (finished_at NULL). title/author are snapshotted at add time so
+  // history renders even if the item later leaves ABS.
+  `CREATE TABLE IF NOT EXISTS club_books (
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     club_id         TEXT NOT NULL,
+     library_item_id TEXT NOT NULL,
+     title           TEXT NOT NULL DEFAULT '',
+     author          TEXT NOT NULL DEFAULT '',
+     added_by        TEXT NOT NULL,
+     started_at      INTEGER NOT NULL,
+     finished_at     INTEGER,
+     PRIMARY KEY (server_id, club_id, library_item_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_club_books_item
+     ON club_books (server_id, library_item_id, finished_at)`,
+  // Club membership. role is 'owner' | 'member'; the owner cannot leave (they
+  // archive instead). last_read_at is the per-club unread cursor (unread =
+  // unlocked notes newer than it); the PUT bumps it max(stored, incoming).
+  `CREATE TABLE IF NOT EXISTS club_members (
+     server_id    TEXT NOT NULL DEFAULT 'local',
+     club_id      TEXT NOT NULL,
+     user_id      TEXT NOT NULL,
+     username     TEXT NOT NULL DEFAULT '',
+     role         TEXT NOT NULL DEFAULT 'member',
+     joined_at    INTEGER NOT NULL,
+     last_read_at INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (server_id, club_id, user_id)
+   )`,
   // One Hardcover Personal Access Token per ABS user (not server-wide - a
   // Hardcover account belongs to a person, not a household's HearthShelf box).
   // The token is never returned to the client once saved; only connection

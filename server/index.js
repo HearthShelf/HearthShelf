@@ -44,6 +44,7 @@ import { handleSettings } from './routes/settings.js'
 import { handleQueue } from './routes/queue.js'
 import { handleSocial } from './routes/social.js'
 import { handleNotes } from './routes/notes.js'
+import { handleClubs } from './routes/clubs.js'
 import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
 import { handleAudplexus } from './routes/audplexus.js'
@@ -104,6 +105,7 @@ const ROUTES = [
   handleQueue,
   handleSocial,
   handleNotes,
+  handleClubs,
   handleFinishedBooks,
   handleStats,
   handleRmab,

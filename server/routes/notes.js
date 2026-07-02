@@ -22,7 +22,7 @@ import {
   insertNote,
   softDeleteNote,
 } from '../lib/notesQuery.js'
-import { getClub, isClubMember } from '../clubs.js'
+import { getClub, isClubMember, bookInClub } from '../clubs.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
 const BODY_MAX = 2000
@@ -135,11 +135,16 @@ export async function handleNotes(req, res, url, ctx) {
       timeSec = t
     }
 
-    // Club scope: the club must exist and the caller must be a member.
+    // Club scope: the club must exist, the caller must be a member, and the book
+    // must be in the club's reading history (a note can only attach to a book the
+    // club is or was reading).
     if (clubId) {
       const err = await checkClubAccess(ctx.serverId, clubId, ctx.userId)
       if (err === 'club_not_found') return (json(res, 404, { error: 'club_not_found' }), true)
       if (err === 'not_member') return (json(res, 403, { error: 'not_member' }), true)
+      if (!(await bookInClub(ctx.serverId, clubId, libraryItemId))) {
+        return (json(res, 400, { error: 'book_not_in_club' }), true)
+      }
     }
 
     // parentId must reference an existing TOP-LEVEL note in the same (server,
