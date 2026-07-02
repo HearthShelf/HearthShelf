@@ -10,6 +10,8 @@ import type {
   HSLeaderboardResponse,
   HSFinishedCount,
   HSFinishedByResponse,
+  HSListeningNowResponse,
+  HSListeningNowUser,
   LeaderboardWindow,
 } from '@hearthshelf/core'
 
@@ -31,30 +33,54 @@ export const socialKeys = {
   leaderboard: (window: LeaderboardWindow) => ['social', 'leaderboard', window] as const,
   finishedCount: (id: string) => ['social', 'finished-count', id] as const,
   finishedBy: (id: string) => ['social', 'finished-by', id] as const,
+  listeningNow: (id: string) => ['social', 'listening-now', id] as const,
   communityConfig: ['social', 'community-config'] as const,
 }
 
 // Instance-wide community config. `defaultShare` is the server's default for
 // whether a user appears on the leaderboard when they haven't chosen for
-// themselves. `canEdit` is true for admins (PUT is admin-only).
+// themselves. `defaultShareListening` is the (default-OFF) presence default.
+// `notesEnabled` / `clubsEnabled` are admin kill-switches. `canEdit` is true for
+// admins (PUT is admin-only).
 export interface CommunityConfig {
   defaultShare: boolean
+  defaultShareListening: boolean
+  notesEnabled: boolean
+  clubsEnabled: boolean
   canEdit: boolean
+}
+
+const DEFAULT_COMMUNITY: CommunityConfig = {
+  defaultShare: true,
+  defaultShareListening: false,
+  notesEnabled: true,
+  clubsEnabled: true,
+  canEdit: false,
 }
 
 export async function getCommunityConfig(): Promise<CommunityConfig> {
   try {
-    return await sFetch<CommunityConfig>('/community-config')
+    const r = await sFetch<Partial<CommunityConfig>>('/community-config')
+    // Older servers omit the new fields; fill them defensively.
+    return { ...DEFAULT_COMMUNITY, ...r }
   } catch {
-    return { defaultShare: true, canEdit: false }
+    return DEFAULT_COMMUNITY
   }
 }
 
-export async function setCommunityConfig(defaultShare: boolean): Promise<CommunityConfig> {
-  return sFetch<CommunityConfig>('/community-config', {
+// Patch one or more community-config fields (admin only). The server merges the
+// patch, so callers can send just the field they changed.
+export async function setCommunityConfig(
+  patch: Partial<Pick<
+    CommunityConfig,
+    'defaultShare' | 'defaultShareListening' | 'notesEnabled' | 'clubsEnabled'
+  >>,
+): Promise<CommunityConfig> {
+  const r = await sFetch<Partial<CommunityConfig>>('/community-config', {
     method: 'PUT',
-    body: JSON.stringify({ defaultShare }),
+    body: JSON.stringify(patch),
   })
+  return { ...DEFAULT_COMMUNITY, ...r }
 }
 
 const EMPTY_LEADERBOARD: HSLeaderboardResponse = {
@@ -108,6 +134,39 @@ export async function getFinishedCountsBulk(
       { method: 'POST', body: JSON.stringify({ libraryItemIds }) },
     )
     return r.counts ?? {}
+  } catch {
+    return {}
+  }
+}
+
+// Who is listening to this book right now-ish (server filters by the
+// shareCurrentlyListening privacy resolution, default OFF). Degrades to
+// unavailable so the UI hides the row. Label the chips "Listening recently".
+const EMPTY_LISTENING: HSListeningNowResponse = { available: false, users: [] }
+
+export async function getListeningNow(libraryItemId: string): Promise<HSListeningNowResponse> {
+  if (!libraryItemId) return EMPTY_LISTENING
+  try {
+    return await sFetch<HSListeningNowResponse>(
+      `/listening-now?libraryItemId=${encodeURIComponent(libraryItemId)}`,
+    )
+  } catch {
+    return EMPTY_LISTENING
+  }
+}
+
+// Bulk listening-now for a shelf of items (capped 100 server-side). Returns a
+// map keyed by libraryItemId; degrades to an empty map.
+export async function getListeningNowBulk(
+  libraryItemIds: string[],
+): Promise<Record<string, HSListeningNowUser[]>> {
+  if (!libraryItemIds.length) return {}
+  try {
+    const r = await sFetch<{ available: boolean; byItem: Record<string, HSListeningNowUser[]> }>(
+      '/listening-now',
+      { method: 'POST', body: JSON.stringify({ libraryItemIds }) },
+    )
+    return r.byItem ?? {}
   } catch {
     return {}
   }

@@ -86,6 +86,9 @@ export interface SettingsState {
   // setting); true/false = the user's own choice, which the admin default never
   // overrides. Only written once the user actually toggles it.
   shareReadBooks: boolean | null
+  // Tri-state: null = never chose (follow the server's presence default, which
+  // ships OFF - real-time presence is more sensitive than a reading list).
+  shareCurrentlyListening: boolean | null
   // When no photo is uploaded, fall back to the user's Gravatar (by their email).
   useGravatar: boolean
 
@@ -101,6 +104,10 @@ export interface SettingsState {
   autoSleepStart: string
   autoSleepEnd: string
   autoSleepDur: number
+
+  // Device-scoped: show a toast when playback crosses a club note. Off silences
+  // pops on this device without leaving any club.
+  notePops: boolean
 
   // Device-scoped: when false, this device ignores account settings pulled from
   // the server and runs on its local values only (see useSettingsSync).
@@ -160,6 +167,7 @@ export const useSettingsStore = create<SettingsState>()(
       unifiedHome: false,
       showOthersBooks: true,
       shareReadBooks: null,
+      shareCurrentlyListening: null,
       useGravatar: false,
 
       // Sleep
@@ -172,6 +180,8 @@ export const useSettingsStore = create<SettingsState>()(
       autoSleepStart: '22:00',
       autoSleepEnd: '06:00',
       autoSleepDur: 30,
+
+      notePops: true,
 
       useSharedSettings: true,
 
