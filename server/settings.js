@@ -61,17 +61,20 @@ export async function getUserSetting(serverId, userId, key) {
   }
 }
 
-// Map of user id -> their EXPLICIT leaderboard-sharing choice (true/false), for
-// the users within a server who actually set one. shareReadBooks is tri-state:
-// a row with a boolean value means they chose; no row means they never chose, so
-// the admin default applies (see server/community.js). Now a single WHERE key =
-// query instead of parsing every user's blob.
-export async function getExplicitSharePrefs(serverId) {
+// Map of user id -> their EXPLICIT sharing choice (true/false) for one triBool
+// privacy key, for the users within a server who actually set one. These keys
+// are tri-state: a row with a boolean value means they chose; no row means they
+// never chose, so the admin default applies (see server/community.js). One
+// indexed WHERE key = query instead of parsing every user's blob.
+//
+// `key` defaults to 'shareReadBooks' (leaderboard + finished-by); pass
+// 'shareCurrentlyListening' for listening-now presence - same one-query pattern.
+export async function getExplicitSharePrefs(serverId, key = 'shareReadBooks') {
   await ensure()
   const r = await db.execute({
     sql: `SELECT user_id, value_json FROM user_settings
-          WHERE server_id = ? AND scope = 'account' AND device_id = '' AND key = 'shareReadBooks'`,
-    args: [serverId],
+          WHERE server_id = ? AND scope = 'account' AND device_id = '' AND key = ?`,
+    args: [serverId, key],
   })
   const out = new Map()
   for (const row of r.rows) {

@@ -34,12 +34,30 @@ async function ensureSeeded() {
   return ready
 }
 
-// { defaultShare: boolean } - whether users who never chose appear by default.
+// The community config:
+//   defaultShare          - reading-list leaderboard default (opt-out, on)
+//   defaultShareListening - listening-now presence default (off; presence is
+//                           more sensitive than a historical reading list)
+//   notesEnabled          - public-notes kill-switch (on)
+//   clubsEnabled          - book-club kill-switch (on)
+// The listening/notes/clubs columns are added by MIGRATIONS ALTERs (see db.js);
+// on a database created before they existed the SELECT still returns them once
+// the ALTER has run, and each read defaults defensively.
 export async function getCommunityConfig() {
   await ensureSeeded()
-  const r = await db.execute('SELECT default_share FROM community_config WHERE id = 1')
+  const r = await db.execute(
+    'SELECT default_share, default_share_listening, notes_enabled, clubs_enabled FROM community_config WHERE id = 1',
+  )
   const row = r.rows[0] ?? {}
-  return { defaultShare: row.default_share == null ? true : Boolean(row.default_share) }
+  return {
+    defaultShare: row.default_share == null ? true : Boolean(row.default_share),
+    // Presence default ships OFF, so a null column reads false.
+    defaultShareListening: row.default_share_listening == null
+      ? false
+      : Boolean(row.default_share_listening),
+    notesEnabled: row.notes_enabled == null ? true : Boolean(row.notes_enabled),
+    clubsEnabled: row.clubs_enabled == null ? true : Boolean(row.clubs_enabled),
+  }
 }
 
 export async function setCommunityConfig(patch) {
@@ -47,9 +65,20 @@ export async function setCommunityConfig(patch) {
   const cur = await getCommunityConfig()
   const next = { ...cur }
   if ('defaultShare' in patch) next.defaultShare = Boolean(patch.defaultShare)
+  if ('defaultShareListening' in patch) next.defaultShareListening = Boolean(patch.defaultShareListening)
+  if ('notesEnabled' in patch) next.notesEnabled = Boolean(patch.notesEnabled)
+  if ('clubsEnabled' in patch) next.clubsEnabled = Boolean(patch.clubsEnabled)
   await db.execute({
-    sql: `UPDATE community_config SET default_share = ?, updated_at = ? WHERE id = 1`,
-    args: [next.defaultShare ? 1 : 0, Date.now()],
+    sql: `UPDATE community_config
+          SET default_share = ?, default_share_listening = ?, notes_enabled = ?, clubs_enabled = ?, updated_at = ?
+          WHERE id = 1`,
+    args: [
+      next.defaultShare ? 1 : 0,
+      next.defaultShareListening ? 1 : 0,
+      next.notesEnabled ? 1 : 0,
+      next.clubsEnabled ? 1 : 0,
+      Date.now(),
+    ],
   })
   return next
 }

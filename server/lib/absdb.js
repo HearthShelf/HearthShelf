@@ -369,4 +369,227 @@ export async function getFinishedUsers(libraryItemId) {
   })
 }
 
+// --- Listening-now presence ------------------------------------------------
+//
+// Who is actively listening to a book right now-ish, derived ONLY from
+// playbackSessions.updatedAt (server-sync-driven, moves forward as ABS records
+// listen time) - never mediaProgresses.updatedAt, which the client can set
+// arbitrarily (even backwards). The item is resolved from the session's
+// extraData.libraryItemId (present on modern sessions), falling back to the
+// libraryItems.mediaId hop for older rows whose extraData lacks it.
+//
+// playbackSessions.updatedAt is a Sequelize DATE stored as text. There is no
+// datetime()-safe cutoff we can trust across shapes, so we compare
+// lexicographically against a cutoff string built in the SAME textual shape as a
+// real stored value: probe one updatedAt, discover its format, and format the
+// cutoff to match. If the probe fails (no rows, or an unrecognised shape),
+// presence just hides ([]).
+//
+// Guests/inactive users excluded; books only. TTL-cached like getLeaderboard.
+
+let listenFormat = null // null=unprobed, false=unusable, or a formatter fn(Date)->string
+
+// Probe one playbackSessions.updatedAt and return a formatter that renders a JS
+// Date as a cutoff string in the SAME textual shape, for a lexicographic >=.
+// ABS/Sequelize stores DATE either as ISO 'YYYY-MM-DDTHH:MM:SS.sssZ' or as
+// 'YYYY-MM-DD HH:MM:SS.sss +00:00' depending on dialect/version. Both are
+// lexicographically ordered by the leading 'YYYY-MM-DD HH:MM:SS' prefix, so we
+// only need to match the date/time separator (T vs space). Returns false if the
+// stored text isn't a recognised leading-timestamp shape.
+async function probeListenFormat(c) {
+  if (listenFormat !== null) return listenFormat
+  try {
+    const res = await c.execute(`
+      SELECT updatedAt FROM playbackSessions
+      WHERE updatedAt IS NOT NULL
+      LIMIT 1
+    `)
+    const sample = res.rows[0]?.updatedAt
+    if (sample == null) return (listenFormat = false)
+    const text = String(sample)
+    // Must lead with YYYY-MM-DD then a 'T' or ' ' separator then HH:MM:SS.
+    const m = /^\d{4}-\d{2}-\d{2}([T ])\d{2}:\d{2}:\d{2}/.exec(text)
+    if (!m) return (listenFormat = false)
+    const sep = m[1] // 'T' (ISO) or ' ' (space-separated)
+    listenFormat = (date) => {
+      // 'YYYY-MM-DDTHH:MM:SS' in UTC; the fractional/zone tail is irrelevant to a
+      // >= compare on a prefix, and a truncated cutoff still bounds correctly.
+      const iso = date.toISOString().slice(0, 19) // 'YYYY-MM-DDTHH:MM:SS'
+      return sep === ' ' ? iso.replace('T', ' ') : iso
+    }
+    return listenFormat
+  } catch {
+    return (listenFormat = false)
+  }
+}
+
+// For each of the given library items, the eligible users whose latest playback
+// session updated within cutoffMs. Returns [] on any failure or when the date
+// format can't be probed. Bounded by the id set; the whole result is TTL-cached
+// per (sorted ids, cutoff bucket) so a shelf render collapses into one scan.
+export async function getActiveListeners(libraryItemIds = [], cutoffMs = 3 * 60 * 1000) {
+  const ids = [...new Set(libraryItemIds.filter(Boolean))]
+  if (!ids.length) return []
+  const c = await ensureClient()
+  if (!c) return []
+  // Bucket the cutoff to the cache TTL so keys are stable within a window.
+  const bucket = Math.floor(Date.now() / CACHE_TTL_MS)
+  return cached(`activeListeners:${bucket}:${cutoffMs}:${[...ids].sort().join(',')}`, async () => {
+    const fmt = await probeListenFormat(c)
+    if (!fmt) return []
+    const cutoff = fmt(new Date(Date.now() - cutoffMs))
+    try {
+      const placeholders = ids.map(() => '?').join(', ')
+      // Resolve each session's library item two ways and union: the direct
+      // extraData.libraryItemId, and (for older sessions without it) the
+      // mediaId hop through libraryItems. Only book sessions, eligible users,
+      // and rows updated since the cutoff.
+      const res = await c.execute({
+        sql: `
+          SELECT DISTINCT libraryItemId, userId, username FROM (
+            SELECT json_extract(ps.extraData, '$.libraryItemId') AS libraryItemId,
+                   u.id AS userId, u.username AS username
+            FROM playbackSessions ps
+            JOIN users u ON u.id = ps.userId
+            WHERE ps.mediaItemType = 'book'
+              AND ps.updatedAt >= ?
+              AND u.type != 'guest'
+              AND u.isActive = 1
+              AND json_extract(ps.extraData, '$.libraryItemId') IN (${placeholders})
+            UNION
+            SELECT li.id AS libraryItemId, u.id AS userId, u.username AS username
+            FROM playbackSessions ps
+            JOIN users u ON u.id = ps.userId
+            JOIN libraryItems li ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
+            WHERE ps.mediaItemType = 'book'
+              AND ps.updatedAt >= ?
+              AND u.type != 'guest'
+              AND u.isActive = 1
+              AND li.id IN (${placeholders})
+          )
+        `,
+        args: [cutoff, ...ids, cutoff, ...ids],
+      })
+      const out = []
+      for (const row of res.rows) {
+        const libraryItemId = row.libraryItemId == null ? '' : String(row.libraryItemId)
+        if (!libraryItemId) continue
+        out.push({
+          libraryItemId,
+          userId: String(row.userId),
+          username: String(row.username ?? ''),
+        })
+      }
+      return out
+    } catch {
+      return []
+    }
+  })
+}
+
+// --- Per-book progress (for clubs + the notes finished-bypass) -------------
+
+// Per-member progress in one library item, from mediaProgresses (same media-id
+// hop as the finished queries). Returns a Map userId -> { currentTime, duration,
+// isFinished, updatedAt } for the requested users who have a progress row.
+// Missing users are absent (callers default to null). Returns an empty Map on
+// any failure. Not cached: club detail is a per-request read of a small set.
+export async function getMemberProgress(userIds = [], libraryItemId) {
+  const ids = [...new Set(userIds.filter(Boolean))]
+  if (!ids.length || !libraryItemId) return new Map()
+  const c = await ensureClient()
+  if (!c) return new Map()
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const res = await c.execute({
+      sql: `
+        SELECT mp.userId AS userId, mp.currentTime AS currentTime,
+               mp.duration AS duration, mp.isFinished AS isFinished,
+               mp.updatedAt AS updatedAt
+        FROM libraryItems li
+        JOIN mediaProgresses mp
+          ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
+        WHERE li.id = ? AND li.mediaType = 'book'
+          AND mp.userId IN (${placeholders})
+      `,
+      args: [libraryItemId, ...ids],
+    })
+    const out = new Map()
+    for (const row of res.rows) {
+      const raw = row.updatedAt
+      const ms = raw != null ? Date.parse(String(raw)) : NaN
+      out.set(String(row.userId), {
+        currentTime: row.currentTime == null ? null : Number(row.currentTime),
+        duration: row.duration == null ? null : Number(row.duration),
+        isFinished: Boolean(row.isFinished),
+        updatedAt: Number.isNaN(ms) ? null : ms,
+      })
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
+// The caller's own progress in one library item: { currentTime, duration,
+// isFinished } or null when there's no row (or the db is unavailable). Used for
+// the notes finished-bypass and the position clamp.
+export async function getSelfProgress(userId, libraryItemId) {
+  if (!userId || !libraryItemId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT mp.currentTime AS currentTime, mp.duration AS duration,
+               mp.isFinished AS isFinished
+        FROM libraryItems li
+        JOIN mediaProgresses mp
+          ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
+        WHERE li.id = ? AND li.mediaType = 'book' AND mp.userId = ?
+        LIMIT 1
+      `,
+      args: [libraryItemId, userId],
+    })
+    const row = res.rows[0]
+    if (!row) return null
+    return {
+      currentTime: row.currentTime == null ? null : Number(row.currentTime),
+      duration: row.duration == null ? null : Number(row.duration),
+      isFinished: Boolean(row.isFinished),
+    }
+  } catch {
+    return null
+  }
+}
+
+// A book's chapter list (books.chapters JSON), so notes can render
+// "Chapter 14 - 1:02:05" on clients that don't hold the chapter list. Resolved
+// via the libraryItems.mediaId hop. Returns [] on any failure or when absent.
+export async function getChapters(libraryItemId) {
+  if (!libraryItemId) return []
+  const c = await ensureClient()
+  if (!c) return []
+  return cached(`chapters:${libraryItemId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `
+          SELECT b.chapters AS chapters
+          FROM libraryItems li
+          JOIN books b ON b.id = li.mediaId
+          WHERE li.id = ? AND li.mediaType = 'book'
+          LIMIT 1
+        `,
+        args: [libraryItemId],
+      })
+      const raw = res.rows[0]?.chapters
+      if (raw == null) return []
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  })
+}
+
 export const ABS_DB_PATH_RESOLVED = ABS_DB_PATH

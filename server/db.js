@@ -335,6 +335,12 @@ const MIGRATIONS = [
   `ALTER TABLE hosted_user_keys ADD COLUMN synced_username TEXT`,
   `ALTER TABLE server_identity ADD COLUMN server_name TEXT`,
   `ALTER TABLE ai_config ADD COLUMN discover_enabled INTEGER NOT NULL DEFAULT 1`,
+  // Community social controls (see docs/social.md). Listening-now presence is
+  // more sensitive than a reading list, so its default ships OFF; notes and
+  // clubs are admin kill-switches, on by default.
+  `ALTER TABLE community_config ADD COLUMN default_share_listening INTEGER DEFAULT 0`,
+  `ALTER TABLE community_config ADD COLUMN notes_enabled INTEGER DEFAULT 1`,
+  `ALTER TABLE community_config ADD COLUMN clubs_enabled INTEGER DEFAULT 1`,
 ]
 
 // Account-scoped setting keys, for the one-time app_settings fan-out below.

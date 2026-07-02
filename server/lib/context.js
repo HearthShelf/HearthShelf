@@ -2,8 +2,10 @@
 //
 // Every route handler receives a `ctx` instead of reaching for a global
 // ABS_URL or re-deriving the user. A ctx is:
-//   { absUrl, absToken, serverId, userId, role }
-// where role is 'user' | 'admin' | 'root' (mapped from ABS's user type).
+//   { absUrl, absToken, serverId, userId, username, role }
+// where role is 'user' | 'admin' | 'root' (mapped from ABS's user type) and
+// username is the caller's ABS username (snapshotted into notes/club rows at
+// write time so those HS-db-only features render names without an absdb mount).
 //
 // Self-hosted (today): one ABS server from the ABS_SERVER_URL env; the caller
 // is identified by validating their bearer token against ABS /api/me; serverId
@@ -67,6 +69,7 @@ async function resolveSelfHosted(req) {
       absToken: token,
       serverId,
       userId: me.id,
+      username: typeof me.username === 'string' ? me.username : '',
       role: me.type ?? 'user',
     }
   } catch {

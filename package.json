@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "sync-core": "git submodule update --remote packages/core",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:catalog": "node scripts/check-settings-catalog.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",

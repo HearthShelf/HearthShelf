@@ -17,12 +17,18 @@ import {
   getFinishedCount,
   getFinishedCountsBulk,
   getFinishedUsers,
+  getActiveListeners,
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
 
 const LEADERBOARD_LIMIT = 100
 const WINDOWS = new Set(['week', 'month', 'all'])
+// Presence recency: a session counts as "listening recently" if its playback
+// session updated within this window. ~3 minutes (see docs/social.md).
+const LISTENING_CUTOFF_MS = 3 * 60 * 1000
+// Bulk listening-now caps the id list, mirroring readBody size discipline.
+const MAX_BULK_IDS = 100
 
 // Does this user appear on the leaderboard? Their explicit choice wins; absent a
 // choice, the admin default applies. The caller always sees their own row.
@@ -30,6 +36,20 @@ function shares(userId, explicit, defaultShare, meId) {
   if (userId === meId) return true
   if (explicit.has(userId)) return explicit.get(userId)
   return defaultShare
+}
+
+// Group flat getActiveListeners rows ({ libraryItemId, userId, username }) into
+// { [libraryItemId]: HSListeningNowUser[] }, filtering each user by the presence
+// privacy resolution: an explicit shareCurrentlyListening choice wins, else the
+// community default_share_listening (default OFF); the caller always sees self.
+function filterListeners(rows, explicit, community, meId) {
+  const byItem = {}
+  for (const row of rows) {
+    if (!shares(row.userId, explicit, community.defaultShareListening, meId)) continue
+    if (!byItem[row.libraryItemId]) byItem[row.libraryItemId] = []
+    byItem[row.libraryItemId].push({ userId: row.userId, username: row.username })
+  }
+  return byItem
 }
 
 export async function handleSocial(req, res, url, ctx) {
@@ -42,6 +62,8 @@ export async function handleSocial(req, res, url, ctx) {
   // default); PUT is admin-only.
   if (p === '/hs/social/community-config') {
     if (req.method === 'GET') {
+      // Includes defaultShareListening / notesEnabled / clubsEnabled so the
+      // per-user toggles can show the inherited default and clients can gate.
       const cfg = await getCommunityConfig()
       return (json(res, 200, { ...cfg, canEdit: isAdmin(ctx) }), true)
     }
@@ -55,6 +77,50 @@ export async function handleSocial(req, res, url, ctx) {
       }
       const next = await setCommunityConfig(body ?? {})
       return (json(res, 200, { ...next, canEdit: true }), true)
+    }
+    return (json(res, 405, { error: 'method_not_allowed' }), true)
+  }
+
+  // Listening-now presence: who is actively (recently) listening to a book.
+  // GET ?libraryItemId= for one item; POST { libraryItemIds } (capped 100) for
+  // a shelf. Privacy: an explicit shareCurrentlyListening choice wins, else the
+  // community default_share_listening (which ships OFF); the caller always sees
+  // themselves. UI labels this "listening recently", not "online".
+  if (p === '/hs/social/listening-now') {
+    if (req.method === 'GET') {
+      if (!(await absDbAvailable())) {
+        return (json(res, 200, { available: false, users: [] }), true)
+      }
+      const id = url.searchParams.get('libraryItemId') || ''
+      if (!id) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+      const [rows, explicit, community] = await Promise.all([
+        getActiveListeners([id], LISTENING_CUTOFF_MS),
+        getExplicitSharePrefs(ctx.serverId, 'shareCurrentlyListening'),
+        getCommunityConfig(),
+      ])
+      const users = filterListeners(rows, explicit, community, ctx.userId)
+      return (json(res, 200, { available: true, users: users[id] || [] }), true)
+    }
+    if (req.method === 'POST') {
+      if (!(await absDbAvailable())) {
+        return (json(res, 200, { available: false, byItem: {} }), true)
+      }
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return (json(res, 400, { error: 'invalid_body' }), true)
+      }
+      const ids = Array.isArray(body?.libraryItemIds) ? body.libraryItemIds : null
+      if (!ids) return (json(res, 400, { error: 'missing_libraryItemIds' }), true)
+      if (ids.length > MAX_BULK_IDS) return (json(res, 400, { error: 'too_many_ids' }), true)
+      const [rows, explicit, community] = await Promise.all([
+        getActiveListeners(ids, LISTENING_CUTOFF_MS),
+        getExplicitSharePrefs(ctx.serverId, 'shareCurrentlyListening'),
+        getCommunityConfig(),
+      ])
+      const byItem = filterListeners(rows, explicit, community, ctx.userId)
+      return (json(res, 200, { available: true, byItem }), true)
     }
     return (json(res, 405, { error: 'method_not_allowed' }), true)
   }

@@ -39,6 +39,7 @@ const DEFS = {
   colorEverywhere: { scope: 'account', type: 'boolean' },
   hearthBgPlayer: { scope: 'account', type: 'boolean' },
   cardBg: { scope: 'account', type: 'boolean' },
+  playerBg: { scope: 'account', type: 'enum', values: ['blurred', 'gradient', 'hearth'] },
   // Playback (account)
   scrubber: { scope: 'account', type: 'enum', values: ['chapter', 'book'] },
   skipForward: { scope: 'account', type: 'number', min: 5, max: 300, int: true },
@@ -60,6 +61,8 @@ const DEFS = {
   sleepFade: { scope: 'account', type: 'boolean' },
   sleepFadeLen: { scope: 'account', type: 'number', min: 3, max: 60, int: true },
   sleepChime: { scope: 'account', type: 'boolean' },
+  sleepShakeExtend: { scope: 'account', type: 'boolean' },
+  sleepShakeMinutes: { scope: 'account', type: 'number', min: 1, max: 30, int: true },
   autoSleep: { scope: 'account', type: 'boolean' },
   autoSleepStart: { scope: 'account', type: 'string', pattern: /^([01]\d|2[0-3]):[0-5]\d$/ },
   autoSleepEnd: { scope: 'account', type: 'string', pattern: /^([01]\d|2[0-3]):[0-5]\d$/ },
@@ -67,8 +70,10 @@ const DEFS = {
   // Account & privacy (account)
   useGravatar: { scope: 'account', type: 'boolean' },
   shareReadBooks: { scope: 'account', type: 'triBool' },
+  shareCurrentlyListening: { scope: 'account', type: 'triBool' },
   // Device-scoped
   useSharedSettings: { scope: 'device', type: 'boolean' },
+  notePops: { scope: 'device', type: 'boolean' },
   libraryView: { scope: 'device', type: 'enum', values: ['grid', 'list'] },
   libraryScale: { scope: 'device', type: 'number', min: 120, max: 240, int: true },
   homeHero: { scope: 'device', type: 'enum', values: ['comfy', 'compact'] },

@@ -283,9 +283,11 @@ async function syncUsername(adminToken, absUserId, desired, current) {
 }
 
 // Resolve a verified grant into the standard ctx the rest of the backend uses:
-//   { absUrl, absToken, serverId, userId, role }
-// absToken is a per-user ABS API key (minted once, cached). Returns null if the
-// user can't be matched or a key can't be obtained.
+//   { absUrl, absToken, serverId, userId, username, role }
+// absToken is a per-user ABS API key (minted once, cached). username is the
+// caller's ABS username (the Clerk username kept in sync, falling back to the
+// last synced/cached value) so notes/clubs can snapshot it at write time.
+// Returns null if the user can't be matched or a key can't be obtained.
 export async function resolveHostedContext(token) {
   const claims = await verifyGrant(token)
   if (!claims) return null
@@ -315,6 +317,7 @@ export async function resolveHostedContext(token) {
       absToken: cached.absApiKey,
       serverId,
       userId: cached.absUserId,
+      username: claims.username || cached.syncedUsername || '',
       role: claims.role || cached.role || 'user',
     }
   }
@@ -351,6 +354,7 @@ export async function resolveHostedContext(token) {
     absToken: apiKey,
     serverId,
     userId: String(absUser.id),
+    username: effectiveUsername || claims.username || '',
     role: claims.role || 'user',
   }
 }
