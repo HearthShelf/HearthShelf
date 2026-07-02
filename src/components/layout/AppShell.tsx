@@ -5,6 +5,7 @@ import { AppBar } from '@/components/layout/AppBar'
 import { MobileNav } from '@/components/layout/MobileNav'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { AudioEngine } from '@/components/player/AudioEngine'
+import { NotePopWatcher } from '@/components/social/NotePopWatcher'
 import { useApplySettings } from '@/hooks/useApplySettings'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useQueueSync } from '@/hooks/useQueueSync'
@@ -49,6 +50,7 @@ export function AppShell() {
       </div>
       <PlayerBar />
       <AudioEngine />
+      <NotePopWatcher />
     </div>
   )
 }

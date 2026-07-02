@@ -11034,3 +11034,64 @@ select.fld {
 .club-composer .fld {
   flex: 1;
 }
+
+/* --- Club note pop toast (global watcher) --- */
+.note-pop-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 420px;
+  width: calc(100% - 40px);
+  padding: 12px 14px;
+  background: var(--c-highest);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lift);
+  cursor: pointer;
+  text-align: left;
+  animation: popIn 0.2s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.note-pop-toast:hover {
+  border-color: var(--accent);
+}
+
+.note-pop-toast .npt-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.note-pop-toast .npt-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.note-pop-toast .npt-author {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.note-pop-toast .npt-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-pop-toast .npt-go {
+  color: var(--text-faint);
+  flex: none;
+}
