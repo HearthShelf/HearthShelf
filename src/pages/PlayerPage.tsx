@@ -1048,7 +1048,7 @@ export function PlayerPage() {
             onPlay={(id) => void playItem(id)}
           />
         )}
-        {panel === 'club' && openClubId && me && (
+        {panel === 'club' && openClubId && (
           <ClubPanel
             clubId={openClubId}
             playingItemId={libraryItemId}
