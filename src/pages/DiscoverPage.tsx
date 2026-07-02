@@ -17,7 +17,8 @@ import { BookTile } from '@/components/library/BookTile'
 import { QuestGiverEntry } from '@/components/questgiver/QuestGiverEntry'
 import { DiscoverAiTile } from '@/components/discover/DiscoverAiTile'
 import { DiscoverSearch } from '@/components/discover/DiscoverSearch'
-import { buildDiscoverShelves } from '@/lib/discover'
+import { buildDiscoverShelves, rankDiscoverShelves } from '@/lib/discover'
+import { useQuestGiverPicks } from '@/hooks/useQuestGiverPicks'
 
 export function DiscoverPage() {
   const { activeId } = useActiveLibrary()
@@ -42,7 +43,7 @@ export function DiscoverPage() {
       ),
     [items],
   )
-  const { shelves, profile } = useMemo(
+  const { shelves: baseShelves, profile } = useMemo(
     () => buildDiscoverShelves(items, progressById),
     [items, progressById],
   )
@@ -51,9 +52,17 @@ export function DiscoverPage() {
   const { data: monthly } = useMonthlyShelf(items, progressById, hasItems)
   const { data: feedback } = useDiscoverFeedbackQuery(hasItems)
   const { data: popular } = usePopular(hasItems)
+  const questGiverPicks = useQuestGiverPicks(hasItems)
   const setFeedback = useSetDiscoverFeedback()
 
-  const fbMap = feedback ?? {}
+  const fbMap = useMemo(() => feedback ?? {}, [feedback])
+
+  // Apply the shared ranking layer: QuestGiver picks lead, liked/rated items float
+  // up, disliked/not-interested items drop out - same order Home previews.
+  const shelves = useMemo(
+    () => rankDiscoverShelves(baseShelves, byId, { questGiverPicks, feedback: fbMap }),
+    [baseShelves, byId, questGiverPicks, fbMap],
+  )
 
   // AI-shelf picks resolved to owned items, with not_interested hidden.
   const aiPicks = useMemo(() => {
