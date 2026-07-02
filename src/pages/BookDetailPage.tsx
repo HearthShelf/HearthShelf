@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getItem, libraryKeys } from '@/api/libraries'
-import { getFinishedBy, socialKeys } from '@/api/social'
+import { getFinishedBy, getListeningNow, socialKeys } from '@/api/social'
+import { getMe, meKeys } from '@/api/me'
+import { NotesSection } from '@/components/social/NotesSection'
+import { ClubCard } from '@/components/social/ClubCard'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -97,6 +100,25 @@ export function BookDetailPage() {
     staleTime: 5 * 60 * 1000,
   })
 
+  // Who's recently listening to this book (privacy-filtered, default OFF). Hidden
+  // when the ABS db isn't mapped or nobody's sharing. Short stale time - presence
+  // is time-sensitive.
+  const { data: listeningNow } = useQuery({
+    queryKey: socialKeys.listeningNow(itemId ?? ''),
+    queryFn: () => getListeningNow(itemId as string),
+    enabled: Boolean(itemId),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  })
+
+  // The caller's ABS user id, for delete-own on notes and for filtering out
+  // "myself" from the listening-now chips.
+  const { data: me } = useQuery({
+    queryKey: meKeys.me,
+    queryFn: getMe,
+    staleTime: 5 * 60 * 1000,
+  })
+
   if (isLoading) {
     return (
       <div className="page">
@@ -141,6 +163,10 @@ export function BookDetailPage() {
   // Finished-by chips: only render when the backend served real data and at
   // least one (privacy-filtered) user finished the book.
   const finishers = finishedBy?.available ? finishedBy.users : []
+  // Listening-recently chips: same gate. The label is deliberately "recently".
+  const listeners = listeningNow?.available ? listeningNow.users : []
+  // The reader's position + finished state drive the notes spoiler gate.
+  const notePosition = progress?.currentTime ?? 0
 
   const playChapter = async (start: number) => {
     if (sessionItemId === data.id) {
@@ -281,6 +307,34 @@ export function BookDetailPage() {
                 Finished by {finishers.length}
               </span>
               {finishers.map((u) => (
+                <span className="chip" key={u.userId} style={{ paddingLeft: 4 }}>
+                  <Avatar userId={u.userId} name={u.username} size={24} />
+                  {u.username}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {listeners.length > 0 && (
+            <div
+              className="detail-listening-now"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 10,
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>
+                <Icon
+                  name="graphic_eq"
+                  fill
+                  style={{ fontSize: 15, verticalAlign: '-3px', color: 'var(--accent)' }}
+                />{' '}
+                Listening recently
+              </span>
+              {listeners.map((u) => (
                 <span className="chip" key={u.userId} style={{ paddingLeft: 4 }}>
                   <Avatar userId={u.userId} name={u.username} size={24} />
                   {u.username}
@@ -525,6 +579,18 @@ export function BookDetailPage() {
           )}
         </div>
       </div>
+
+      {me && (
+        <NotesSection
+          libraryItemId={data.id}
+          chapters={chapters}
+          meId={me.id}
+          position={notePosition}
+          finished={finished}
+        />
+      )}
+
+      <ClubCard libraryItemId={data.id} bookTitle={title} onToast={show} />
 
       {zoomCover && (
         <ImageZoomViewer
