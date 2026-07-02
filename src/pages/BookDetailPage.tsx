@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getItem, libraryKeys } from '@/api/libraries'
+import { getFinishedBy, socialKeys } from '@/api/social'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -10,6 +11,7 @@ import { useAuthStore } from '@/store/authStore'
 import { formatDuration, formatTimestamp, stripHtml } from '@/lib/format'
 import type { ABSLibraryItemDetail } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
+import { Avatar } from '@/components/common/Avatar'
 import { ImageZoomViewer } from '@/components/common/ImageZoomViewer'
 import { Icon } from '@/components/common/Icon'
 import { Stars } from '@/components/common/Stars'
@@ -85,6 +87,16 @@ export function BookDetailPage() {
     staleTime: 10 * 60 * 1000,
   })
 
+  // Who finished this book (HearthShelf backend, reads ABS's db, privacy-
+  // filtered). Degrades to unavailable when ABS's db isn't mapped, in which case
+  // we hide the row entirely.
+  const { data: finishedBy } = useQuery({
+    queryKey: socialKeys.finishedBy(itemId ?? ''),
+    queryFn: () => getFinishedBy(itemId as string),
+    enabled: Boolean(itemId),
+    staleTime: 5 * 60 * 1000,
+  })
+
   if (isLoading) {
     return (
       <div className="page">
@@ -125,6 +137,10 @@ export function BookDetailPage() {
 
   const description = m.description ? stripHtml(m.description) : ''
   const links = externalLinks(data)
+
+  // Finished-by chips: only render when the backend served real data and at
+  // least one (privacy-filtered) user finished the book.
+  const finishers = finishedBy?.available ? finishedBy.users : []
 
   const playChapter = async (start: number) => {
     if (sessionItemId === data.id) {
@@ -254,6 +270,24 @@ export function BookDetailPage() {
               {formatDuration(duration)} · {chapters.length} chapters
             </dd>
           </dl>
+
+          {finishers.length > 0 && (
+            <div
+              className="detail-finished-by"
+              style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>
+                <Icon name="check_circle" fill style={{ fontSize: 15, verticalAlign: '-3px' }} />{' '}
+                Finished by {finishers.length}
+              </span>
+              {finishers.map((u) => (
+                <span className="chip" key={u.userId} style={{ paddingLeft: 4 }}>
+                  <Avatar userId={u.userId} name={u.username} size={24} />
+                  {u.username}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="detail-actions">
             {ebookOnly ? (

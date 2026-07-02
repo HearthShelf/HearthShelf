@@ -26,8 +26,9 @@ export function ConfigCommunity() {
     mutationFn: (defaultShare: boolean) => setCommunityConfig(defaultShare),
     onSuccess: (next: CommunityConfig) => {
       qc.setQueryData(socialKeys.communityConfig, next)
-      // Re-rank the leaderboard with the new default applied.
-      qc.invalidateQueries({ queryKey: socialKeys.leaderboard })
+      // Re-rank the leaderboard with the new default applied (prefix match hits
+      // every window).
+      qc.invalidateQueries({ queryKey: ['social', 'leaderboard'] })
       show('Community settings saved')
     },
     onError: () => show('Could not save - admin permission required'),
