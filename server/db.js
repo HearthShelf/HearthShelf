@@ -362,8 +362,6 @@ const SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_club_books_item
      ON club_books (server_id, library_item_id, finished_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_club_books_queue
-     ON club_books (server_id, club_id, queued_at)`,
   // Club membership. role is 'owner' | 'member'; the owner cannot leave (they
   // archive instead). last_read_at is the per-club unread cursor (unread =
   // unlocked notes newer than it); the PUT bumps it max(stored, incoming).
@@ -446,6 +444,10 @@ const BACKFILLS = [
   // visibility='club'. Only touches rows still at the 'public' default, so it's
   // idempotent and never clobbers a later real 'public'/'personal' choice.
   `UPDATE book_notes SET visibility = 'club' WHERE club_id != '' AND visibility = 'public'`,
+  // Must run after the queued_at ALTER above so the column exists. On a fresh DB
+  // the CREATE TABLE already has queued_at, so this is a harmless no-op there.
+  `CREATE INDEX IF NOT EXISTS idx_club_books_queue
+     ON club_books (server_id, club_id, queued_at)`,
 ]
 
 // Account-scoped setting keys, for the one-time app_settings fan-out below.
