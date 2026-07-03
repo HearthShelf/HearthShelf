@@ -20,10 +20,16 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
+# Compile @hearthshelf/core to dist JS for the no-bundler server. The SPA build
+# above reads core's .ts via its alias; the server imports the compiled output.
+RUN npx tsc -p packages/core/tsconfig.build.json
 
-# Install the backend's production deps (libSQL) in the same Alpine/Node base as
-# the runtime, so the native binding matches the target platform.
+# Install the backend's production deps (libSQL + the file: @hearthshelf/core) in
+# the same Alpine/Node base as the runtime, so the native binding matches the
+# target platform. Needs the built core tree present for the file: dependency.
 FROM node:26-alpine AS server-deps
+WORKDIR /app
+COPY --from=builder /app/packages/core /app/packages/core
 WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm ci --omit=dev
@@ -36,13 +42,10 @@ FROM ghcr.io/advplyr/audiobookshelf:latest AS abs
 
 FROM nginx:alpine AS slim
 # Node runtime for the QuestGiver backend service (the only server beyond nginx).
-# The backend imports @hearthshelf/core's .ts source directly and relies on
-# Node's native TypeScript stripping (unflagged since 23.6). Alpine's `apk add
-# nodejs` major floats (may lag <23.6), so instead we lift the pinned Node 26
-# runtime out of the node:26-alpine builder. libstdc++ is the one extra shared
-# lib the musl node binary needs on top of nginx:alpine (per node:26-alpine).
-RUN apk add --no-cache libstdc++
-COPY --from=builder /usr/local/bin/node /usr/local/bin/node
+# The backend imports @hearthshelf/core as COMPILED dist JS (built in the builder
+# stage), so Alpine's stock nodejs is fine - no runtime TypeScript, no Node major
+# floor.
+RUN apk add --no-cache nodejs
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx/default.conf /etc/nginx/templates/default.conf.template
@@ -50,11 +53,11 @@ COPY nginx/abs_proxy.conf /etc/nginx/templates/abs_proxy.conf.template
 COPY nginx/upgrade-map.conf /etc/nginx/templates/upgrade-map.conf
 COPY nginx/cors-map.conf /etc/nginx/templates/cors-map.conf.template
 COPY nginx/cors-headers.conf /etc/nginx/cors-headers.conf
-# QuestGiver backend + its installed node_modules (libSQL database driver). The
-# shared @hearthshelf/core package it imports at runtime (Auto queue compute).
+# QuestGiver backend + its node_modules (libSQL driver + the @hearthshelf/core
+# file: dep, which resolves to the compiled dist for the Auto queue compute).
+COPY --from=builder /app/packages/core /app/packages/core
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
-COPY packages/core /app/packages/core
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 EXPOSE 80
@@ -72,12 +75,10 @@ FROM nginx:alpine AS aio
 # nginx alpine package (--with-stream), so the :80 TLS-detect demux needs no extra
 # package and no load_module. (There is no separate nginx-module-stream package on
 # nginx.org's repo; stream is statically built in.)
-# Alpine's `nodejs` runs the bundled ABS (its supported runtime). The QuestGiver
-# backend needs a NEWER Node (>=23.6) for the native .ts import of @hearthshelf/
-# core, so it gets the pinned Node 26 lifted from the builder as `node26`, used
-# only for the QG process (see docker-entrypoint-aio.sh) - ABS keeps its own node.
-RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl libstdc++
-COPY --from=builder /usr/local/bin/node /usr/local/bin/node26
+# Alpine's `nodejs` runs both the bundled ABS and the QuestGiver backend - the
+# backend imports @hearthshelf/core as COMPILED dist JS (built in the builder),
+# so no newer Node is required.
+RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -99,9 +100,11 @@ COPY nginx/hsdirect_abs_proxy.conf.template /etc/nginx/templates/hsdirect_abs_pr
 # Save the stock nginx.conf so render-hsdirect.sh can restore it in the no-cert state.
 COPY nginx/aio-nginx.conf.template /etc/nginx/templates/aio-nginx.conf.template
 RUN cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.stock
+# @hearthshelf/core built to dist (the server's file: dep resolves to it), then
+# the backend + its node_modules.
+COPY --from=builder /app/packages/core /app/packages/core
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
-COPY packages/core /app/packages/core
 
 # Bundled AudiobookShelf: its app tree and the nunicode sqlite extension it
 # loads at runtime, copied straight out of the official image.

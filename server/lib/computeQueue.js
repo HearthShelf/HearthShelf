@@ -12,8 +12,8 @@
 //   - the user's media progress: ABS /api/me
 //   - the current book per club the user is in: clubs.js (book-club rule)
 
-import { buildAutoQueue } from '../../packages/core/src/lib/queue.ts'
-import { normalizeAutoRules } from '../../packages/core/src/lib/settings.ts'
+import { buildAutoQueue } from '@hearthshelf/core/lib/queue'
+import { normalizeAutoRules } from '@hearthshelf/core/lib/settings'
 import { getUserSetting } from '../settings.js'
 import { getQueue, setQueue } from '../queue.js'
 import { listMyClubs, currentBook } from '../clubs.js'

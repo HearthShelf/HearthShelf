@@ -81,11 +81,8 @@ echo "[aio] starting AudiobookShelf on :${ABS_PORT} (root base path)"
 ABS_PID=$!
 
 # --- HearthShelf backend ---
-# node26: the pinned Node 26 (Dockerfile lifts it from the builder). The backend
-# imports @hearthshelf/core's .ts at runtime and needs Node's native TS strip
-# (>=23.6); ABS above keeps Alpine's `node`.
 echo "[aio] starting HearthShelf backend on :8080"
-QG_PORT=8080 node26 /app/server/index.js &
+QG_PORT=8080 node /app/server/index.js &
 HS_PID=$!
 
 # --- nginx ---
