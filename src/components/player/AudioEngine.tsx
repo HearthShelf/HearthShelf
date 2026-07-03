@@ -24,6 +24,7 @@ export function AudioEngine() {
   const setPlaying = usePlayerStore((s) => s.setPlaying)
   const sessionId = usePlayerStore((s) => s.sessionId)
   const queueMode = useSettingsStore((s) => s.queueMode)
+  const defaultSpeed = useSettingsStore((s) => s.defaultSpeed)
   const { advance, refresh } = useQueueAdvance()
 
   useProgress()
@@ -56,7 +57,8 @@ export function AudioEngine() {
     if (!el || !src) return
     el.src = src
     el.load()
-  }, [src])
+    usePlayerStore.getState().setSpeed(defaultSpeed)
+  }, [src, defaultSpeed])
 
   // Apply the seek requests coming from the store (resume position, scrubber,
   // chapter jumps). Driven by the nonce so repeated seeks to the same time fire.

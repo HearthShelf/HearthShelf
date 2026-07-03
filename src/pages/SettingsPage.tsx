@@ -433,6 +433,20 @@ export function SettingsPage() {
             <>
               <div className="set-group">
                 <SetRow
+                  title="Default speed"
+                  desc="The rate a fresh book starts at."
+                  control={
+                    <NumPick
+                      value={s.defaultSpeed}
+                      onChange={(v) => put('defaultSpeed', v)}
+                      presets={[0.75, 1, 1.25, 1.5, 2]}
+                      min={0.5}
+                      max={3.5}
+                      unit="x"
+                    />
+                  }
+                />{' '}
+                <SetRow
                   title="Scrubber"
                   desc="Drag through the current chapter, or scrub the whole book on one bar."
                   control={
@@ -452,7 +466,10 @@ export function SettingsPage() {
                   control={
                     <NumPick
                       value={s.skipForward}
-                      onChange={(v) => put('skipForward', v)}
+                      onChange={(v) => {
+                        put('skipForwardCustom', v)
+                        put('skipForward', v)
+                      }}
                       presets={[15, 30, 60]}
                     />
                   }
@@ -463,7 +480,10 @@ export function SettingsPage() {
                   control={
                     <NumPick
                       value={s.skipBack}
-                      onChange={(v) => put('skipBack', v)}
+                      onChange={(v) => {
+                        put('skipBackCustom', v)
+                        put('skipBack', v)
+                      }}
                       presets={[10, 15, 30]}
                     />
                   }
@@ -574,9 +594,7 @@ export function SettingsPage() {
                   control={
                     <Toggle
                       on={listeningEffective}
-                      onClick={() =>
-                        put('shareCurrentlyListening', !listeningEffective)
-                      }
+                      onClick={() => put('shareCurrentlyListening', !listeningEffective)}
                     />
                   }
                 />

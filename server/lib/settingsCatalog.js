@@ -23,7 +23,11 @@ const ACTION_PLACEMENTS = ['onscreen', 'tray', 'hidden']
 function isPlayerActions(v) {
   if (!Array.isArray(v)) return false
   return v.every(
-    (a) => !!a && typeof a === 'object' && typeof a.key === 'string' && ACTION_PLACEMENTS.includes(a.placement),
+    (a) =>
+      !!a &&
+      typeof a === 'object' &&
+      typeof a.key === 'string' &&
+      ACTION_PLACEMENTS.includes(a.placement),
   )
 }
 
@@ -78,8 +82,8 @@ const DEFS = {
   libraryView: { scope: 'device', type: 'enum', values: ['grid', 'list'] },
   libraryScale: { scope: 'device', type: 'number', min: 120, max: 240, int: true },
   homeHero: { scope: 'device', type: 'enum', values: ['comfy', 'compact'] },
-  skipForwardCustom: { scope: 'device', type: 'number', min: 5, max: 300, int: true },
-  skipBackCustom: { scope: 'device', type: 'number', min: 5, max: 300, int: true },
+  skipForwardCustom: { scope: 'account', type: 'number', min: 5, max: 300, int: true },
+  skipBackCustom: { scope: 'account', type: 'number', min: 5, max: 300, int: true },
   carMode: { scope: 'device', type: 'enum', values: ['auto', 'on', 'off'] },
   carFadeEnabled: { scope: 'device', type: 'boolean' },
   carFadeSec: { scope: 'device', type: 'number', min: 0, max: 120, int: true },

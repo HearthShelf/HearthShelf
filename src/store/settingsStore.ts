@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { QueueMode, AutoRulePref, SettingScope, SettingValue, NoteVisibility } from '@hearthshelf/core'
+import type {
+  QueueMode,
+  AutoRulePref,
+  SettingScope,
+  SettingValue,
+  NoteVisibility,
+} from '@hearthshelf/core'
 import {
   DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS,
   SETTINGS_CATALOG,
@@ -70,8 +76,11 @@ export interface SettingsState {
 
   // Playback
   scrubber: ScrubberScope
+  defaultSpeed: number
   skipForward: number
+  skipForwardCustom: number
   skipBack: number
+  skipBackCustom: number
   chapterBarrier: boolean
 
   // Queue
@@ -158,8 +167,11 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Playback
       scrubber: 'chapter',
+      defaultSpeed: 1,
       skipForward: 30,
+      skipForwardCustom: 45,
       skipBack: 15,
+      skipBackCustom: 20,
       chapterBarrier: true,
 
       // Queue
