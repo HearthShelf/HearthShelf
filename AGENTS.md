@@ -84,6 +84,37 @@ guardrails on top; it does not replace `CLAUDE.md`.
 | **HearthShelf-Direct-Infra** | VPS-side infra for the connect domain | - |
 | **HearthShelf-DesignSystem** | Logos, favicon, shared design assets | - |
 
+## Core submodule (`packages/core`) - do not desync it
+
+`packages/core` is a git submodule pointing at `HearthShelf-Core`. Getting this
+wrong breaks CI with `fatal: remote error: upload-pack: not our ref <sha>` /
+`Direct fetching of that commit failed`. It has already happened more than once.
+
+- **Never edit files under `packages/core`.** It is a separate clone with its own
+  HEAD; a local commit there never reaches `HearthShelf-Core`'s `origin/main`, so
+  the pointer this repo commits references a commit CI cannot fetch. Any
+  `@hearthshelf/core` change belongs in `C:\code\HearthShelf-Core`: edit + commit
+  + push **there** first.
+
+- **Bump the pointer with fetch + reset, NEVER `git pull`.** A `git pull` inside
+  the submodule merges a stale local-only "orphan" commit back in and produces a
+  fresh orphan pointer - the exact CI break. Do this instead:
+
+  ```sh
+  git -C packages/core fetch origin main
+  git -C packages/core reset --hard origin/main   # NOT git pull
+  ```
+
+- **Verify before committing the pointer** (all three must hold):
+
+  ```sh
+  git -C packages/core log --oneline origin/main..HEAD   # must be EMPTY
+  git -C packages/core branch -r --contains HEAD | grep origin/main   # must match
+  git ls-tree HEAD packages/core   # this sha must be on Core's origin/main
+  ```
+
+  If any check fails the pointer is an orphan - do not `git add packages/core`.
+
 ## If in doubt
 
 If a change might read as helping someone obtain content they don't own - stop
