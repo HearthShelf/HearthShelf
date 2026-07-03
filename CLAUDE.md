@@ -28,6 +28,7 @@ Full specs live in `docs/`. Read the relevant file when working on a specific ar
 - @docs/tech-stack.md - Framework, build, styling, state, and tooling choices
 - @docs/repository-structure.md - Directory layout and file responsibilities
 - @docs/api-integration.md - ABS API client, endpoints, request patterns
+- `packages/core/docs/abs-api-reference.md` - FULL map of the AudiobookShelf backend API (every route, auth gate, socket event, and the offline-sync conflict rules). Lives in @hearthshelf/core so every HearthShelf repo shares it; paths + offline-sync rule flags are importable as `ABS_ENDPOINTS` / `ABS_OFFLINE_SYNC_RULES` from `@hearthshelf/core`.
 - @docs/authentication.md - Login, token persistence, OAuth2/OIDC flow
 - @docs/audio-streaming.md - Native audio playback, sessions, progress sync
 - @docs/state-management.md - Zustand stores and TanStack Query patterns
