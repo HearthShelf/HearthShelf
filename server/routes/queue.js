@@ -4,13 +4,17 @@
 
 import { json, readBody } from '../lib/http.js'
 import { getQueue, setQueue } from '../queue.js'
+import { resolveQueue } from '../lib/computeQueue.js'
 
 export async function handleQueue(req, res, url, ctx) {
   if (url.pathname !== '/hs/queue') return false
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
 
   if (req.method === 'GET') {
-    const { items, playlistId, updatedAt } = await getQueue(ctx.serverId, ctx.userId)
+    // The server owns the queue: in 'auto' mode this computes it from the user's
+    // rules + ABS library/progress + club picks and persists it; other modes
+    // return the stored (manual) queue. Clients just display the result.
+    const { items, playlistId, updatedAt } = await resolveQueue(ctx)
     return (json(res, 200, { items, playlistId, updatedAt }), true)
   }
   if (req.method === 'PUT') {

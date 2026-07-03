@@ -36,7 +36,13 @@ FROM ghcr.io/advplyr/audiobookshelf:latest AS abs
 
 FROM nginx:alpine AS slim
 # Node runtime for the QuestGiver backend service (the only server beyond nginx).
-RUN apk add --no-cache nodejs
+# The backend imports @hearthshelf/core's .ts source directly and relies on
+# Node's native TypeScript stripping (unflagged since 23.6). Alpine's `apk add
+# nodejs` major floats (may lag <23.6), so instead we lift the pinned Node 26
+# runtime out of the node:26-alpine builder. libstdc++ is the one extra shared
+# lib the musl node binary needs on top of nginx:alpine (per node:26-alpine).
+RUN apk add --no-cache libstdc++
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx/default.conf /etc/nginx/templates/default.conf.template
@@ -44,9 +50,11 @@ COPY nginx/abs_proxy.conf /etc/nginx/templates/abs_proxy.conf.template
 COPY nginx/upgrade-map.conf /etc/nginx/templates/upgrade-map.conf
 COPY nginx/cors-map.conf /etc/nginx/templates/cors-map.conf.template
 COPY nginx/cors-headers.conf /etc/nginx/cors-headers.conf
-# QuestGiver backend + its installed node_modules (libSQL database driver).
+# QuestGiver backend + its installed node_modules (libSQL database driver). The
+# shared @hearthshelf/core package it imports at runtime (Auto queue compute).
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
+COPY packages/core /app/packages/core
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 EXPOSE 80
@@ -64,7 +72,12 @@ FROM nginx:alpine AS aio
 # nginx alpine package (--with-stream), so the :80 TLS-detect demux needs no extra
 # package and no load_module. (There is no separate nginx-module-stream package on
 # nginx.org's repo; stream is statically built in.)
-RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl
+# Alpine's `nodejs` runs the bundled ABS (its supported runtime). The QuestGiver
+# backend needs a NEWER Node (>=23.6) for the native .ts import of @hearthshelf/
+# core, so it gets the pinned Node 26 lifted from the builder as `node26`, used
+# only for the QG process (see docker-entrypoint-aio.sh) - ABS keeps its own node.
+RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl libstdc++
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node26
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -88,6 +101,7 @@ COPY nginx/aio-nginx.conf.template /etc/nginx/templates/aio-nginx.conf.template
 RUN cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.stock
 COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
+COPY packages/core /app/packages/core
 
 # Bundled AudiobookShelf: its app tree and the nunicode sqlite extension it
 # loads at runtime, copied straight out of the official image.
