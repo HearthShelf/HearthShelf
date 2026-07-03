@@ -486,6 +486,8 @@ const ACCOUNT_SETTING_KEYS = new Set([
   'autoSleepDur',
   'useGravatar',
   'shareReadBooks',
+  'clubsEnabled',
+  'clubPlayerButton',
 ])
 
 // One-time fan-out of the legacy app_settings blob into per-key user_settings
