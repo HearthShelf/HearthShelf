@@ -385,6 +385,17 @@ const SCHEMA = [
      updated_at       INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
    )`,
+  // Anonymous usage telemetry opt-in (Home Assistant style). One instance-wide
+  // row, admin-owned. enabled ships OFF by default - the box phones nothing home
+  // until an admin turns it on. telemetry_id is a random per-install handle sent
+  // WITH the counts and deliberately NOT the server_id, so the reports the
+  // control plane aggregates can't be tied back to this paired server's identity.
+  `CREATE TABLE IF NOT EXISTS telemetry_config (
+     id           INTEGER PRIMARY KEY CHECK (id = 1),
+     enabled      INTEGER NOT NULL DEFAULT 0,
+     telemetry_id TEXT,
+     updated_at   INTEGER NOT NULL
+   )`,
 ]
 
 // Bring a pre-server_id database up to the keyed schema. Adds the server_id

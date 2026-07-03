@@ -56,10 +56,12 @@ import { handleAvatars } from './routes/avatars.js'
 import { handleNarrators } from './routes/narrators.js'
 import { handleFinishedBooks } from './routes/finished-books.js'
 import { handleStats } from './routes/stats.js'
+import { handleTelemetry } from './routes/telemetry.js'
 import { provisionAio } from './lib/provision-aio.js'
 import { hsDirectOnStartup } from './lib/hsdirect.js'
 import { emailRelayOnStartup } from './lib/emailRelay.js'
 import { startVersionReporting } from './lib/versionReport.js'
+import { startTelemetryReporting } from './lib/telemetry.js'
 
 const PORT = process.env.QG_PORT || 8080
 
@@ -109,6 +111,7 @@ const ROUTES = [
   handleClubs,
   handleFinishedBooks,
   handleStats,
+  handleTelemetry,
   handleRmab,
   handleAudible,
   handleAudplexus,
@@ -169,6 +172,9 @@ initDb()
     // weekly) so the hosted app can prompt the admin to update when it's behind.
     // Runs for every paired box regardless of mode. Background; never delays serving.
     void startVersionReporting()
+    // If the admin opted in, send anonymous usage stats (startup + weekly). No-op
+    // when opted out (the default). Background; never delays serving.
+    void startTelemetryReporting()
     server.listen(PORT, () => {
       // eslint-disable-next-line no-console
       console.log(
