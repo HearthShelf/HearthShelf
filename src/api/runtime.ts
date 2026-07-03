@@ -4,26 +4,10 @@
 // bare ABS login form. See server/routes/runtime.js.
 
 import { useAuthStore } from '@/store/authStore'
+import type { HSMode, HSRuntimeInfo } from '@hearthshelf/core'
 
-export type HSMode = 'slim' | 'aio' | 'hosted'
-
-export interface RuntimeConfig {
-  mode: HSMode
-  absInitialized: boolean
-  paired: boolean
-  onboarded: boolean
-  publicUrl: string | null
-  controlPlaneUrl: string
-  // The auto-created HearthShelf service root account (AIO only; null otherwise),
-  // so the Config UI can flag it as a machine account it owns.
-  serviceUsername: string | null
-  // Admin-chosen server name (how it's referred to + the pairing default). Null
-  // until set in onboarding or Server Settings.
-  serverName: string | null
-  // This server's control-plane id, for the on-box "Sign in with HearthShelf"
-  // bounce (app.hearthshelf.com/connect-box?server=<serverId>).
-  serverId: string | null
-}
+export type { HSMode }
+export type RuntimeConfig = HSRuntimeInfo
 
 export interface InitAdminResult {
   // ABS bearer token for the freshly created admin, so the SPA can sign in

@@ -12,17 +12,14 @@ import {
   type QgResult,
   type QgRenderedPick,
 } from '@/lib/questgiver'
+import type {
+  HSQuestGiverConfig,
+  HSQuestGiverConfigEnvLocks,
+  HSQuestGiverAdminConfig,
+  HSQuestGiverAdminConfigUpdate,
+} from '@hearthshelf/core'
 
-export interface QgConfig {
-  featureEnabled: boolean // admin gate; when false the SPA hides QuestGiver
-  discoverEnabled: boolean // admin gate for the history-driven Discover surface
-  enabled: boolean // AI provider configured server-side (heuristic works either way)
-  provider: string | null
-  model: string | null
-  limit: number | null // per-period cap, null = unlimited
-  remaining: number | null
-  period: 'day' | 'week' | 'month' | null
-}
+export type QgConfig = HSQuestGiverConfig
 
 async function qgFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -61,37 +58,9 @@ export async function getQgConfig(): Promise<QgConfig> {
 
 // Per-field env locks: true = the value is pinned by an environment variable, so
 // it overrides the database and is read-only in the UI.
-export interface QgEnvLocks {
-  provider: boolean
-  model: boolean
-  apiKey: boolean
-  baseUrl: boolean
-  limit: boolean
-  enabled: boolean
-  discoverEnabled: boolean
-}
-
-export interface QgAdminConfig {
-  provider: string | null
-  model: string | null
-  baseUrl: string | null
-  limit: string // "off" | "N/day" | "N/week" | "N/month"
-  enabled: boolean
-  discoverEnabled: boolean
-  hasKey: boolean
-  validProviders: string[]
-  env: QgEnvLocks
-}
-
-export interface QgAdminConfigPatch {
-  provider?: string | null
-  model?: string | null
-  baseUrl?: string | null
-  limit?: string
-  enabled?: boolean
-  discoverEnabled?: boolean
-  apiKey?: string // omit or '' to keep the stored key
-}
+export type QgEnvLocks = HSQuestGiverConfigEnvLocks
+export type QgAdminConfig = HSQuestGiverAdminConfig
+export type QgAdminConfigPatch = HSQuestGiverAdminConfigUpdate
 
 export function getQgAdminConfig(): Promise<QgAdminConfig> {
   return qgFetch<QgAdminConfig>('/admin/config')

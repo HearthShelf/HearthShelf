@@ -2,32 +2,17 @@
 // so they follow the user across devices; localStorage is just a fast local
 // cache. Talks to the HearthShelf backend at /hs/settings.
 
-import type { SettingScope, SettingValue } from '@hearthshelf/core'
+import type {
+  StoredSetting,
+  SettingChange,
+  SettingsPullResult,
+  SettingsPushResult,
+} from '@hearthshelf/core'
 import { useAuthStore } from '@/store/authStore'
 
-export interface StoredSetting {
-  value: SettingValue
-  updatedAt: number
-}
-
-export interface ServerSettings {
-  account: Record<string, StoredSetting>
-  device: Record<string, StoredSetting>
-  connection: { absUrl: string; label: string | null; connected: boolean } | null
-}
-
-export interface SettingChange {
-  scope: SettingScope
-  key: string
-  value: SettingValue
-  updatedAt: number
-}
-
-export interface PushResult {
-  applied: string[]
-  rejected: Array<{ key: string; value: SettingValue; updatedAt: number }>
-  invalid: Array<{ key: string; value: SettingValue; reason: string }>
-}
+export type { StoredSetting, SettingChange }
+export type ServerSettings = SettingsPullResult
+export type PushResult = SettingsPushResult
 
 async function settingsFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token

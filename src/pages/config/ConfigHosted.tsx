@@ -19,8 +19,8 @@ import {
 } from '@/api/hosted'
 
 // "12:34" style mm:ss left until the pairing code expires, or null once gone.
-function timeLeft(expiresAt: number, nowMs: number): string | null {
-  const ms = expiresAt - nowMs
+function timeLeft(expiresAt: string | number, nowMs: number): string | null {
+  const ms = Number(expiresAt) - nowMs
   if (ms <= 0) return null
   const total = Math.floor(ms / 1000)
   const m = Math.floor(total / 60)

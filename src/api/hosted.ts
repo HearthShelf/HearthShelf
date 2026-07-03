@@ -2,7 +2,13 @@
 // These endpoints connect this self-hosted instance to app.hearthshelf.com
 // (pairing) and let an admin invite people to it from here.
 import { useAuthStore } from '@/store/authStore'
-import type { HSMode } from '@/api/runtime'
+import type {
+  HSHostedConfigStatus,
+  HSHostedHsDirectState,
+  HSHostedPairResponse,
+  HSHostedPortCheckResult,
+  HSHostedEmailRelayStatus,
+} from '@hearthshelf/core'
 
 // Carries the backend's machine-readable error code + HTTP status so callers can
 // map them to friendly copy instead of surfacing the raw code. `detail` is the
@@ -45,12 +51,7 @@ async function hostedFetch<T>(path: string, options: RequestInit = {}): Promise<
   return data as T
 }
 
-export interface HostedStatus {
-  mode: HSMode
-  paired: boolean
-  hasAbsAdminToken: boolean
-  issuer: string | null
-}
+export type HostedStatus = HSHostedConfigStatus
 
 export function getHostedStatus(): Promise<HostedStatus> {
   return hostedFetch<HostedStatus>('/config', { method: 'GET' })
@@ -59,22 +60,13 @@ export function getHostedStatus(): Promise<HostedStatus> {
 // hs.direct provisioning state, polled by the onboarding Verify step after
 // pairing. 'pending' = paired but the cert isn't installed yet; 'active' = the
 // publicUrl is usable and reachability can be tested against it.
-export interface HsDirectState {
-  status: 'opted_out' | 'not_paired' | 'pending' | 'active'
-  publicUrl: string | null
-  host: string | null
-}
+export type HsDirectState = HSHostedHsDirectState
 
 export function getHsDirectState(): Promise<HsDirectState> {
   return hostedFetch<HsDirectState>('/hsdirect', { method: 'GET' })
 }
 
-export interface PairResult {
-  code: string
-  expires_at: number
-  control_plane: string
-  issuer: string
-}
+export type PairResult = HSHostedPairResponse
 
 // Claim state for a pairing code, polled after pairing so the wizard can detect
 // when a signed-in user has redeemed it (claimed the server).
@@ -149,11 +141,7 @@ export function disconnectHosted(): Promise<{ ok: boolean }> {
 /** Port reachability via the hs.direct VPS: it connects back to this box's public
  *  IP on the port we're exposed on. Works even before the cert is ready (no
  *  hostname needed). `port` is the actual port tested. */
-export interface PortCheckResult {
-  open: boolean
-  port: number
-  publicIp: string | null
-}
+export type PortCheckResult = HSHostedPortCheckResult
 export function checkPort(): Promise<PortCheckResult> {
   return hostedFetch<PortCheckResult>('/port-check', { method: 'GET' })
 }
@@ -173,16 +161,7 @@ export function inviteFromServer(email: string, role: 'admin' | 'user'): Promise
   })
 }
 
-export interface EmailRelayStatus {
-  /** Paired + not opted out: the box can offer "use HearthShelf email". */
-  available: boolean
-  paired: boolean
-  optedOut: boolean
-  /** ABS is currently pointed at the loopback relay. */
-  active: boolean
-  host: string
-  port: number
-}
+export type EmailRelayStatus = HSHostedEmailRelayStatus
 
 /** Whether this box can send email through HearthShelf, and if it's enabled. */
 export function getEmailRelayStatus(): Promise<EmailRelayStatus> {

@@ -904,7 +904,7 @@ function AudibleIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
             className="fld"
             value={cfg.env.audibleRegion ? cfg.audibleRegion : region}
             disabled={cfg.env.audibleRegion}
-            onChange={(e) => setRegion(e.target.value)}
+            onChange={(e) => setRegion(e.target.value as typeof region)}
           >
             {cfg.validRegions.map((r) => (
               <option key={r} value={r}>

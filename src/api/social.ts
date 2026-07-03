@@ -42,6 +42,9 @@ export const socialKeys = {
 // themselves. `defaultShareListening` is the (default-OFF) presence default.
 // `notesEnabled` / `clubsEnabled` are admin kill-switches. `canEdit` is true for
 // admins (PUT is admin-only).
+// NOTE: kept local (not HSCommunityConfig). Core's HSCommunityConfig only has
+// `defaultShare` + `canEdit`; this shape has grown three more server-returned
+// fields (defaultShareListening, notesEnabled, clubsEnabled). Reconcile in core.
 export interface CommunityConfig {
   defaultShare: boolean
   defaultShareListening: boolean

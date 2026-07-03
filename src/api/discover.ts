@@ -6,31 +6,21 @@
 
 import { useAuthStore } from '@/store/authStore'
 import type { DiscoverSummary, DiscoverCandidate } from '@/lib/discover'
+import type {
+  HSDiscoverVote,
+  HSDiscoverFeedback,
+  HSDiscoverFeedbackMap,
+  HSDiscoverPick,
+  HSDiscoverShelf,
+  HSDiscoverPopularItem,
+} from '@hearthshelf/core'
 
-export type DiscoverVote = 'like' | 'dislike' | 'not_interested'
-
-export interface DiscoverFeedbackEntry {
-  vote?: DiscoverVote
-  rating?: number
-}
-export type DiscoverFeedbackMap = Record<string, DiscoverFeedbackEntry>
-
-export interface MonthlyPick {
-  id: string
-  reason: string
-}
-export interface MonthlyShelf {
-  month: string
-  engine: 'ai' | 'heuristic' | 'none'
-  intro: string
-  picks: MonthlyPick[]
-}
-
-export interface PopularItem {
-  itemId: string
-  finishedBy: number
-  inProgressBy: number
-}
+export type DiscoverVote = HSDiscoverVote
+export type DiscoverFeedbackEntry = HSDiscoverFeedback
+export type DiscoverFeedbackMap = HSDiscoverFeedbackMap
+export type MonthlyPick = HSDiscoverPick
+export type MonthlyShelf = HSDiscoverShelf
+export type PopularItem = HSDiscoverPopularItem
 
 async function dFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token

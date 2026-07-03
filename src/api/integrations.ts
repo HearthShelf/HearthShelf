@@ -4,29 +4,17 @@
 // returned by the backend - the GET only reports whether each is set.
 
 import { useAuthStore } from '@/store/authStore'
+import type { HSIntegrationsEnvLocks, HSIntegrationsConfig } from '@hearthshelf/core'
 
 // Per-field env locks: true = the value is pinned by an environment variable, so
 // it overrides the database and is read-only in the UI.
-export interface IntegrationsEnvLocks {
-  rmabUrl: boolean
-  rmabLoginToken: boolean
-  audplexusUrl: boolean
-  audplexusKey: boolean
-  audibleRegion: boolean
-}
+export type IntegrationsEnvLocks = HSIntegrationsEnvLocks
+export type IntegrationsConfig = HSIntegrationsConfig
 
-export interface IntegrationsConfig {
-  rmabUrl: string | null
-  rmabConfigured: boolean
-  rmabHasToken: boolean
-  audplexusUrl: string | null
-  audplexusConfigured: boolean
-  audplexusHasKey: boolean
-  audibleRegion: string
-  validRegions: string[]
-  env: IntegrationsEnvLocks
-}
-
+// NOTE: kept local (not HSIntegrationsPatch). The client clears a URL by sending
+// `null` (see ConfigContentPages: `patch.rmabUrl = url.trim() || null`), and the
+// backend treats null and '' the same. Core's HSIntegrationsPatch types the URL
+// fields as `string` only. Reconcile in core before switching.
 export interface IntegrationsConfigPatch {
   rmabUrl?: string | null
   rmabLoginToken?: string | null // omit/'' to keep; null to clear

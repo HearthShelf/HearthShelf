@@ -4,12 +4,9 @@
 // Queue MODE and auto-rules are NOT here - see @/api/settings.
 
 import { useAuthStore } from '@/store/authStore'
-import type { QueueEntry } from '@hearthshelf/core'
+import type { QueueEntry, QueueState } from '@hearthshelf/core'
 
-export interface ServerQueue {
-  items: QueueEntry[]
-  playlistId: string | null
-  updatedAt: number
+export interface ServerQueue extends QueueState {
   // Present on PUT responses: false when the write was rejected as stale (an
   // older updatedAt than what's already stored) - the caller should adopt the
   // returned state instead of assuming its write landed.

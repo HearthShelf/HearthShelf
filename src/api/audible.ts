@@ -3,40 +3,17 @@
 // is connected (RMAB is only the request/download executor). Discovery is ours.
 
 import { useAuthStore } from '@/store/authStore'
+import type {
+  HSAudibleSearchResult,
+  HSAudibleSearchResponse,
+  HSAudibleSeriesBook,
+  HSAudibleSeriesResponse,
+} from '@hearthshelf/core'
 
-export interface AudibleResult {
-  asin: string
-  title: string
-  author: string
-  authorAsin?: string
-  narrator?: string
-  description?: string
-  coverArtUrl?: string
-  durationMinutes?: number
-  releaseDate?: string
-  rating?: number
-  series?: string
-  seriesAsin?: string
-}
-
-export interface AudibleSearchResponse {
-  query: string
-  results: AudibleResult[]
-  totalResults: number
-  page: number
-  hasMore: boolean
-}
-
-export interface AudibleSeriesBook extends AudibleResult {
-  sequence?: string | null
-}
-
-export interface AudibleSeriesResponse {
-  name: string
-  seriesAsin: string | null
-  seriesTitle?: string
-  books: AudibleSeriesBook[]
-}
+export type AudibleResult = HSAudibleSearchResult
+export type AudibleSearchResponse = HSAudibleSearchResponse
+export type AudibleSeriesBook = HSAudibleSeriesBook
+export type AudibleSeriesResponse = HSAudibleSeriesResponse
 
 export const audibleKeys = {
   search: (q: string, page = 1) => ['audible', 'search', q, page] as const,

@@ -3,6 +3,7 @@
 // request shapes mirror RMAB's API (verified against the RMAB source).
 
 import { useAuthStore } from '@/store/authStore'
+import type { HSRmabConfig } from '@hearthshelf/core'
 
 // Status model - colors + labels adopted verbatim from ReadMeABook.
 export type RmabGroup = 'active' | 'waiting' | 'completed' | 'failed' | 'cancelled'
@@ -95,9 +96,7 @@ export interface RmabSearchResult {
   availableIn?: 'plex' | 'audiobookshelf'
 }
 
-export interface RmabConfig {
-  configured: boolean
-}
+export type RmabConfig = HSRmabConfig
 
 async function rmabFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token

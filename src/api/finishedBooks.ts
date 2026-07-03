@@ -5,6 +5,14 @@
  * fetch pattern as social.ts's sFetch.
  */
 import { useAuthStore } from '@/store/authStore'
+import type {
+  HSFinishedBook,
+  HSMatchCandidate,
+  HSFinishedBookMatch,
+  HSFinishedBookImportRow,
+  HSHardcoverAccount,
+  HSHardcoverSyncResult,
+} from '@hearthshelf/core'
 
 async function fbFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -34,58 +42,12 @@ export const finishedBooksKeys = {
   hardcover: ['finished-books', 'hardcover'] as const,
 }
 
-export interface FinishedBook {
-  id: string
-  source: 'abs' | 'goodreads' | 'hardcover'
-  libraryItemId: string | null
-  title: string
-  author: string | null
-  isbn: string | null
-  dateFinished: string | null
-  rating: number | null
-  hardcoverBookId: string | null
-  hardcoverSyncedAt: number | null
-  createdAt: number
-  updatedAt: number
-}
-
-export interface MatchCandidate {
-  libraryItemId: string
-  title: string
-  author: string
-  score: number
-}
-
-export interface MatchRow {
-  title: string
-  author: string
-  isbn: string | null
-  status: 'auto' | 'ambiguous' | 'none'
-  candidates: MatchCandidate[]
-}
-
-export interface ImportRow {
-  title: string
-  author: string | null
-  isbn: string | null
-  dateFinished: string | null
-  rating: number | null
-  libraryItemId: string | null
-}
-
-export interface HardcoverAccountStatus {
-  connected: boolean
-  username: string | null
-  lastSyncAt: number | null
-  lastSyncStatus: 'ok' | 'error' | null
-  lastSyncError: string | null
-}
-
-export interface HardcoverSyncResult {
-  synced: number
-  notFound: string[]
-  errors: { title: string; error: string }[]
-}
+export type FinishedBook = HSFinishedBook
+export type MatchCandidate = HSMatchCandidate
+export type MatchRow = HSFinishedBookMatch
+export type ImportRow = HSFinishedBookImportRow
+export type HardcoverAccountStatus = HSHardcoverAccount
+export type HardcoverSyncResult = HSHardcoverSyncResult
 
 export function getFinishedBooks(): Promise<{ books: FinishedBook[] }> {
   return fbFetch('')
