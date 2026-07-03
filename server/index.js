@@ -59,6 +59,7 @@ import { handleStats } from './routes/stats.js'
 import { provisionAio } from './lib/provision-aio.js'
 import { hsDirectOnStartup } from './lib/hsdirect.js'
 import { emailRelayOnStartup } from './lib/emailRelay.js'
+import { startVersionReporting } from './lib/versionReport.js'
 
 const PORT = process.env.QG_PORT || 8080
 
@@ -164,6 +165,10 @@ initDb()
     // test mail through HearthShelf's shared Resend without its own SMTP. No-op
     // when unpaired or opted out. Background; never delays serving.
     void emailRelayOnStartup()
+    // If paired, tell the control plane which version this box runs (startup +
+    // weekly) so the hosted app can prompt the admin to update when it's behind.
+    // Runs for every paired box regardless of mode. Background; never delays serving.
+    void startVersionReporting()
     server.listen(PORT, () => {
       // eslint-disable-next-line no-console
       console.log(
