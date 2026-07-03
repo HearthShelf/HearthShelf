@@ -55,6 +55,7 @@ const EMPTY_DETAIL: HSClubDetail = {
     currentBook: null,
   },
   books: [],
+  queue: [],
   members: [],
   notes: { notes: [], locked: [], hiddenAhead: 0 },
   unreadCount: 0,
