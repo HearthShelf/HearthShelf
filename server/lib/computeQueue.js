@@ -12,7 +12,8 @@
 //   - the user's media progress: ABS /api/me
 //   - the current book per club the user is in: clubs.js (book-club rule)
 
-import { buildAutoQueue, DEFAULT_AUTO_RULES } from '../../packages/core/src/lib/queue.ts'
+import { buildAutoQueue } from '../../packages/core/src/lib/queue.ts'
+import { normalizeAutoRules } from '../../packages/core/src/lib/settings.ts'
 import { getUserSetting } from '../settings.js'
 import { getQueue, setQueue } from '../queue.js'
 import { listMyClubs, currentBook } from '../clubs.js'
@@ -70,7 +71,9 @@ export async function resolveQueue(ctx) {
   const mode = (await getUserSetting(serverId, userId, 'queueMode')) ?? 'off'
   if (mode !== 'auto') return stored
 
-  const rules = (await getUserSetting(serverId, userId, 'queueAutoRules')) ?? DEFAULT_AUTO_RULES
+  // normalizeAutoRules backfills rules added since the user last saved (e.g.
+  // book-club), so their queue includes new sources without a settings migration.
+  const rules = normalizeAutoRules(await getUserSetting(serverId, userId, 'queueAutoRules'))
 
   let items
   try {
