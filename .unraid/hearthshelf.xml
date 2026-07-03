@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>HearthShelf</Name>
-  <Repository>ghcr.io/hearthshelf/hearthshelf:nightly</Repository>
+  <Repository>ghcr.io/hearthshelf/hearthshelf:canary</Repository>
   <Registry>https://github.com/orgs/HearthShelf/packages</Registry>
   <Branch>
     <Tag>latest</Tag>
     <TagDescription>Stable releases.</TagDescription>
   </Branch>
   <Branch>
-    <Tag>nightly</Tag>
+    <Tag>canary</Tag>
     <TagDescription>Latest development build from the main branch.</TagDescription>
   </Branch>
   <Network>bridge</Network>

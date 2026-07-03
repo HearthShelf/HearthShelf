@@ -9,7 +9,7 @@ must be enabled once the repo has a remote — they can't be set from files.
 | File | Trigger | Result |
 |---|---|---|
 | `.github/workflows/ci.yml` | push + PR | Typecheck & build (gate); lint (informational) |
-| `.github/workflows/dev-release.yml` | push to `main`/`master` | Pushes `:nightly` + `:main-<sha>` to both `ghcr.io/<owner>/hearthshelf` (slim) and `…/hearthshelf-aio` (all-in-one) |
+| `.github/workflows/dev-release.yml` | push to `main`/`master` | Pushes `:canary` + `:main-<sha>` to both `ghcr.io/<owner>/hearthshelf` (slim) and `…/hearthshelf-aio` (all-in-one) |
 | `.github/workflows/release.yml` | push tag `v1.2.3` | Pushes `:1.2.3 :1.2 :1 :latest` to both `hearthshelf` and `hearthshelf-aio` + GitHub Release with grouped changelog |
 | `.github/workflows/dependabot-auto-merge.yml` | Dependabot PR | Merges patch/minor after CI passes; flags majors |
 | `.github/dependabot.yml` | weekly (Mon) | Opens update PRs for npm, GitHub Actions, Docker |

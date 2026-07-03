@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & push :nightly (${{ matrix.variant }})
+    name: Build & push :canary (${{ matrix.variant }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,9 +47,9 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ matrix.image }}
-          # nightly (moving) + main-<shortsha> (immutable pin).
+          # canary (moving) + main-<shortsha> (immutable pin).
           tags: |
-            type=raw,value=nightly
+            type=raw,value=canary
             type=sha,prefix=main-,format=short
 
       - name: Set up Buildx
