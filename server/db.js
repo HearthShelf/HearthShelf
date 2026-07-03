@@ -341,9 +341,13 @@ const SCHEMA = [
      archived        INTEGER NOT NULL DEFAULT 0,
      created_at      INTEGER NOT NULL
    )`,
-  // A club's reading history: past books (finished_at stamped) + exactly one
-  // CURRENT book (finished_at NULL). title/author are snapshotted at add time so
-  // history renders even if the item later leaves ABS.
+  // A club's reading timeline. Each book is in exactly one state:
+  //   queued   : queued_at set, finished_at NULL (up-next, not started)
+  //   current  : queued_at NULL, finished_at NULL (exactly one per club)
+  //   finished : finished_at stamped
+  // title/author are snapshotted at add time so the timeline renders even if the
+  // item later leaves ABS. started_at is 0 while a book is queued, set when the
+  // owner promotes it to current.
   `CREATE TABLE IF NOT EXISTS club_books (
      server_id       TEXT NOT NULL DEFAULT 'local',
      club_id         TEXT NOT NULL,
@@ -353,10 +357,13 @@ const SCHEMA = [
      added_by        TEXT NOT NULL,
      started_at      INTEGER NOT NULL,
      finished_at     INTEGER,
+     queued_at       INTEGER,
      PRIMARY KEY (server_id, club_id, library_item_id)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_club_books_item
      ON club_books (server_id, library_item_id, finished_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_club_books_queue
+     ON club_books (server_id, club_id, queued_at)`,
   // Club membership. role is 'owner' | 'member'; the owner cannot leave (they
   // archive instead). last_read_at is the per-club unread cursor (unread =
   // unlocked notes newer than it); the PUT bumps it max(stored, incoming).
@@ -425,6 +432,10 @@ const MIGRATIONS = [
   // exist pre-migration. safe defaults 0.
   `ALTER TABLE book_notes ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
   `ALTER TABLE book_notes ADD COLUMN safe INTEGER NOT NULL DEFAULT 0`,
+  // Club reading queue (see docs/social.md). queued_at set = the book is lined
+  // up as up-next (not yet the current book). Existing rows stay NULL, so all
+  // pre-migration books remain current/finished as before.
+  `ALTER TABLE club_books ADD COLUMN queued_at INTEGER`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

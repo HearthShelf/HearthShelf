@@ -3,6 +3,8 @@
 //   GET    /hs/clubs?libraryItemId=            -> { enabled, mine, joinable }
 //   POST   /hs/clubs   { name, libraryItemId? } -> HSClub (creator = owner)
 //   POST   /hs/clubs/:id/books  { libraryItemId } (owner) -> advance current book
+//   POST   /hs/clubs/:id/queue  { libraryItemId } (owner) -> add to up-next queue
+//   DELETE /hs/clubs/:id/queue/:itemId          (owner) -> remove a queued book
 //   POST   /hs/clubs/:id/join                   -> join (open + not archived)
 //   POST   /hs/clubs/:id/leave                  -> leave (owner cannot)
 //   POST   /hs/clubs/:id/kick   { userId } (owner)
@@ -19,11 +21,7 @@ import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { getCommunityConfig } from '../community.js'
 import { check, consume } from '../ratelimit.js'
-import {
-  absDbAvailable,
-  getMemberProgress,
-  getActiveListeners,
-} from '../lib/absdb.js'
+import { absDbAvailable, getMemberProgress, getActiveListeners } from '../lib/absdb.js'
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import {
@@ -32,9 +30,12 @@ import {
   listMembers,
   memberCount,
   listBooks,
+  listQueue,
   currentBook,
   createClub,
   setCurrentBook,
+  enqueueBook,
+  removeQueued,
   addMember,
   removeMember,
   bumpReadCursor,
@@ -66,7 +67,10 @@ async function fetchBookSnapshot(ctx, libraryItemId) {
       typeof md.authorName === 'string'
         ? md.authorName
         : Array.isArray(md.authors)
-          ? md.authors.map((a) => a?.name).filter(Boolean).join(', ')
+          ? md.authors
+              .map((a) => a?.name)
+              .filter(Boolean)
+              .join(', ')
           : ''
     return { title, author }
   } catch {
@@ -183,7 +187,10 @@ export async function handleClubs(req, res, url, ctx) {
     if (!cfg.clubsEnabled) return (json(res, 200, { enabled: false }), true)
     if (!membership) return (json(res, 403, { error: 'not_member' }), true)
 
-    const books = await listBooks(ctx.serverId, clubId)
+    const [books, queue] = await Promise.all([
+      listBooks(ctx.serverId, clubId),
+      listQueue(ctx.serverId, clubId),
+    ])
     const current = books.find((b) => b.finishedAt == null) || null
     const requestedBookId = url.searchParams.get('bookId') || ''
     // Which book we're viewing: the requested one if it's in this club, else the
@@ -267,6 +274,7 @@ export async function handleClubs(req, res, url, ctx) {
         enabled: true,
         club: await clubSummary(ctx.serverId, club),
         books,
+        queue,
         members: memberOut,
         notes,
         unreadCount: unread,
@@ -293,6 +301,37 @@ export async function handleClubs(req, res, url, ctx) {
       bookSnapshot: snapshot,
     })
     return (json(res, 200, await clubSummary(ctx.serverId, club)), true)
+  }
+
+  // POST /hs/clubs/:id/queue { libraryItemId } -> add to up-next queue (owner)
+  if (action === 'queue' && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    const libraryItemId =
+      typeof body.libraryItemId === 'string' && body.libraryItemId ? body.libraryItemId : ''
+    if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
+    const snapshot = await fetchBookSnapshot(ctx, libraryItemId)
+    const added = await enqueueBook(ctx.serverId, clubId, {
+      libraryItemId,
+      addedBy: ctx.userId,
+      bookSnapshot: snapshot,
+    })
+    // Already in the club (queued/current/finished): a no-op, not an error.
+    return (json(res, 200, { ok: true, added }), true)
+  }
+
+  // DELETE /hs/clubs/:id/queue/:itemId -> remove a queued book (owner)
+  if (action.startsWith('queue/') && req.method === 'DELETE') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    const libraryItemId = decodeURIComponent(action.slice('queue/'.length))
+    if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    const removed = await removeQueued(ctx.serverId, clubId, libraryItemId)
+    return (json(res, 200, { ok: true, removed }), true)
   }
 
   // POST /hs/clubs/:id/join -> join (open + not archived)
