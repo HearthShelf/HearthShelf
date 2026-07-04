@@ -236,6 +236,10 @@ const SCHEMA = [
      ext          TEXT NOT NULL,
      version      INTEGER NOT NULL DEFAULT 1,
      updated_at   INTEGER NOT NULL,
+     -- 'upload' (the user deliberately picked this photo) or 'clerk' (copied from
+     -- their SSO photo by the hosted WebApp). Ranking uses this: a manual upload
+     -- outranks a synced Clerk photo, and a Clerk sync never overwrites an upload.
+     source       TEXT NOT NULL DEFAULT 'upload',
      PRIMARY KEY (server_id, user_id)
    )`,
   // Narrator photos - a HearthShelf-native feature (ABS has no narrator record).
@@ -482,6 +486,10 @@ const MIGRATIONS = [
   // default to their own reading history.
   `ALTER TABLE community_config ADD COLUMN clubs_ai_enabled INTEGER DEFAULT 0`,
   `ALTER TABLE clubs ADD COLUMN rec_basis TEXT NOT NULL DEFAULT 'club-history'`,
+  // Avatar provenance (see docs/database.md). Existing rows are all manual
+  // uploads, so the DEFAULT 'upload' backfills them correctly; only the hosted
+  // WebApp writes 'clerk' rows when it copies a user's SSO photo.
+  `ALTER TABLE avatars ADD COLUMN source TEXT NOT NULL DEFAULT 'upload'`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

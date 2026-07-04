@@ -56,7 +56,7 @@ function fileName(serverId, userId, ext) {
 export async function getAvatarMeta(serverId, userId) {
   await initDb()
   const r = await db.execute({
-    sql: `SELECT content_type, ext, version, updated_at
+    sql: `SELECT content_type, ext, version, updated_at, source
             FROM avatars WHERE server_id = ? AND user_id = ?`,
     args: [serverId, userId],
   })
@@ -67,6 +67,7 @@ export async function getAvatarMeta(serverId, userId) {
     ext: String(row.ext),
     version: Number(row.version),
     updatedAt: Number(row.updated_at),
+    source: String(row.source || 'upload'),
   }
 }
 
@@ -76,20 +77,27 @@ export async function readAvatar(serverId, userId) {
   if (!meta) return null
   try {
     const buf = await fs.readFile(path.join(AVATAR_DIR, fileName(serverId, userId, meta.ext)))
-    return { buf, contentType: meta.contentType, version: meta.version }
+    return { buf, contentType: meta.contentType, version: meta.version, source: meta.source }
   } catch {
     return null
   }
 }
 
 // Store (or replace) a user's avatar. Bumps the version so clients cache-bust.
-export async function writeAvatar(serverId, userId, contentType, buf) {
+// `source` is 'upload' (a deliberate choice) or 'clerk' (copied SSO photo). A
+// manual upload always wins: a 'clerk' write over an existing 'upload' is a no-op
+// (returns { skipped: true }), so syncing a user's SSO photo never clobbers a
+// book-specific photo they picked. An 'upload' may replace anything.
+export async function writeAvatar(serverId, userId, contentType, buf, source = 'upload') {
   const ext = extForType(contentType)
   if (!ext) throw new Error('unsupported_type')
   await ensureDir()
   await initDb()
 
   const prev = await getAvatarMeta(serverId, userId)
+  if (source === 'clerk' && prev && prev.source === 'upload') {
+    return { skipped: true, version: prev.version }
+  }
   // If the extension changed (e.g. png -> webp), drop the old file so we don't
   // leave an orphan next to the new one.
   if (prev && prev.ext !== ext) {
@@ -101,14 +109,15 @@ export async function writeAvatar(serverId, userId, contentType, buf) {
   await fs.writeFile(path.join(AVATAR_DIR, fileName(serverId, userId, ext)), buf)
   const version = prev ? prev.version + 1 : 1
   await db.execute({
-    sql: `INSERT INTO avatars (server_id, user_id, content_type, ext, version, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+    sql: `INSERT INTO avatars (server_id, user_id, content_type, ext, version, updated_at, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(server_id, user_id) DO UPDATE SET
             content_type = excluded.content_type,
             ext = excluded.ext,
             version = excluded.version,
-            updated_at = excluded.updated_at`,
-    args: [serverId, userId, contentType, ext, version, Date.now()],
+            updated_at = excluded.updated_at,
+            source = excluded.source`,
+    args: [serverId, userId, contentType, ext, version, Date.now(), source],
   })
   return { version }
 }
