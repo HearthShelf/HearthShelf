@@ -17,6 +17,7 @@ import { ConfigLibraries } from '@/pages/config/ConfigLibraries'
 import { ConfigServerInfo } from '@/pages/config/ConfigServerInfo'
 import { ConfigServerStats, ConfigLibraryStats } from '@/pages/config/ConfigStats'
 import { ConfigLogs } from '@/pages/config/ConfigLogs'
+import { ConfigJobs } from '@/pages/config/ConfigJobs'
 import { ConfigMeta } from '@/pages/config/ConfigMeta'
 import { ConfigNotifications } from '@/pages/config/ConfigNotifications'
 import {
@@ -105,6 +106,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         { id: 'apikeys', icon: 'key', label: 'API Keys' },
         { id: 'sessions', icon: 'graphic_eq', label: 'Listening Sessions' },
         { id: 'backups', icon: 'cloud_sync', label: 'Backups' },
+        { id: 'tasks', icon: 'schedule', label: 'Tasks' },
         { id: 'logs', icon: 'terminal', label: 'Logs' },
       ],
     },
@@ -168,6 +170,8 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         return <StatsPage />
       case 'logs':
         return <ConfigLogs />
+      case 'tasks':
+        return <ConfigJobs />
       case 'meta':
         return <ConfigMeta />
       case 'notifications':

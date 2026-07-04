@@ -5436,6 +5436,79 @@
   line-height: 1.7;
 }
 
+/* --- Tasks (scheduled jobs) panel --- */
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.job-card {
+  background: var(--c-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  padding: var(--s5);
+}
+.job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+.job-name {
+  font-size: 16px;
+  font-weight: 650;
+}
+.job-desc {
+  color: var(--text-muted);
+  font-size: 13.5px;
+  margin-top: 4px;
+  max-width: 60ch;
+}
+.job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: var(--s4);
+  font-size: 13px;
+}
+.job-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.job-meta .ms {
+  font-size: 15px;
+}
+.job-summary {
+  margin-top: var(--s3);
+  color: var(--text-muted);
+  font-size: 13.5px;
+}
+.job-logs-toggle {
+  margin-top: var(--s4);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.job-logs {
+  margin-top: var(--s3);
+  height: 300px;
+}
+.job-logs.empty {
+  height: auto;
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: var(--s3) 0;
+}
+
 .log-line {
   display: flex;
   gap: 12px;
