@@ -72,7 +72,7 @@ const DEFS = {
   autoSleepEnd: { scope: 'account', type: 'string', pattern: /^([01]\d|2[0-3]):[0-5]\d$/ },
   autoSleepDur: { scope: 'account', type: 'number', min: 5, max: 180, int: true },
   // Account & privacy (account)
-  useGravatar: { scope: 'account', type: 'boolean' },
+  useGravatar: { scope: 'account', type: 'triBool' },
   shareReadBooks: { scope: 'account', type: 'triBool' },
   shareCurrentlyListening: { scope: 'account', type: 'triBool' },
   // Device-scoped

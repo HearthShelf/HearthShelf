@@ -729,6 +729,8 @@ function AccountSettings() {
 
   const useGravatar = useSettingsStore((s) => s.useGravatar)
   const setSetting = useSettingsStore((s) => s.set)
+  // null = never chose, so the default (ON) applies; only an explicit false is off.
+  const gravatarOn = useGravatar !== false
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -776,7 +778,7 @@ function AccountSettings() {
           <div className="cl-meta">
             <div className="cl-t">Profile photo</div>
           </div>
-          <AvatarUpload key={`grav-${useGravatar}`} userId={me.id} name={me.username} size={72} />
+          <AvatarUpload key={`grav-${gravatarOn}`} userId={me.id} name={me.username} size={72} />
         </div>
         <div className="cfg-line">
           <Icon name="public" style={{ color: 'var(--text-muted)' }} />
@@ -787,7 +789,7 @@ function AccountSettings() {
               initials.
             </div>
           </div>
-          <Toggle on={useGravatar} onClick={() => setSetting('useGravatar', !useGravatar)} />
+          <Toggle on={gravatarOn} onClick={() => setSetting('useGravatar', !gravatarOn)} />
         </div>
       </div>
 

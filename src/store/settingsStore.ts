@@ -99,7 +99,10 @@ export interface SettingsState {
   // ships OFF - real-time presence is more sensitive than a reading list).
   shareCurrentlyListening: boolean | null
   // When no photo is uploaded, fall back to the user's Gravatar (by their email).
-  useGravatar: boolean
+  // Tri-state: null = never chose (the default is ON - Gravatar shows), true/false
+  // = the user's own choice. A row is only written when the user toggles it, so no
+  // client owns a default and the choice persists as one account-wide setting.
+  useGravatar: boolean | null
 
   // Sleep
   sleepRewind: boolean
@@ -184,7 +187,7 @@ export const useSettingsStore = create<SettingsState>()(
       showOthersBooks: true,
       shareReadBooks: null,
       shareCurrentlyListening: null,
-      useGravatar: false,
+      useGravatar: null,
 
       // Sleep
       sleepRewind: true,
