@@ -24,7 +24,7 @@ Full specs live in `docs/`. Read the relevant file when working on a specific ar
 
 - @docs/overview.md - Project overview, goals, what HearthShelf is and is not
 - @docs/architecture.md - System architecture, CORS strategy, request flow
-- @docs/reverse-proxy.md - Transparent ABS front-end: one host for HearthShelf + native ABS clients (ABSORB)
+- @docs/reverse-proxy.md - Transparent ABS front-end: one host for HearthShelf + native AudiobookShelf clients
 - @docs/tech-stack.md - Framework, build, styling, state, and tooling choices
 - @docs/repository-structure.md - Directory layout and file responsibilities
 - @docs/api-integration.md - ABS API client, endpoints, request patterns

@@ -1,6 +1,6 @@
 # HearthShelf is the only host end users ever touch. It serves the SPA and
 # transparently reverse-proxies an internal-only ABS server, so the web UI is
-# "HearthShelf" and native clients (ABSORB) talk to books.mydomain.com as if it
+# "HearthShelf" and native AudiobookShelf clients talk to books.mydomain.com as if it
 # were ABS itself. See docs/reverse-proxy.md.
 services:
   hearthshelf:
