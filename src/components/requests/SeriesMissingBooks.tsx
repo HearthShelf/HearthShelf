@@ -6,12 +6,13 @@ import { RequestConfirmModal } from '@/components/requests/RequestConfirmModal'
 import { WatchSeriesButton } from '@/components/requests/WatchButton'
 import { fetchAudibleSeries, audibleKeys } from '@/api/audible'
 import { useRmabEnabled } from '@/hooks/useRmab'
+import { missingSeriesBooks, type OwnedSeriesBook } from '@hearthshelf/core'
 
 interface SeriesMissingBooksProps {
   seriesName: string
-  // Owned-title keys ("title|author" lowercased) for the books already in this
-  // series, to dedupe against the Audible listing.
-  ownedKeys: Set<string>
+  // Owned books (title + this-series sequence) to match against the Audible
+  // roster - see missingSeriesBooks for how the match is made.
+  ownedBooks: OwnedSeriesBook[]
   // When true, render the missing entries as inline list rows (sl-row-missing)
   // meant to sit at the end of a series-list, instead of a separate section.
   inline?: boolean
@@ -26,7 +27,7 @@ interface SeriesMissingBooksProps {
 // the default renders the standalone "Complete the series" section.
 export function SeriesMissingBooks({
   seriesName,
-  ownedKeys,
+  ownedBooks,
   inline,
   startSeq = 0,
 }: SeriesMissingBooksProps) {
@@ -43,9 +44,7 @@ export function SeriesMissingBooks({
 
   if (!data?.seriesAsin) return null
 
-  const missing = data.books.filter(
-    (b) => b.title && !ownedKeys.has((b.title + '|' + b.author).toLowerCase()),
-  )
+  const missing = missingSeriesBooks(data.books, ownedBooks)
   if (missing.length === 0) return null
 
   if (inline) {

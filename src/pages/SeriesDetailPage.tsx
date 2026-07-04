@@ -3,7 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getLibraries, getOneSeries, libraryKeys } from '@/api/libraries'
 import { fetchAudibleSeries, audibleKeys } from '@/api/audible'
-import { missingSeriesBooks, ownedKeyOf, seriesCompletion } from '@hearthshelf/core'
+import { missingSeriesBooks, seriesSeqFromName, seriesCompletion } from '@hearthshelf/core'
+import type { OwnedSeriesBook } from '@hearthshelf/core'
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
@@ -72,9 +73,13 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const books = orderBooks(series.books ?? [])
   const author = books[0]?.media.metadata.authorName || ''
   const cv = tintFor(books[0]?.media.metadata.title ?? series.name)
-  const ownedKeys = new Set(
-    books.map((b) => ownedKeyOf(b.media.metadata.title, b.media.metadata.authorName)),
-  )
+  // Owned books reduced to what series-matching needs: title + this-series
+  // sequence (from the denormalized seriesName). Matched to the Audible roster by
+  // sequence first, then normalized title, so owned books never read as missing.
+  const ownedBooks: OwnedSeriesBook[] = books.map((b) => ({
+    title: b.media.metadata.title,
+    sequence: seriesSeqFromName(b.media.metadata.seriesName),
+  }))
 
   // The full Audible roster for this series (cached; SeriesMissingBooks reuses the
   // same query). The unowned gap enlarges the completion denominator so the % and
@@ -86,7 +91,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     staleTime: 30 * 60 * 1000,
     retry: false,
   })
-  const missing = audible?.seriesAsin ? missingSeriesBooks(audible.books, ownedKeys) : []
+  const missing = audible?.seriesAsin ? missingSeriesBooks(audible.books, ownedBooks) : []
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -385,7 +390,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           {selected.size === 0 && (
             <SeriesMissingBooks
               seriesName={series.name}
-              ownedKeys={ownedKeys}
+              ownedBooks={ownedBooks}
               inline
               startSeq={books.length}
             />
