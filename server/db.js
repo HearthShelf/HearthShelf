@@ -435,6 +435,22 @@ const SCHEMA = [
      telemetry_id TEXT,
      updated_at   INTEGER NOT NULL
    )`,
+  // Import/merge engine reports (see docs/data-lifecycle/merge-engine.md). A
+  // dry-run produces a report row; execute requires a report id produced against
+  // the current target state. status: 'dry-run' | 'executing' | 'done' | 'error'.
+  // report_json holds the full ImportReport; result_json the ImportResult once
+  // executed. Kept for audit + resumability; never merged into another server.
+  `CREATE TABLE IF NOT EXISTS import_reports (
+     id           TEXT PRIMARY KEY,
+     server_id    TEXT NOT NULL DEFAULT 'local',
+     mode         TEXT NOT NULL,
+     source_kind  TEXT NOT NULL,
+     status       TEXT NOT NULL,
+     report_json  TEXT NOT NULL,
+     result_json  TEXT,
+     created_at   INTEGER NOT NULL,
+     updated_at   INTEGER NOT NULL
+   )`,
   // --- Scheduled jobs (Sonarr/Radarr-style) --------------------------------
   // One row per job execution (scheduled tick or manual "run now"). The runner
   // writes 'running' on start and flips to 'ok'/'error' on finish. summary is a

@@ -188,6 +188,15 @@ export async function readImportInventory(client) {
   return { users, items, progress, bookmarks }
 }
 
+// Read THIS server's own inventory (the merge target) via the configured
+// read-only client. Returns null when the ABS db isn't mounted (the import
+// feature then reports unavailable, like the social features).
+export async function readTargetInventory() {
+  const c = await ensureClient()
+  if (!c) return null
+  return readImportInventory(c)
+}
+
 // --- Small in-memory TTL cache -------------------------------------------
 //
 // playbackSessions has NO secondary indexes and the db is read-only (we cannot

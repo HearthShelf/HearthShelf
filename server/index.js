@@ -66,6 +66,7 @@ import { startVersionReporting } from './lib/versionReport.js'
 import { startTelemetryReporting } from './lib/telemetry.js'
 import { handleJobs } from './routes/jobs.js'
 import { handleBackups } from './routes/backups.js'
+import { handleImport } from './routes/import.js'
 import { startJobs } from './jobs/runner.js'
 
 const PORT = process.env.QG_PORT || 8080
@@ -123,6 +124,7 @@ const ROUTES = [
   handleIntegrations,
   handleJobs,
   handleBackups,
+  handleImport,
 ]
 
 const server = http.createServer(async (req, res) => {

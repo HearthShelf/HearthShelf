@@ -293,12 +293,12 @@ export const DATA_DOMAINS = [
 ]
 
 // Tables that belong to no lifecycle domain by design: operational history and
-// the job-log stream. They are backed up as part of the whole-DB snapshot (the
-// backup copies the file, not per-domain), but they are never merged or
-// exported, so they get an allowlist entry instead of a domain. Keeping this
-// list explicit is the point: a NEW table must be a conscious choice between a
-// domain and this allowlist, never an accident.
-export const INTERNAL_TABLES = ['job_runs', 'job_run_logs']
+// the job-log stream, plus the merge engine's own report log. They are backed up
+// as part of the whole-DB snapshot (the backup copies the file, not per-domain),
+// but they are never merged or exported, so they get an allowlist entry instead
+// of a domain. Keeping this list explicit is the point: a NEW table must be a
+// conscious choice between a domain and this allowlist, never an accident.
+export const INTERNAL_TABLES = ['job_runs', 'job_run_logs', 'import_reports']
 
 // The set of every table the registry knows about (domains + internal allowlist).
 function knownTables() {
