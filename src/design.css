@@ -11208,6 +11208,88 @@ select.fld {
   flex: 1;
 }
 
+/* --- Club next-book recommendation (owner) --- */
+.club-recommend {
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.club-rec-controls {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+
+.club-rec-controls .fld {
+  flex: 1;
+  min-width: 0;
+}
+
+.club-rec-intro {
+  font-size: 13px;
+  color: var(--text-faint);
+  margin: 6px 0 8px;
+  line-height: 1.4;
+}
+
+.club-rec-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--c-high);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-row);
+  margin-bottom: 6px;
+}
+
+.club-rec-pick .crp-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.crp-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.crp-author {
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+.crp-reason {
+  font-size: 12.5px;
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.club-rec-note {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, #8fc6d4);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.banner.error {
+  background: color-mix(in oklab, #c0655e 16%, transparent);
+  color: #e0a39c;
+}
+
 /* --- Club note pop toast (global watcher) --- */
 .note-pop-toast {
   position: fixed;

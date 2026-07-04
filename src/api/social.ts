@@ -50,6 +50,8 @@ export interface CommunityConfig {
   defaultShareListening: boolean
   notesEnabled: boolean
   clubsEnabled: boolean
+  // Whether clubs may make AI recommendation calls. Ships OFF (admin opt-in).
+  clubsAiEnabled: boolean
   canEdit: boolean
 }
 
@@ -58,6 +60,7 @@ const DEFAULT_COMMUNITY: CommunityConfig = {
   defaultShareListening: false,
   notesEnabled: true,
   clubsEnabled: true,
+  clubsAiEnabled: false,
   canEdit: false,
 }
 
@@ -76,7 +79,7 @@ export async function getCommunityConfig(): Promise<CommunityConfig> {
 export async function setCommunityConfig(
   patch: Partial<Pick<
     CommunityConfig,
-    'defaultShare' | 'defaultShareListening' | 'notesEnabled' | 'clubsEnabled'
+    'defaultShare' | 'defaultShareListening' | 'notesEnabled' | 'clubsEnabled' | 'clubsAiEnabled'
   >>,
 ): Promise<CommunityConfig> {
   const r = await sFetch<Partial<CommunityConfig>>('/community-config', {

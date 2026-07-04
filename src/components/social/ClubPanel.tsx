@@ -1,15 +1,43 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getClub, clubsKeys, markClubRead } from '@/api/clubs'
+import {
+  getClub,
+  clubsKeys,
+  markClubRead,
+  recommendClubBook,
+  setClubRecBasis,
+  addClubQueue,
+} from '@/api/clubs'
 import { postNote } from '@/api/notes'
+import { getAllLibraryItems, libraryKeys } from '@/api/libraries'
+import { useAuthStore } from '@/store/authStore'
+import { useActiveLibrary } from '@/hooks/useActiveLibrary'
+import { useMediaProgress } from '@/hooks/useMediaProgress'
 import type { ABSChapter } from '@/api/types'
-import type { HSClubBook, HSClubMember } from '@hearthshelf/core'
-import { sortMembersByProgress } from '@hearthshelf/core'
+import type {
+  HSClubBook,
+  HSClubMember,
+  ClubRecBasis,
+  ClubRecCandidate,
+  ClubRecPick,
+} from '@hearthshelf/core'
+import { sortMembersByProgress, qgBooks, qgLibraryCandidates } from '@hearthshelf/core'
 import { formatTimestamp } from '@/lib/format'
 import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
 import { SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
+
+// A member is "almost done" once they're at least 90% through the current book.
+// When the whole club has nothing queued next, that's the cue to recommend one.
+const ALMOST_DONE = 0.9
+function memberFraction(m: HSClubMember): number {
+  if (m.isFinished === true) return 1
+  if (m.currentTime != null && m.duration != null && m.duration > 0) {
+    return Math.min(1, m.currentTime / m.duration)
+  }
+  return 0
+}
 
 // A single member's progress rail in the race: chapter tick marks, a filled bar
 // to their position, an avatar dot, a finished flag, and a listening-now pulse.
@@ -148,6 +176,16 @@ export function ClubPanel({
   )
   const shownDuration =
     members.find((m) => m.duration != null)?.duration ?? 0
+
+  // Recommendation surface: owner-only, and only when the club allows it (basis
+  // isn't 'off'). The auto-banner nudges when the club is wrapping up its book -
+  // a member is near the end AND nothing is queued next.
+  const me = useAuthStore((s) => s.user)
+  const isOwner = Boolean(me && club && me.id === club.createdBy)
+  const recBasis = club?.recBasis ?? 'club-history'
+  const queue = data?.queue ?? []
+  const someoneAlmostDone = members.some((m) => memberFraction(m) >= ALMOST_DONE)
+  const wrappingUp = isViewingCurrent && queue.length === 0 && someoneAlmostDone
 
   const invalidate = () => qc.invalidateQueries({ queryKey: clubsKeys.detail(clubId, viewBookId) })
 
@@ -309,6 +347,22 @@ export function ClubPanel({
         </div>
       )}
 
+      {/* Next-book recommendation (owner only) */}
+      {isOwner && recBasis !== 'off' && (
+        <ClubRecommend
+          clubId={clubId}
+          clubName={club?.name ?? 'this club'}
+          basis={recBasis}
+          books={books}
+          wrappingUp={wrappingUp}
+          onQueued={invalidate}
+          onBasisChanged={invalidate}
+        />
+      )}
+      {isOwner && recBasis === 'off' && (
+        <ClubRecBasisOff clubId={clubId} onBasisChanged={invalidate} />
+      )}
+
       {/* Chat */}
       <div className="pp-scroll club-chat" ref={scrollRef}>
         {threads.length === 0 ? (
@@ -368,6 +422,201 @@ export function ClubPanel({
         </div>
         <SafeToggle checked={safe} onChange={setSafe} disabled={post.isPending} />
       </div>
+    </div>
+  )
+}
+
+// The basis choices the owner can pick, with short plain-language labels.
+const BASIS_OPTIONS: { value: ClubRecBasis; label: string }[] = [
+  { value: 'club-history', label: "Books your club has read" },
+  { value: 'all-members-finished', label: "Everything members have finished" },
+  { value: 'off', label: 'Turn recommendations off' },
+]
+
+// Owner-only next-book recommendation section. Builds the candidate pool from
+// the owner's own unstarted library books (the same shape QuestGiver uses) and
+// the genre lists of the club's already-read books, posts them, and shows the
+// picks with a one-click "Add to up next". When the club is wrapping up its
+// current book (a member near the end, nothing queued), it self-surfaces a nudge.
+function ClubRecommend({
+  clubId,
+  clubName,
+  basis,
+  books,
+  wrappingUp,
+  onQueued,
+  onBasisChanged,
+}: {
+  clubId: string
+  clubName: string
+  basis: ClubRecBasis
+  books: HSClubBook[]
+  wrappingUp: boolean
+  onQueued: () => void
+  onBasisChanged: () => void
+}) {
+  const qc = useQueryClient()
+  const { activeId } = useActiveLibrary()
+  const progressById = useMediaProgress()
+  const [picks, setPicks] = useState<ClubRecPick[] | null>(null)
+  const [intro, setIntro] = useState('')
+  const [engine, setEngine] = useState<'ai' | 'heuristic' | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  // The owner's whole library, only fetched once they engage (expand or the
+  // wrapping-up nudge shows) - it's the candidate source and the genre lookup.
+  const shouldLoad = expanded || wrappingUp
+  const { data: itemsData } = useQuery({
+    queryKey: libraryKeys.allItems(activeId ?? ''),
+    queryFn: () => getAllLibraryItems(activeId as string),
+    enabled: shouldLoad && activeId !== null,
+    staleTime: 60 * 1000,
+  })
+
+  const qBooks = useMemo(
+    () => qgBooks(itemsData?.results ?? [], progressById),
+    [itemsData, progressById],
+  )
+  // libraryItemId -> its genres, to resolve the club's read books to genre lists.
+  const genresById = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const b of qBooks) m.set(b.id, b.genres)
+    return m
+  }, [qBooks])
+
+  const rec = useMutation({
+    mutationFn: () => {
+      const candidates: ClubRecCandidate[] = qgLibraryCandidates(qBooks).map((c) => ({
+        libraryItemId: c.id,
+        title: c.title,
+        author: c.author,
+        genre: c.genre,
+        genres: c.genres,
+        hours: c.hours,
+      }))
+      const historyGenres = books.map((b) => genresById.get(b.libraryItemId) ?? [])
+      return recommendClubBook(clubId, candidates, historyGenres)
+    },
+    onSuccess: (r) => {
+      setPicks(r.picks)
+      setIntro(r.unavailable ? '' : r.intro)
+      setEngine(r.engine)
+      setExpanded(true)
+    },
+  })
+
+  const queueOne = useMutation({
+    mutationFn: (libraryItemId: string) => addClubQueue(clubId, libraryItemId),
+    onSuccess: (_added, libraryItemId) => {
+      // Drop the queued pick from the list so the owner sees what's left.
+      setPicks((prev) => prev?.filter((p) => p.libraryItemId !== libraryItemId) ?? null)
+      onQueued()
+    },
+  })
+
+  const setBasis = useMutation({
+    mutationFn: (next: ClubRecBasis) => setClubRecBasis(clubId, next),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: clubsKeys.detail(clubId, '') })
+      onBasisChanged()
+    },
+  })
+
+  return (
+    <div className="club-recommend">
+      <div className="club-race-head" style={{ cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
+        <Icon name="auto_awesome" style={{ fontSize: 15 }} /> Next book
+        <Icon
+          name={expanded ? 'expand_less' : 'expand_more'}
+          style={{ fontSize: 16, marginLeft: 'auto' }}
+        />
+      </div>
+
+      {wrappingUp && !picks && (
+        <div className="banner info" style={{ margin: '6px 0' }}>
+          <Icon name="lightbulb" />
+          Your club is wrapping up {clubName === 'this club' ? 'this book' : clubName} and has nothing
+          queued next. Want a recommendation?
+        </div>
+      )}
+
+      {(expanded || wrappingUp) && (
+        <>
+          <div className="club-rec-controls">
+            <select
+              className="fld"
+              value={basis}
+              onChange={(e) => setBasis.mutate(e.target.value as ClubRecBasis)}
+              disabled={setBasis.isPending}
+            >
+              {BASIS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-sm btn-green"
+              disabled={rec.isPending || activeId === null}
+              onClick={() => rec.mutate()}
+            >
+              {rec.isPending ? 'Thinking…' : 'Recommend next book'}
+            </button>
+          </div>
+
+          {rec.isError && (
+            <div className="banner error" style={{ marginTop: 6 }}>
+              <Icon name="error" /> Couldn't get a recommendation. Try again.
+            </div>
+          )}
+
+          {picks && picks.length === 0 && !rec.isPending && (
+            <div className="pop-empty" style={{ padding: '12px 0' }}>
+              No fitting book left in your library to suggest.
+            </div>
+          )}
+
+          {intro && <div className="club-rec-intro">{intro}</div>}
+
+          {picks?.map((p) => (
+            <div key={p.libraryItemId} className="club-rec-pick">
+              <div className="crp-body">
+                <div className="crp-title">{p.title || 'Untitled'}</div>
+                <div className="crp-author">{p.author}</div>
+                {p.reason && <div className="crp-reason">{p.reason}</div>}
+              </div>
+              <button
+                className="btn-sm"
+                disabled={queueOne.isPending}
+                onClick={() => queueOne.mutate(p.libraryItemId)}
+                title="Add to the club's up-next queue"
+              >
+                <Icon name="playlist_add" /> Queue
+              </button>
+            </div>
+          ))}
+
+          {engine === 'heuristic' && picks && picks.length > 0 && (
+            <div className="club-rec-note">Simple genre match (AI is off).</div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// Shown when the owner has turned recommendations off: a one-line way back on.
+function ClubRecBasisOff({ clubId, onBasisChanged }: { clubId: string; onBasisChanged: () => void }) {
+  const setBasis = useMutation({
+    mutationFn: () => setClubRecBasis(clubId, 'club-history'),
+    onSuccess: onBasisChanged,
+  })
+  return (
+    <div className="club-rec-note" style={{ padding: '4px 12px' }}>
+      Next-book recommendations are off.{' '}
+      <button className="link-btn" onClick={() => setBasis.mutate()} disabled={setBasis.isPending}>
+        Turn on
+      </button>
     </div>
   )
 }

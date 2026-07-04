@@ -6,7 +6,14 @@
 // as-const query-key conventions.
 
 import { useAuthStore } from '@/store/authStore'
-import type { HSClub, HSClubsResponse, HSClubDetail } from '@hearthshelf/core'
+import type {
+  HSClub,
+  HSClubsResponse,
+  HSClubDetail,
+  ClubRecBasis,
+  ClubRecCandidate,
+  ClubRecommendation,
+} from '@hearthshelf/core'
 
 async function cFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -53,6 +60,7 @@ const EMPTY_DETAIL: HSClubDetail = {
     createdAt: 0,
     memberCount: 0,
     currentBook: null,
+    recBasis: 'club-history',
   },
   books: [],
   queue: [],
@@ -101,6 +109,16 @@ export async function advanceClubBook(clubId: string, libraryItemId: string): Pr
   })
 }
 
+// Add a book to the club's up-next queue (owner only). No-op server-side if the
+// book is already in the club (returns { added:false }).
+export async function addClubQueue(clubId: string, libraryItemId: string): Promise<boolean> {
+  const r = await cFetch<{ ok: boolean; added: boolean }>(
+    `/${encodeURIComponent(clubId)}/queue`,
+    { method: 'POST', body: JSON.stringify({ libraryItemId }) },
+  )
+  return r.added
+}
+
 export async function joinClub(clubId: string): Promise<void> {
   await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}/join`, { method: 'POST' })
 }
@@ -128,4 +146,29 @@ export async function markClubRead(clubId: string, lastReadAt: number): Promise<
 // Archive a club (owner or admin). Owners archive rather than leave.
 export async function archiveClub(clubId: string): Promise<void> {
   await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}`, { method: 'DELETE' })
+}
+
+// Set what the club's next-book recommendation is based on (owner only).
+export async function setClubRecBasis(clubId: string, basis: ClubRecBasis): Promise<ClubRecBasis> {
+  const r = await cFetch<{ recBasis: ClubRecBasis }>(`/${encodeURIComponent(clubId)}/rec-basis`, {
+    method: 'PUT',
+    body: JSON.stringify({ basis }),
+  })
+  return r.recBasis
+}
+
+// Ask for the club's next-book picks (owner only). The client posts its own
+// unstarted library books as candidates and the genre lists of the club's read
+// books (for the club-history basis); the server builds the taste and runs the
+// AI or heuristic recommender. `unavailable` is true when the basis needs ABS's
+// db and it isn't mounted. Throws on failure so the panel can surface an error.
+export async function recommendClubBook(
+  clubId: string,
+  candidates: ClubRecCandidate[],
+  historyGenres: string[][],
+): Promise<ClubRecommendation & { unavailable?: boolean }> {
+  return cFetch<ClubRecommendation & { unavailable?: boolean }>(
+    `/${encodeURIComponent(clubId)}/recommend`,
+    { method: 'POST', body: JSON.stringify({ candidates, historyGenres }) },
+  )
 }

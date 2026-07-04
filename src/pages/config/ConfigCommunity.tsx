@@ -11,7 +11,10 @@ import {
 
 // The fields the admin can patch here (everything but canEdit).
 type CommunityPatch = Partial<
-  Pick<CommunityConfig, 'defaultShare' | 'defaultShareListening' | 'notesEnabled' | 'clubsEnabled'>
+  Pick<
+    CommunityConfig,
+    'defaultShare' | 'defaultShareListening' | 'notesEnabled' | 'clubsEnabled' | 'clubsAiEnabled'
+  >
 >
 
 // A small on/off select control, styled like the rest of the config cards.
@@ -151,6 +154,17 @@ export function ConfigCommunity() {
           onChange={(v) => save.mutate({ clubsEnabled: v })}
           onCopy="Listeners can start and join reading groups that move through books together. Turn off to hide clubs everywhere."
           offCopy="Book clubs are turned off. Existing clubs are hidden until you turn this back on."
+        />
+      </div>
+      <div style={{ marginTop: 'var(--s4)' }}>
+        <ToggleField
+          label="Let clubs use AI for next-book picks"
+          value={data.clubsAiEnabled}
+          onChange={(v) => save.mutate({ clubsAiEnabled: v })}
+          onLabel="On - AI picks allowed"
+          offLabel="Off - simple picks only"
+          onCopy="Club owners can ask the AI to suggest the club's next book. Each request uses your configured AI provider and counts against the same limit as QuestGiver. Turn off to keep clubs on the built-in picks, which need no AI."
+          offCopy="Clubs suggest next books using a simple built-in match on the club's genres. No AI is called. Turn on to allow richer AI picks (uses your AI provider)."
         />
       </div>
     </>
