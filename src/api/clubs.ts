@@ -38,12 +38,21 @@ export const clubsKeys = {
 
 const EMPTY_CLUBS: HSClubsResponse = { enabled: false, mine: [], joinable: [] }
 
+function visibleClubs(res: HSClubsResponse): HSClubsResponse {
+  if (!res.enabled) return EMPTY_CLUBS
+  return {
+    enabled: true,
+    mine: res.mine.filter((club) => !club.archived),
+    joinable: res.joinable.filter((club) => !club.archived),
+  }
+}
+
 // The caller's clubs, plus open clubs whose current book is this item (joinable).
 // Omit libraryItemId for just `mine`. Degrades to { enabled:false }.
 export async function getClubs(libraryItemId?: string): Promise<HSClubsResponse> {
   const qs = libraryItemId ? `?libraryItemId=${encodeURIComponent(libraryItemId)}` : ''
   try {
-    return await cFetch<HSClubsResponse>(qs)
+    return visibleClubs(await cFetch<HSClubsResponse>(qs))
   } catch {
     return EMPTY_CLUBS
   }
@@ -146,6 +155,11 @@ export async function markClubRead(clubId: string, lastReadAt: number): Promise<
 // Archive a club (owner or admin). Owners archive rather than leave.
 export async function archiveClub(clubId: string): Promise<void> {
   await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}`, { method: 'DELETE' })
+}
+
+// Permanently delete a club (owner or admin).
+export async function deleteClub(clubId: string): Promise<void> {
+  await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}/hard`, { method: 'DELETE' })
 }
 
 // Set what the club's next-book recommendation is based on (owner only).

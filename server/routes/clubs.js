@@ -13,6 +13,7 @@
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
 //   POST   /hs/clubs/:id/recommend { candidates, historyGenres } (owner) -> next-book picks
 //   DELETE /hs/clubs/:id                         -> archive (owner or admin)
+//   DELETE /hs/clubs/:id/hard                    -> permanently delete (owner or admin)
 //
 // A club is a persistent multi-book group (see docs/social.md). The book data
 // layer is server/clubs.js; the notes gate is lib/notesQuery.js - both single
@@ -51,6 +52,7 @@ import {
   removeMember,
   bumpReadCursor,
   archiveClub,
+  deleteClub,
   setRecBasis,
   listMyClubs,
   listJoinableClubs,
@@ -232,6 +234,14 @@ export async function handleClubs(req, res, url, ctx) {
     if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
     if (!isOwner && !isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
     await archiveClub(ctx.serverId, clubId)
+    return (json(res, 200, { ok: true }), true)
+  }
+
+  // DELETE /hs/clubs/:id/hard -> permanently delete (owner or admin)
+  if (action === 'hard' && req.method === 'DELETE') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner && !isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+    await deleteClub(ctx.serverId, clubId)
     return (json(res, 200, { ok: true }), true)
   }
 

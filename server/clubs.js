@@ -328,6 +328,35 @@ export async function archiveClub(serverId, clubId) {
   return (r.rowsAffected ?? 0) > 0
 }
 
+// Permanently delete a club and its club-scoped data.
+export async function deleteClub(serverId, clubId) {
+  await ensure()
+  await db.execute('BEGIN')
+  try {
+    await db.execute({
+      sql: `DELETE FROM book_notes WHERE server_id = ? AND club_id = ?`,
+      args: [serverId, clubId],
+    })
+    await db.execute({
+      sql: `DELETE FROM club_books WHERE server_id = ? AND club_id = ?`,
+      args: [serverId, clubId],
+    })
+    await db.execute({
+      sql: `DELETE FROM club_members WHERE server_id = ? AND club_id = ?`,
+      args: [serverId, clubId],
+    })
+    const r = await db.execute({
+      sql: `DELETE FROM clubs WHERE server_id = ? AND id = ?`,
+      args: [serverId, clubId],
+    })
+    await db.execute('COMMIT')
+    return (r.rowsAffected ?? 0) > 0
+  } catch (err) {
+    await db.execute('ROLLBACK')
+    throw err
+  }
+}
+
 // Set the owner's next-book recommendation basis. Returns the stored basis
 // (normalized), or null if the value wasn't one of the valid bases.
 export async function setRecBasis(serverId, clubId, basis) {
@@ -349,7 +378,7 @@ export async function listMyClubs(serverId, userId) {
     sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis
           FROM clubs c
           JOIN club_members m ON m.server_id = c.server_id AND m.club_id = c.id
-          WHERE c.server_id = ? AND m.user_id = ?
+          WHERE c.server_id = ? AND m.user_id = ? AND c.archived = 0
           ORDER BY c.created_at DESC`,
     args: [serverId, userId],
   })
