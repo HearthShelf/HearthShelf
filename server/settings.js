@@ -2,10 +2,10 @@
 // devices. Backed by the per-key user_settings table (replaced the old
 // app_settings JSON blob): one row per (server_id, user_id, scope, device_id,
 // key), each with its own updated_at, so sync merges at the setting level
-// (per-key last-writer-wins). The catalog (lib/settingsCatalog.js, mirrored from
-// @hearthshelf/core) defines each key's scope + validation; unset keys fall back
-// to the catalog default on the client (sparse storage - the DB holds only what
-// the user changed).
+// (per-key last-writer-wins). The catalog (lib/settingsCatalog.js, which re-uses
+// @hearthshelf/core's catalog directly) defines each key's scope + validation;
+// unset keys fall back to the catalog default on the client (sparse storage - the
+// DB holds only what the user changed).
 
 import { db, initDb } from './db.js'
 import { settingScope, validateSetting } from './lib/settingsCatalog.js'
