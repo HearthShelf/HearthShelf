@@ -1264,6 +1264,12 @@
   background: var(--accent);
   border-radius: 3px;
 }
+/* Unowned book: an empty, dashed placeholder segment in the series track. */
+.sp-seg.missing {
+  background: transparent;
+  border: 1px dashed var(--c-highest);
+  opacity: 0.7;
+}
 .hero-prog {
   position: absolute;
   left: 0;

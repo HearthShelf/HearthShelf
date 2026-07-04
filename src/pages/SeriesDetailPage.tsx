@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getLibraries, getOneSeries, libraryKeys } from '@/api/libraries'
+import { fetchAudibleSeries, audibleKeys } from '@/api/audible'
+import { missingSeriesBooks, ownedKeyOf, seriesCompletion } from '@hearthshelf/core'
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
@@ -71,11 +73,20 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const author = books[0]?.media.metadata.authorName || ''
   const cv = tintFor(books[0]?.media.metadata.title ?? series.name)
   const ownedKeys = new Set(
-    books.map((b) => {
-      const m = b.media.metadata
-      return ((m.title ?? '') + '|' + (m.authorName ?? '')).toLowerCase()
-    }),
+    books.map((b) => ownedKeyOf(b.media.metadata.title, b.media.metadata.authorName)),
   )
+
+  // The full Audible roster for this series (cached; SeriesMissingBooks reuses the
+  // same query). The unowned gap enlarges the completion denominator so the % and
+  // the segment track reflect the whole series, not just what's owned.
+  const { data: audible } = useQuery({
+    queryKey: audibleKeys.series(series.name),
+    queryFn: () => fetchAudibleSeries(series.name),
+    enabled: series.name.length >= 2,
+    staleTime: 30 * 60 * 1000,
+    retry: false,
+  })
+  const missing = audible?.seriesAsin ? missingSeriesBooks(audible.books, ownedKeys) : []
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -120,8 +131,15 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     sum += p?.isFinished ? 1 : (p?.progress ?? 0)
     totalHours += (b.media.duration ?? 0) / 3600
   }
-  const pct = books.length ? sum / books.length : 0
-  const listenedHours = totalHours * pct
+  const completion = seriesCompletion({
+    ownedProgressSum: sum,
+    ownedCount: books.length,
+    missingCount: missing.length,
+  })
+  const pct = completion.pct
+  // Listened hours are an owned-books figure (we have no runtime for unowned
+  // books), so scale by owned progress, not the full-series percentage.
+  const listenedHours = books.length ? totalHours * (sum / books.length) : 0
 
   // Next up = first unfinished in reading order, else the first book.
   const nextUpIdx = books.findIndex((b) => !progressById.get(b.id)?.isFinished)
@@ -134,8 +152,9 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
       <div className="sp-top">
         <span className="sp-pct">{Math.round(pct * 100)}%</span>
         <span className="sp-cap">
-          {done} of {books.length} finished · {listenedHours.toFixed(0)}h of {totalHours.toFixed(0)}
-          h
+          {done} of {completion.totalCount} finished · {listenedHours.toFixed(0)}h of{' '}
+          {totalHours.toFixed(0)}h
+          {completion.missingCount > 0 && ` · ${completion.missingCount} not in library`}
         </span>
       </div>
       <div className="sp-track">
@@ -158,6 +177,13 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             </div>
           )
         })}
+        {missing.map((b, i) => (
+          <div
+            key={b.asin}
+            className="sp-seg missing"
+            title={`Book ${books.length + i + 1} · not in library`}
+          />
+        ))}
       </div>
     </div>
   )
@@ -183,7 +209,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
         </span>
         <span>
           <b>
-            {done}/{books.length}
+            {done}/{completion.totalCount}
           </b>
           finished
         </span>
@@ -211,6 +237,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
         <div style={{ color: 'var(--text-muted)', fontSize: 14.5, margin: '8px 0 18px' }}>
           {author && `${author} · `}
           {books.length} {books.length === 1 ? 'book' : 'books'} · {totalHours.toFixed(0)}h total
+          {completion.missingCount > 0 && ` · ${completion.missingCount} not in library`}
         </div>
 
         {progEl}
