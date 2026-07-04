@@ -21,6 +21,8 @@
 //   /hs/audible/*     -> HearthShelf's own Audible catalog search
 //   /hs/audplexus/*   -> Audplexus library-sync diagnostics (admin)
 //   /hs/integrations/config -> admin: edit RMAB/Audplexus/Audible connection
+//   /hs/backups/*     -> admin: HearthShelf backups (list/run/config/restore)
+//   /hs/archive/*     -> admin: .hsarchive full-server export + restore
 //
 // Integration connection settings (RMAB, Audplexus, Audible region) live in the
 // integrations_config DB table, editable from Config > Integrations. Setting the

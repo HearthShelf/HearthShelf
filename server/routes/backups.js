@@ -28,6 +28,7 @@ import {
   BACKUP_DIR,
 } from '../lib/backup.js'
 import { runJob, isJobRunning } from '../jobs/runner.js'
+import { createArchive, estimateArchive, restoreArchive } from '../lib/archive.js'
 
 // A .hsbackup is small (the DB + a few avatars), but give generous headroom.
 const MAX_BACKUP_UPLOAD_BYTES = 512 * 1024 * 1024
@@ -55,11 +56,55 @@ async function lastBackupRun(serverId) {
 
 export async function handleBackups(req, res, url, ctx) {
   const p = url.pathname
-  if (!p.startsWith('/hs/backups')) return false
+  if (!p.startsWith('/hs/backups') && !p.startsWith('/hs/archive')) return false
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
   if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
 
   const serverId = await getServerId()
+
+  // --- .hsarchive (Phase 2 portability format) ---------------------------
+
+  // GET /hs/archive/estimate - sizes before a download.
+  if (p === '/hs/archive/estimate' && req.method === 'GET') {
+    const est = await estimateArchive(ctx.absToken)
+    return (json(res, 200, est), true)
+  }
+
+  // POST /hs/archive - build the archive and stream it back.
+  if (p === '/hs/archive' && req.method === 'POST') {
+    try {
+      const { buffer, filename } = await createArchive(ctx.absToken)
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': buffer.length,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      })
+      res.end(buffer)
+      return true
+    } catch (err) {
+      return (json(res, 500, { error: 'archive_failed', detail: String(err?.message ?? err) }), true)
+    }
+  }
+
+  // POST /hs/archive/restore - restore/replace from an uploaded archive.
+  // Body is the raw .hsarchive bytes; ?mode=replace|hs-only (default replace).
+  if (p === '/hs/archive/restore' && req.method === 'POST') {
+    const mode = url.searchParams.get('mode') || 'replace'
+    let buf
+    try {
+      buf = await readBodyBuffer(req, MAX_BACKUP_UPLOAD_BYTES)
+    } catch (err) {
+      if (err?.code === 'payload_too_large') return (json(res, 413, { error: 'too_large' }), true)
+      return (json(res, 400, { error: 'read_failed' }), true)
+    }
+    if (!buf.length) return (json(res, 400, { error: 'empty' }), true)
+    try {
+      const result = await restoreArchive(buf, mode, ctx.absToken)
+      return (json(res, 200, { ok: true, ...result }), true)
+    } catch (err) {
+      return (json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }), true)
+    }
+  }
 
   // GET /hs/backups - list + config + last run.
   if (p === '/hs/backups' && req.method === 'GET') {
