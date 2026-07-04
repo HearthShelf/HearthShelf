@@ -13,6 +13,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@libsql/client'
+import { assertDomainsCoverSchema } from './lib/dataDomains.js'
 
 const DIR = process.env.QG_DATA_DIR || '/app/data'
 const FILE = path.join(DIR, 'hearthshelf.db')
@@ -588,6 +589,23 @@ async function migrateSettingsToRows() {
   }
 }
 
+// Boot-time guard: diff the real tables against the data-domain registry so a
+// new table can never ship without a lifecycle decision (backup/export/merge).
+// Best-effort - a failure here must not stop the box from booting.
+async function assertRegisteredTables() {
+  try {
+    const r = await db.execute(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+    const names = r.rows.map((row) => String(row.name))
+    assertDomainsCoverSchema(names)
+  } catch (err) {
+    // In dev the registry throws on an unregistered table - re-throw so it's
+    // caught before commit. In production assertDomainsCoverSchema logs instead
+    // of throwing, so anything that reaches here is a genuine query failure we
+    // swallow (the box still boots).
+    if (process.env.NODE_ENV !== 'production') throw err
+  }
+}
+
 let ready = null
 
 // Initialise the database exactly once. Callers await this before first use;
@@ -613,6 +631,7 @@ export function initDb() {
         }
       }
       await migrateSettingsToRows()
+      await assertRegisteredTables()
     })()
   }
   return ready
