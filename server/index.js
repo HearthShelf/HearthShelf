@@ -63,6 +63,7 @@ import { emailRelayOnStartup } from './lib/emailRelay.js'
 import { startVersionReporting } from './lib/versionReport.js'
 import { startTelemetryReporting } from './lib/telemetry.js'
 import { handleJobs } from './routes/jobs.js'
+import { handleBackups } from './routes/backups.js'
 import { startJobs } from './jobs/runner.js'
 
 const PORT = process.env.QG_PORT || 8080
@@ -119,6 +120,7 @@ const ROUTES = [
   handleAudplexus,
   handleIntegrations,
   handleJobs,
+  handleBackups,
 ]
 
 const server = http.createServer(async (req, res) => {

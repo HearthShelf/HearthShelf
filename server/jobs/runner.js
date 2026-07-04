@@ -61,7 +61,7 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
 
   const runId = crypto.randomUUID()
   running.set(jobId, runId)
-  const serverId = getServerId()
+  const serverId = await getServerId()
   const startedAt = Date.now()
 
   await db

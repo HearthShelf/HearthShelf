@@ -55,7 +55,7 @@ export async function handleJobs(req, res, url, ctx) {
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
   if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
 
-  const serverId = getServerId()
+  const serverId = await getServerId()
 
   // GET /hs/jobs - list jobs with their latest run + running state.
   if (p === '/hs/jobs' && req.method === 'GET') {
