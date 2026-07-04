@@ -69,7 +69,14 @@ export function SeriesMissingBooks({
             </span>
           </div>
         ))}
-        {confirm && <RequestConfirmModal book={confirm} onClose={() => setConfirm(null)} />}
+        {confirm && (
+          <RequestConfirmModal
+            book={confirm}
+            canRequest={canRequest}
+            intro
+            onClose={() => setConfirm(null)}
+          />
+        )}
       </>
     )
   }
