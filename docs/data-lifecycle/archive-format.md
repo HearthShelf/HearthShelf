@@ -80,7 +80,11 @@ Rules:
 - **UI**: Config > Backups gains "Download full archive" - the backend runs
   an HS backup, requests a fresh ABS backup (`POST /api/backups`, waits for
   the task via the existing task-finished socket event), wraps both, streams
-  the result. On Thin, produces an HS-only archive and says so.
+  the result. **Thin produces full bundles too** (decision D10): the same
+  admin API works against the external ABS - trigger, await, download
+  (`GET /api/backups/:id/download`), wrap. Only if the caller lacks ABS
+  admin (or the download fails) does it fall back to an HS-only archive,
+  and the manifest + UI say so.
 - **API**: `POST /hs/archive` (create + stream) and
   `GET /hs/archive/estimate` (sizes up front). Admin-gated.
 - **Scheduled?** No. Nightly ABS + HS backups already exist separately;
@@ -97,6 +101,11 @@ backups dir), admin-gated, with a mode flag:
 | `replace` | Apply ABS half via upload+apply, then restore HS half (Phase 1 restore semantics). The full-server restore. | Playbooks M1, M2 |
 | `hs-only` | Restore only the HS half. | Thin -> AIO variants |
 | `import` | Hand both halves to the merge engine as a *source* - no in-place replacement. | Phase 4, playbook M4 |
+| `as-clone` | `replace`, then mint a **fresh identity**: new `server_identity.server_id`, new `telemetry_id`, and `hosted_config` dropped (a clone must pair as itself, never as the original). | Staging/test copies; running the original's archive on a second live box |
+
+`replace` onto a box while the source box still runs is exactly the
+split-brain the hosted warning exists for - the UI offers `as-clone` in that
+dialog as the safe alternative.
 
 `replace` ordering matters: ABS first (its restore replaces every user id
 with the archive's ids), HS second (whose rows are keyed to exactly those

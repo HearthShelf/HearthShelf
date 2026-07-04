@@ -156,6 +156,12 @@ Consumers:
   `secretColumns`.
 - **Merge engine** (Phase 4) walks `merge` policies, `itemRefs`, `userRefs`
   to re-key and combine rows.
+- **User-delete purge**: when an ABS user is deleted through HS's user
+  management, walk every `user`-scoped domain via `userRefs` and delete the
+  rows (and keyed files - avatars). Today those rows linger orphaned,
+  including per-user secrets (`connections.abs_user_key`,
+  `hardcover_accounts.token`). The registry makes the purge complete by
+  construction and keeps it complete as domains are added.
 - **Boot assertion**: on startup, diff `sqlite_master` table names against the
   union of all `tables` (plus an explicit `INTERNAL_TABLES` allowlist for
   things like `job_run_logs`). An unregistered table throws at boot in dev and

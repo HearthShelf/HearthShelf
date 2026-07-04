@@ -32,10 +32,14 @@
 | --- | --- | --- | --- |
 | 1.1 | ABS section on Config > Backups: read/edit `backupSchedule`, `backupsToKeep`, `maxBackupSize`; add download/upload/apply actions; off-schedule warning banner; audio-files footer note | HearthShelf | Schedule write path: ABS server-settings update (`MiscController.js:154` reschedules live) |
 | 1.2 | Same page updates in the hosted admin UI | HearthShelf-WebApp | Mirrors 1.1; fix modal copy per `backups.md` Part C |
-| 1.3 | `backup_config` singleton (env-overrides-DB: `HS_BACKUP_SCHEDULE`, `HS_BACKUPS_TO_KEEP`) + backup job in `server/jobs/` (VACUUM INTO snapshot, zip with avatars/narrators + manifest, retention sweep), registered in the scheduler, **default on** (nightly 01:00, keep 7) | HearthShelf | Contents driven by the 0.1 registry |
+| 1.3 | `backup_config` singleton (env-overrides-DB: `HS_BACKUP_SCHEDULE`, `HS_BACKUPS_TO_KEEP`, `HS_BACKUP_PATH`) + backup job in `server/jobs/` (VACUUM INTO snapshot, zip with avatars/narrators + manifest, retention sweep), registered in the scheduler, **default on** (nightly 01:00, keep 7) | HearthShelf | Contents driven by the 0.1 registry |
+| 1.3b | `server/lib/backupTargets.js`: the BackupTarget interface + `LocalDirTarget(HS_BACKUP_PATH)`; job and routes speak only the interface (cloud target deferred, seam ready) | HearthShelf | Per `backups.md` skeleton |
 | 1.4 | `server/routes/backups.js`: list/create/config/download/delete/upload/restore per `backups.md`; restore = quiesce, `pre-restore-<ts>/` escape hatch, swap, re-migrate, reconnect | HearthShelf | Admin-gated via `resolveContext` |
 | 1.5 | HS section on Config > Backups (both UIs) using 1.4 + core shapes | HearthShelf + WebApp | |
 | 1.6 | AIO onboarding: final wizard step enables ABS auto-backup by default (opt-out); Slim shows recommendation card | HearthShelf | |
+| 1.7 | Backup health: last-success surfacing (both systems), failure/overdue banner + one-time admin toast; box-local only (D7) | HearthShelf + WebApp | Rides on `job_runs` |
+| 1.8 | ABS apply + HS restore both trigger a fresh backup of current state first (undoable restores) | HearthShelf | Per `backups.md` Part A |
+| 1.9 | User-delete purge: HS user-management delete walks `user`-scoped registry domains (`userRefs`) and removes rows + avatar files | HearthShelf | Registry consumer; closes the orphaned-secrets gap |
 
 **Done when** the five acceptance criteria in `backups.md` pass on a fresh AIO
 and on a Thin against live ABS. **This workstream alone closes the original
@@ -46,8 +50,8 @@ report** - ship it before starting Phase 2.
 | # | Task | Repo |
 | --- | --- | --- |
 | 2.1 | Manifest schema + validation + version table in core (extends 0.2) | HearthShelf-Core |
-| 2.2 | `POST /hs/archive` (+ estimate): run HS backup, trigger ABS backup and await its task-finished socket event, wrap, stream; HS-only on Thin | HearthShelf |
-| 2.3 | `POST /hs/archive/restore` with `replace` / `hs-only` modes (`import` arrives in WS4); ABS-first ordering; hosted `server_secret` warning | HearthShelf |
+| 2.2 | `POST /hs/archive` (+ estimate): run HS backup, trigger ABS backup and await its task-finished socket event, wrap, stream. Thin bundles fully via the external ABS admin API (trigger + download), HS-only fallback when not admin | HearthShelf |
+| 2.3 | `POST /hs/archive/restore` with `replace` / `hs-only` / `as-clone` modes (`import` arrives in WS4); ABS-first ordering; hosted `server_secret` warning offering `as-clone` | HearthShelf |
 | 2.4 | "Download full archive" + "Restore archive" on Config > Backups (both UIs) | HearthShelf + WebApp |
 
 ## Workstream 3 - Restore & migration flows
@@ -69,7 +73,9 @@ Build strictly in this order; each step is independently testable:
 | 4.2 | Source readers: live-ABS admin reader; backup-zip reader (extract sqlite, read via the `absdb.js` read-only technique - extend that file, it is the single home of ABS-schema knowledge) | HearthShelf |
 | 4.3 | Dry-run: `/hs/import/inspect` producing the persisted report (job run) | HearthShelf |
 | 4.4 | Execute: user creation, per-user minted-key writes (progress batch, `session/local/all`, bookmarks), HS-domain registry merge incl. avatar-file re-key; backup-before-import; resumable + idempotent | HearthShelf |
-| 4.5 | Config > Import & Merge UI: source picker, mapping-resolution tables, execute, final report + invite shortcuts | HearthShelf (+WebApp) |
+| 4.5 | Config > Import & Merge UI: source picker, mapping-resolution tables **incl. user-subset filter**, execute, final report + invite shortcuts | HearthShelf (+WebApp) |
+| 4.6 | Restore-as-import mode (UC5/M7): same-`server_id` source detection, user-scoped selective recovery, recreate-deleted-user path | HearthShelf |
+| 4.7 | Re-link mode (UC6/M8): within-server old-item -> new-item map (no inode), rewrite HS `itemRefs`, re-attach progress/bookmarks; wire the M3 zero-match-rescan detection to point here | HearthShelf |
 
 ## Workstream 5 - Per-user export
 
@@ -91,23 +97,19 @@ Build strictly in this order; each step is independently testable:
   appear; UC2 wizard restore; UC3 thin->AIO; UC1 two-server merge with one
   deliberate two-account user; M5 volume handoff to stock ABS image boots.
 
-## Decisions made (don't relitigate without new information)
+## Decisions that constrain the build
 
-| # | Decision | Rationale |
+Only the calls a reasonable implementer might otherwise make differently.
+Everything else (deferrals, scoping to books-only, "don't front an external
+ABS from an AIO") lives in the relevant spec and needs no ledger entry.
+
+| # | Decision | Why it's not obvious |
 | --- | --- | --- |
-| D1 | HS backups default **on** (nightly, keep 7); ABS schedule enabled by onboarding default | The reported failure was silent unprotection; opt-out beats opt-in for safety features |
-| D2 | Server backups include secrets, plainly labeled | Matches ABS's own backup (carries `tokenSecret`, user tokens); a secret-free server backup can't actually restore a server |
-| D3 | Per-user writes via minted per-user ABS keys + self-scoped endpoints; no ABS DB writes in v1 | Supported APIs the mobile offline sync already exercises; keeps ABS the sole writer of its DB (house rule) |
-| D4 | Restore is replace; merge is only ever the explicit import flow | Two clear mental models; no "smart" restore that guesses |
-| D5 | Registry + boot assertion is mandatory for every future persisted feature | The structural fix; review happens on one declarative object |
+| D1 | HS backups default **on** (nightly, keep 7); onboarding turns ABS's schedule on by default | Opt-out, not opt-in - the reported failure was silent unprotection. An implementer defaulting to off "to be safe" would recreate the bug |
+| D2 | Server backups include secrets, plainly labeled | A "secret-free server backup" is a natural instinct but can't actually restore a server. Matches ABS's own backup (carries `tokenSecret`, user tokens) |
+| D3 | Merge writes per-user via minted ABS keys + self-scoped endpoints; **never** writes ABS's DB directly | Direct sqlite writes look easier and are the wrong path - ABS must stay the sole writer of its DB (house rule), and the self-scoped endpoints already exist |
+| D4 | Restore replaces; merging only ever happens through the explicit import flow | No "smart" restore that guesses whether to merge - two separate mental models on purpose |
+| D5 | Every future persisted feature must add a `DATA_DOMAINS` entry; boot assertion enforces it | This is the whole extensibility story; skipping it silently is what got us here |
+| D8 | ABS-half version skew needs no HS-side gating | Verified: ABS's own `MigrationManager` up-migrates older backups and down-migrates newer ones on reconnect (`MigrationManager.js:80-100`). Don't add a redundant gate; the HS half keeps its manifest check |
 
-## Open questions (answer before the workstream that names them)
-
-| # | Question | Owner suggestion | Blocks |
-| --- | --- | --- | --- |
-| Q1 | Off-box backup targets: host mount (`HS_BACKUP_PATH`) now, or wait for control-plane/R2 push design? | Ship the env-var host mount in 1.3 (cheap), design push separately | none (additive) |
-| Q2 | Should Thin's backup job also *trigger* ABS backups on the external ABS (admin token permitting), or only recommend? | Recommend-only in v1; triggering a foreign server's backups is surprising | WS1 |
-| Q3 | Archive passphrase encryption (manifest reserves the key) | Defer; revisit with hosted off-box push | WS2 |
-| Q4 | Offline password migration (copy `pash` via direct sqlite write while ABS is stopped) as merge-engine v2? | Defer; invites cover it. If built: only in `import` from *backup* sources, never against a live DB | WS4 |
-| Q5 | Club merge UX when both servers have same-name clubs (auto-union vs. always-ask) | Always-ask in v1 (`custom` policy) | WS4 |
-| Q6 | Does the AIO support fronting an external ABS (M3a) or do we document M3b only? | Document M3b as the path; M3a variant only if users ask | WS3 |
+All planning questions are resolved; nothing is open.

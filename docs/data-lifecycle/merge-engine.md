@@ -73,6 +73,14 @@ Mapping resolves source `mediaProgress.mediaItemId` (a **media** id) via
 source libraryItem -> match -> target libraryItem -> target media id - the
 two-hop is required because progress references media, not library items.
 
+### Media-type scope
+
+**Books only in v1** (decision D6). Podcast episode progress needs a
+different matching key (feed GUID / enclosure URL, not inode/ASIN) and we
+have no podcast data to test against. The engine reports podcast progress
+rows as `skipped: podcast` in the dry-run - visible, honest, not silently
+dropped - and the matcher grows an episode strategy when someone can test it.
+
 ### User matching (step 3)
 
 Default proposal, admin-editable in the dry-run UI:
@@ -131,6 +139,34 @@ target wins, report says so.
   an ABS backup, and the report links them. Undo = restore those.
 - **Resumable**: per-user progress recorded in `job_run_logs`; a crash
   mid-import re-runs safely because of idempotency above.
+
+## Two more modes on the same engine
+
+The pipeline generalizes beyond "import that other server" with two flags -
+build them in Phase 4, they are where most of the engine's real-world value
+lands:
+
+### Restore-as-import (UC5 - selective restore)
+
+Source = **an old backup of this same server**. The admin scopes the dry-run
+to selected users (a user-subset filter in step 3's mapping table - needed
+for this mode, cheap for all modes) and the engine recovers just their
+progress/sessions/bookmarks/HS domains, leaving everyone else's newer data
+untouched. Same-install ids mean matching is trivial (ids are equal; the
+item matcher only kicks in for items deleted since the backup). This turns
+every nightly backup into per-user undo, without ABS's all-or-nothing apply.
+
+### Re-link after a library move (UC6)
+
+Source = **this server's own past state** (the most recent backup) after the
+audio files moved to a new disk/path and a rescan created all-new items.
+Inodes are dead by definition, so the chain runs ASIN -> ISBN -> fuzzy from
+old items to new items, producing an `itemMap` within one server. Execute
+then: (a) rewrites HS `itemRefs` columns through the map, and (b) re-attaches
+each user's orphaned progress/bookmarks to the new item ids via the same
+per-user minted-key writes. Dry-run report doubles as a "what didn't
+re-link" audit. The wizard's zero-match rescan detection (playbook M3)
+points the admin here.
 
 ## Product surface
 

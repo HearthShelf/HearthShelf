@@ -50,6 +50,13 @@ or a file on disk must slot into it. This folder plans the whole area.
 | UC3 | Running HS Thin next to an existing ABS; **swap to AIO** | playbook M3 |
 | UC4 | "HS sucks, I want my data back" - **exit to plain ABS** with nothing held hostage | playbook M5 + per-user export |
 | UC0 | (implicit) Routine protection: automatic, scheduled backups of *everything*, restorable | `backups.md` |
+| UC5 | Admin fat-fingers a user delete / one user's data corrupts - **recover one user from an old backup** without rolling the whole server back | `merge-engine.md` restore-as-import, playbook M7 |
+| UC6 | Audio files moved to a new disk/NAS - rescan makes all-new items, histories dangle - **re-link the library** | `merge-engine.md` re-link mode, playbook M8 |
+
+One near-miss deliberately *not* built as migration tooling: a single new
+user arriving from another server brings their history via the existing
+Hardcover/Goodreads import (`finished_books`) - onboarding should offer it -
+not via the merge engine.
 
 ## Phasing at a glance
 

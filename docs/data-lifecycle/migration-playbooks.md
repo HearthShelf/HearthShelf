@@ -69,13 +69,21 @@ wizard path + reconcile step.
 
 **"HS Thin runs beside my ABS; I want the AIO."** Two variants:
 
-**M3a - keep the external ABS** (AIO fronts it instead of the bundled one):
-mostly configuration, but note the AIO image always starts its bundled ABS
-today - variant support (`ABS_SERVER_URL` external + bundled ABS disabled) is
-a small build item, or we simply document M3b as the recommended path.
+**M3-reverse (AIO -> Thin/stock ABS, keeping HS)**: the AIO's `abs-config` /
+`abs-metadata` / `abs-audiobooks` volumes are a stock ABS install (see M5) -
+point the official ABS image at them, stand up Thin with
+`ABS_SERVER_URL` at the new ABS, and move the `hearthshelf-data` volume.
+Same ABS DB = same user/item ids, so HS rows stay valid; only the reconcile
+step's `connections.abs_url` rewrite applies. A paragraph in the public doc,
+no build.
 
-**M3b - adopt into the bundled ABS** (recommended; the ABS install moves
-in-container):
+There is only one supported shape: **absorb the ABS install into the AIO's
+bundled ABS**. The AIO does not front an external ABS (decision D14) - an AIO
+pointed at a separate ABS with its bundled ABS idle is just Thin with extra
+weight, which defeats the reason to run AIO. Someone who wants a separate ABS
+container should stay on Thin.
+
+**M3b - adopt into the bundled ABS** (the ABS install moves in-container):
 
 1. Take an ABS backup on the existing ABS; take/download an HS backup from
    Thin (Phase 1 gives Thin this button; or archive the `hearthshelf-data`
@@ -117,6 +125,56 @@ This is the Phase 4 merge engine (`merge-engine.md`). Product shape:
 5. Finish with invites to newly created users (passwords cannot migrate over
    the API - `POST /api/users` cannot set `pash`; see `merge-engine.md` for
    the offline alternative).
+
+**Device decommission note** (applies to M1-M4): before the old server goes
+away, each phone/tablet that used it should come to the foreground once so
+pending offline sessions flush (`session/local/all`) against the *old*
+server - those payloads carry old item ids and cannot be replayed against a
+re-scanned target. Then devices sign out and reconnect to the new server.
+
+**Single user arriving from elsewhere** is *not* this playbook: a new user
+joining your server from someone else's brings their history via the
+Hardcover/Goodreads import (`finished_books`) - offer it during their
+onboarding - rather than a cross-server merge.
+
+---
+
+## M7 - Selective restore: recover one user from a backup (UC5)
+
+**"I deleted the wrong user / one account's data got mangled - yesterday's
+backup has it, but I can't roll the whole server back."**
+
+1. Config -> Import & Merge -> source: pick a backup/archive **of this
+   server** (the engine detects the matching `server_id` and switches to
+   restore-as-import mode - see `merge-engine.md`).
+2. Dry-run, scoped to the affected user(s) via the user-subset filter.
+3. Execute: their progress, sessions, bookmarks, and HS domains come back;
+   nobody else's newer data moves. If the user was deleted from ABS, the
+   engine recreates the account first (invite/password-reset applies).
+
+This is the everyday payoff of Phase 4 - every nightly backup becomes
+per-user undo.
+
+---
+
+## M8 - Re-link the library after moving audio files (UC6)
+
+**"I moved the library to a new disk/NAS; after the rescan everything shows
+zero progress and notes point at nothing."**
+
+Root cause: ABS matches rescanned items **only by inode**
+(`LibraryScanner.js:672`); a new filesystem means all-new item ids and every
+history dangles.
+
+1. Best case - **before** the move: take a backup (M-series rule one).
+   Ideally avoid the problem: copy such that inodes survive (same
+   filesystem), or update the library folder path without a delete+rescan.
+2. After a re-scan has already minted new ids: Config -> Import & Merge ->
+   re-link mode with the newest pre-move backup as source. The engine maps
+   old items -> new items (ASIN -> ISBN -> fuzzy), rewrites HS item
+   references, and re-attaches per-user progress/bookmarks to the new ids.
+3. The dry-run's unmatched list is the cleanup worklist (books with no
+   ASIN/ISBN and mangled titles need manual mapping in the UI).
 
 ---
 
