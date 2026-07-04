@@ -18,6 +18,12 @@ function envDefaultShare() {
   return !/^(0|false|off|no|optin|opt-in)$/i.test(process.env.COMMUNITY_DEFAULT_SHARE ?? 'on')
 }
 
+// Whether clubs may make AI recommendation calls ships OFF unless the env opts
+// in. AI calls cost money, so this is a deliberate admin choice.
+function envClubsAi() {
+  return /^(1|true|on|yes)$/i.test(process.env.CLUBS_AI_DEFAULT ?? 'off')
+}
+
 let ready = null
 async function ensureSeeded() {
   if (ready) return ready
@@ -26,8 +32,8 @@ async function ensureSeeded() {
     const r = await db.execute('SELECT id FROM community_config WHERE id = 1')
     if (r.rows.length === 0) {
       await db.execute({
-        sql: `INSERT INTO community_config (id, default_share, updated_at) VALUES (1, ?, ?)`,
-        args: [envDefaultShare() ? 1 : 0, Date.now()],
+        sql: `INSERT INTO community_config (id, default_share, clubs_ai_enabled, updated_at) VALUES (1, ?, ?, ?)`,
+        args: [envDefaultShare() ? 1 : 0, envClubsAi() ? 1 : 0, Date.now()],
       })
     }
   })()
@@ -46,7 +52,7 @@ async function ensureSeeded() {
 export async function getCommunityConfig() {
   await ensureSeeded()
   const r = await db.execute(
-    'SELECT default_share, default_share_listening, notes_enabled, clubs_enabled FROM community_config WHERE id = 1',
+    'SELECT default_share, default_share_listening, notes_enabled, clubs_enabled, clubs_ai_enabled FROM community_config WHERE id = 1',
   )
   const row = r.rows[0] ?? {}
   return {
@@ -57,6 +63,8 @@ export async function getCommunityConfig() {
       : Boolean(row.default_share_listening),
     notesEnabled: row.notes_enabled == null ? true : Boolean(row.notes_enabled),
     clubsEnabled: row.clubs_enabled == null ? true : Boolean(row.clubs_enabled),
+    // AI recommendations for clubs ship OFF, so a null column reads false.
+    clubsAiEnabled: row.clubs_ai_enabled == null ? false : Boolean(row.clubs_ai_enabled),
   }
 }
 
@@ -68,15 +76,17 @@ export async function setCommunityConfig(patch) {
   if ('defaultShareListening' in patch) next.defaultShareListening = Boolean(patch.defaultShareListening)
   if ('notesEnabled' in patch) next.notesEnabled = Boolean(patch.notesEnabled)
   if ('clubsEnabled' in patch) next.clubsEnabled = Boolean(patch.clubsEnabled)
+  if ('clubsAiEnabled' in patch) next.clubsAiEnabled = Boolean(patch.clubsAiEnabled)
   await db.execute({
     sql: `UPDATE community_config
-          SET default_share = ?, default_share_listening = ?, notes_enabled = ?, clubs_enabled = ?, updated_at = ?
+          SET default_share = ?, default_share_listening = ?, notes_enabled = ?, clubs_enabled = ?, clubs_ai_enabled = ?, updated_at = ?
           WHERE id = 1`,
     args: [
       next.defaultShare ? 1 : 0,
       next.defaultShareListening ? 1 : 0,
       next.notesEnabled ? 1 : 0,
       next.clubsEnabled ? 1 : 0,
+      next.clubsAiEnabled ? 1 : 0,
       Date.now(),
     ],
   })

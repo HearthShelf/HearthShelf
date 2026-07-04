@@ -586,6 +586,58 @@ export async function getSelfProgress(userId, libraryItemId) {
   }
 }
 
+// Aggregate the genres of every book the given users have FINISHED, into a
+// { genre -> count } map. Drives the club "all members' finished books"
+// recommendation basis: one book finished by two members counts its genres
+// twice, so genres the whole club reads rise to the top. Genres are a JSON text
+// array on books.genres; SQLite has no portable JSON-array unnest we can rely
+// on across libSQL versions, so we read the raw JSON per finished row and count
+// in JS (the finished set for a handful of members is small). Guests/inactive
+// users are excluded, matching the leaderboard. Returns {} on any failure or
+// when the db isn't mounted. Not cached: recommendation is a deliberate action.
+export async function getFinishedGenresForUsers(userIds = []) {
+  const ids = [...new Set(userIds.filter(Boolean))]
+  if (!ids.length) return {}
+  const c = await ensureClient()
+  if (!c) return {}
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const res = await c.execute({
+      sql: `
+        SELECT b.genres AS genres
+        FROM mediaProgresses mp
+        JOIN books b ON b.id = mp.mediaItemId
+        JOIN users u ON u.id = mp.userId
+        WHERE mp.isFinished = 1
+          AND mp.mediaItemType = 'book'
+          AND mp.userId IN (${placeholders})
+          AND u.type != 'guest'
+          AND u.isActive = 1
+      `,
+      args: ids,
+    })
+    const counts = {}
+    for (const row of res.rows) {
+      const raw = row.genres
+      if (raw == null) continue
+      let list
+      try {
+        list = typeof raw === 'string' ? JSON.parse(raw) : raw
+      } catch {
+        continue
+      }
+      if (!Array.isArray(list)) continue
+      for (const g of list) {
+        if (typeof g !== 'string' || !g) continue
+        counts[g] = (counts[g] || 0) + 1
+      }
+    }
+    return counts
+  } catch {
+    return {}
+  }
+}
+
 // A book's chapter list (books.chapters JSON), so notes can render
 // "Chapter 14 - 1:02:05" on clients that don't hold the chapter list. Resolved
 // via the libraryItems.mediaId hop. Returns [] on any failure or when absent.

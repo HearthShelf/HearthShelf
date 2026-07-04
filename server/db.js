@@ -475,6 +475,13 @@ const MIGRATIONS = [
   // up as up-next (not yet the current book). Existing rows stay NULL, so all
   // pre-migration books remain current/finished as before.
   `ALTER TABLE club_books ADD COLUMN queued_at INTEGER`,
+  // Club next-book recommendations (see docs/social.md). The instance-wide AI
+  // switch ships OFF - AI calls cost money, so an admin must allow clubs to make
+  // them; with it off, clubs still get the deterministic heuristic. rec_basis is
+  // the owner's per-club choice of what taste drives the pick; existing clubs
+  // default to their own reading history.
+  `ALTER TABLE community_config ADD COLUMN clubs_ai_enabled INTEGER DEFAULT 0`,
+  `ALTER TABLE clubs ADD COLUMN rec_basis TEXT NOT NULL DEFAULT 'club-history'`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

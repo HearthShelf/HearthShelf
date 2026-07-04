@@ -18,6 +18,13 @@ function ensure() {
   return ready
 }
 
+// Valid recommendation bases (mirrors ClubRecBasis in @hearthshelf/core). An
+// unrecognized stored value falls back to 'club-history'.
+const REC_BASES = new Set(['off', 'club-history', 'all-members-finished'])
+function normalizeRecBasis(v) {
+  return REC_BASES.has(v) ? v : 'club-history'
+}
+
 function mapClubRow(row) {
   if (!row) return null
   return {
@@ -27,6 +34,7 @@ function mapClubRow(row) {
     isOpen: Boolean(row.is_open),
     archived: Boolean(row.archived),
     createdAt: Number(row.created_at),
+    recBasis: normalizeRecBasis(row.rec_basis == null ? undefined : String(row.rec_basis)),
   }
 }
 
@@ -47,7 +55,7 @@ export async function getClub(serverId, clubId) {
   if (!clubId) return null
   await ensure()
   const r = await db.execute({
-    sql: `SELECT id, name, created_by, is_open, archived, created_at
+    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis
           FROM clubs WHERE server_id = ? AND id = ? LIMIT 1`,
     args: [serverId, clubId],
   })
@@ -320,13 +328,25 @@ export async function archiveClub(serverId, clubId) {
   return (r.rowsAffected ?? 0) > 0
 }
 
+// Set the owner's next-book recommendation basis. Returns the stored basis
+// (normalized), or null if the value wasn't one of the valid bases.
+export async function setRecBasis(serverId, clubId, basis) {
+  if (!REC_BASES.has(basis)) return null
+  await ensure()
+  await db.execute({
+    sql: `UPDATE clubs SET rec_basis = ? WHERE server_id = ? AND id = ?`,
+    args: [basis, serverId, clubId],
+  })
+  return basis
+}
+
 // Clubs the user belongs to, with member counts + current book resolved by the
 // caller. Returns club summaries (without memberCount/currentBook - the route
 // assembles those, one query each, to keep this layer thin).
 export async function listMyClubs(serverId, userId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis
           FROM clubs c
           JOIN club_members m ON m.server_id = c.server_id AND m.club_id = c.id
           WHERE c.server_id = ? AND m.user_id = ?
@@ -342,7 +362,7 @@ export async function listJoinableClubs(serverId, libraryItemId) {
   if (!libraryItemId) return []
   await ensure()
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis
           FROM clubs c
           JOIN club_books cb ON cb.server_id = c.server_id AND cb.club_id = c.id
           WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0

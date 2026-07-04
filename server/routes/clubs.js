@@ -10,6 +10,8 @@
 //   POST   /hs/clubs/:id/kick   { userId } (owner)
 //   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail (membership req.)
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
+//   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
+//   POST   /hs/clubs/:id/recommend { candidates, historyGenres } (owner) -> next-book picks
 //   DELETE /hs/clubs/:id                         -> archive (owner or admin)
 //
 // A club is a persistent multi-book group (see docs/social.md). The book data
@@ -21,9 +23,18 @@ import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { getCommunityConfig } from '../community.js'
 import { check, consume } from '../ratelimit.js'
-import { absDbAvailable, getMemberProgress, getActiveListeners } from '../lib/absdb.js'
+import {
+  absDbAvailable,
+  getMemberProgress,
+  getActiveListeners,
+  getFinishedGenresForUsers,
+} from '../lib/absdb.js'
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
 import { getExplicitSharePrefs } from '../settings.js'
+import { getConfig } from '../config.js'
+import { isProviderConfigured, complete } from '../providers.js'
+import { parseResult } from './questgiver.js'
+import { craftClubPrompt, clubHeuristic } from '@hearthshelf/core/lib/social'
 import {
   getClub,
   getMembership,
@@ -40,6 +51,7 @@ import {
   removeMember,
   bumpReadCursor,
   archiveClub,
+  setRecBasis,
   listMyClubs,
   listJoinableClubs,
 } from '../clubs.js'
@@ -85,6 +97,47 @@ async function clubSummary(serverId, club) {
     currentBook(serverId, club.id),
   ])
   return { ...club, memberCount: count, currentBook: current }
+}
+
+// Turn a raw { genre -> count } tally into the ClubTaste shape the core
+// recommender wants: a 0..10 weight per genre (scaled to the strongest), the
+// dominant genre, and the sample size. Genres the club barely touches still
+// carry a small non-zero weight so they can win ties, matching qgBuildProfile's
+// feel. Returns { weights, dominant, sampleSize:0 } when the tally is empty.
+function tasteFromCounts(counts, sampleSize) {
+  const entries = Object.entries(counts).filter(([, n]) => n > 0)
+  if (!entries.length) return { weights: {}, dominant: null, sampleSize: 0 }
+  const max = Math.max(...entries.map(([, n]) => n))
+  const weights = {}
+  for (const [g, n] of entries) weights[g] = Math.max(1, Math.round((n / max) * 10))
+  const dominant = entries.sort((a, b) => b[1] - a[1])[0][0]
+  return { weights, dominant, sampleSize }
+}
+
+// Build the club's taste from the chosen basis. club-history counts the genres
+// of books the club has read together (from the posted candidate genres is not
+// possible - history books aren't candidates - so the client posts the club's
+// read genres); all-members-finished reads every member's finished-book genres
+// from ABS's db (read-only). Returns a ClubTaste, or null when the basis yields
+// nothing to work with. `historyGenres` is the client-supplied genre list for
+// the club's own read books (used only for club-history).
+async function buildClubTaste(basis, memberIds, historyGenres) {
+  if (basis === 'all-members-finished') {
+    const counts = await getFinishedGenresForUsers(memberIds)
+    const sample = Object.values(counts).reduce((n, x) => n + x, 0)
+    return tasteFromCounts(counts, sample)
+  }
+  // club-history: tally the genres of the club's own read books.
+  const counts = {}
+  let books = 0
+  for (const gs of historyGenres) {
+    if (!Array.isArray(gs) || !gs.length) continue
+    books++
+    for (const g of gs) {
+      if (typeof g === 'string' && g) counts[g] = (counts[g] || 0) + 1
+    }
+  }
+  return tasteFromCounts(counts, books)
 }
 
 // The last path segment after /hs/clubs/<id>/... - the club id.
@@ -378,6 +431,98 @@ export async function handleClubs(req, res, url, ctx) {
     if (!Number.isFinite(lastReadAt)) return (json(res, 400, { error: 'invalid_lastReadAt' }), true)
     const cursor = await bumpReadCursor(ctx.serverId, clubId, ctx.userId, lastReadAt)
     return (json(res, 200, { lastReadAt: cursor }), true)
+  }
+
+  // PUT /hs/clubs/:id/rec-basis { basis } -> set the recommendation basis (owner)
+  if (action === 'rec-basis' && req.method === 'PUT') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    const stored = await setRecBasis(ctx.serverId, clubId, body.basis)
+    if (stored == null) return (json(res, 400, { error: 'invalid_basis' }), true)
+    return (json(res, 200, { recBasis: stored }), true)
+  }
+
+  // POST /hs/clubs/:id/recommend { candidates, historyGenres } -> next-book picks
+  // (owner). candidates are the owner's unstarted library books (posted by the
+  // client, matching the Discover pattern); historyGenres are the genre lists of
+  // the club's own read books (for the club-history basis). AI runs only when the
+  // admin allowed it AND a provider is configured; otherwise the deterministic
+  // heuristic. Charged to the QuestGiver rate limit (only on an actual AI call).
+  if (action === 'recommend' && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    if (club.recBasis === 'off') return (json(res, 403, { error: 'recommendations_off' }), true)
+
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    const candidates = Array.isArray(body.candidates) ? body.candidates : []
+    const historyGenres = Array.isArray(body.historyGenres) ? body.historyGenres : []
+    if (!candidates.length) return (json(res, 400, { error: 'no_candidates' }), true)
+    // Drop books already anywhere in the club, and anything without an id.
+    const inClub = new Set(
+      (await Promise.all([listBooks(ctx.serverId, clubId), listQueue(ctx.serverId, clubId)])).flat().map((b) => b.libraryItemId),
+    )
+    const pool = candidates.filter(
+      (c) => c && typeof c.libraryItemId === 'string' && c.libraryItemId && !inClub.has(c.libraryItemId),
+    )
+    if (!pool.length) return (json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: '', picks: [] }), true)
+
+    const members = await listMembers(ctx.serverId, clubId)
+    // all-members-finished needs ABS's db mounted to read finished genres; if
+    // it isn't, tell the owner rather than silently recommending at random.
+    if (club.recBasis === 'all-members-finished' && !(await absDbAvailable())) {
+      return (json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: '', picks: [], unavailable: true }), true)
+    }
+    const taste = await buildClubTaste(
+      club.recBasis,
+      members.map((m) => m.userId),
+      historyGenres,
+    )
+
+    // AI path: allowed by the admin AND a provider is configured. Charge the
+    // QuestGiver limit; on any AI failure, fall through to the heuristic.
+    const aiCfg = await getConfig()
+    const wantAi = cfg.clubsAiEnabled && aiCfg.enabled && (await isProviderConfigured())
+    if (wantAi) {
+      const rate = await check(ctx.serverId, ctx.userId, aiCfg.limit)
+      if (!rate.allowed) return (json(res, 429, { error: 'rate_limited', period: rate.period }), true)
+      try {
+        const prompt = craftClubPrompt(club.name, members.length, taste, pool, club.recBasis)
+        const parsed = parseResult(await complete(prompt))
+        await consume(ctx.serverId, ctx.userId, aiCfg.limit)
+        // Resolve the model's chosen ids back to real candidates (it can only
+        // return ids from the pool; drop any it invented).
+        const byId = new Map(pool.map((c) => [c.libraryItemId, c]))
+        const picks = parsed.picks
+          .map((pk) => {
+            const c = byId.get(pk.id)
+            if (!c) return null
+            return {
+              libraryItemId: c.libraryItemId,
+              title: c.title,
+              author: c.author,
+              genre: c.genre,
+              reason: typeof pk.reason === 'string' ? pk.reason : '',
+            }
+          })
+          .filter(Boolean)
+        return (
+          json(res, 200, { engine: 'ai', basis: club.recBasis, intro: parsed.intro, picks }),
+          true
+        )
+      } catch {
+        // fall through to the heuristic below
+      }
+    }
+
+    const result = clubHeuristic(taste, pool, club.recBasis)
+    return (
+      json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: result.intro, picks: result.picks }),
+      true
+    )
   }
 
   return (json(res, 405, { error: 'method_not_allowed' }), true)
