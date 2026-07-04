@@ -12,6 +12,7 @@ import { ConfigUserDetail } from '@/pages/config/ConfigUserDetail'
 import { ConfigServiceAccounts } from '@/pages/config/ConfigServiceAccounts'
 import { ConfigApiKeys } from '@/pages/config/ConfigApiKeys'
 import { ConfigBackups } from '@/pages/config/ConfigBackups'
+import { ConfigImport } from '@/pages/config/ConfigImport'
 import { ConfigSessions } from '@/pages/config/ConfigSessions'
 import { ConfigLibraries } from '@/pages/config/ConfigLibraries'
 import { ConfigServerInfo } from '@/pages/config/ConfigServerInfo'
@@ -106,6 +107,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         { id: 'apikeys', icon: 'key', label: 'API Keys' },
         { id: 'sessions', icon: 'graphic_eq', label: 'Listening Sessions' },
         { id: 'backups', icon: 'cloud_sync', label: 'Backups' },
+        { id: 'import', icon: 'merge', label: 'Import & Merge' },
         { id: 'tasks', icon: 'schedule', label: 'Tasks' },
         { id: 'logs', icon: 'terminal', label: 'Logs' },
       ],
@@ -156,6 +158,8 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         return <ConfigApiKeys />
       case 'backups':
         return <ConfigBackups />
+      case 'import':
+        return <ConfigImport />
       case 'sessions':
         return <ConfigSessions />
       case 'libraries':
