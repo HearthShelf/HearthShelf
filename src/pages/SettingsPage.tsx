@@ -22,6 +22,7 @@ import {
 } from '@/api/finishedBooks'
 import { useRmabConfig } from '@/hooks/useRmab'
 import { useToast } from '@/hooks/useToast'
+import { exportMyDataJson, exportMyFinishedBooksCsv } from '@/api/export'
 import { fmtSessDate } from '@/lib/format'
 import {
   useReaderPrefs,
@@ -282,6 +283,9 @@ export function SettingsPage() {
   const put = <K extends keyof SettingsState>(k: K, v: SettingsState[K]) =>
     set(k as never, v as never)
 
+  // Toast for page-level actions (e.g. the data-export buttons).
+  const { toast: pageToast, show } = useToast()
+
   const [section, setSection] = useState<SettingsSection>('account')
 
   // The server's default sharing setting, so the leaderboard toggle can show the
@@ -300,6 +304,11 @@ export function SettingsPage() {
 
   return (
     <div className="page fade-in settings-shell">
+      {pageToast && (
+        <div className="p-toast">
+          <Icon name="check_circle" fill /> {pageToast}
+        </div>
+      )}
       <div className="page-head">
         <div className="eyebrow">Make it yours</div>
         <h1 className="title-xl">Settings</h1>
@@ -606,6 +615,32 @@ export function SettingsPage() {
                   title="Book club note pops"
                   desc="Get a little pop when your listening crosses a club note, so you can read and reply. Turn off to silence pops on this device without leaving any club."
                   control={<Toggle on={s.notePops} onClick={() => put('notePops', !s.notePops)} />}
+                />
+                <SetRow
+                  title="Download my data"
+                  desc="Get a copy of your HearthShelf data - reading history, notes, settings, and Discover feedback. No passwords or secrets. Your library and progress live in AudiobookShelf and aren't included."
+                  control={
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn-sm btn-ghost"
+                        onClick={() =>
+                          void exportMyDataJson().catch(() => show('Could not export your data'))
+                        }
+                      >
+                        JSON
+                      </button>
+                      <button
+                        className="btn-sm btn-ghost"
+                        onClick={() =>
+                          void exportMyFinishedBooksCsv().catch(() =>
+                            show('Could not export your books'),
+                          )
+                        }
+                      >
+                        Books (CSV)
+                      </button>
+                    </div>
+                  }
                 />
               </div>
             </>
