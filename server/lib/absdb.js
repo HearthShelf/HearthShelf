@@ -71,6 +71,123 @@ export async function absDbAvailable() {
   }
 }
 
+// --- Import-source reader (Phase 4 merge engine) -------------------------
+//
+// The merge engine reads a whole ABS install's users + library + progress +
+// bookmarks, either from a LIVE server's own db (this module's client) or from a
+// backup's extracted absdatabase.sqlite. Both go through the same read-only
+// technique and the same queries, so all ABS-schema knowledge stays in this one
+// file. openAbsDbReadonly() opens an ARBITRARY sqlite path read-only (for backup
+// sources); readImportInventory() runs the inventory against any such client.
+
+// Open any absdatabase.sqlite file read-only (query_only = ON). Caller closes it.
+// Used for backup-zip sources (a temp-extracted db), separate from this module's
+// long-lived client for the configured live db.
+export async function openAbsDbReadonly(dbPath) {
+  const c = createClient({ url: pathToFileURL(dbPath).toString() })
+  await c.execute('PRAGMA query_only = ON')
+  return c
+}
+
+// Read the full import inventory from an ABS db client. Returns:
+//   { users, items, progress, bookmarks }
+// - users:   { id, username, email, type, isActive }
+// - items:   { libraryItemId, mediaId, title, author, asin, isbn, ino, isPodcast }
+//            (books get asin/isbn/author from the books table; podcasts flagged)
+// - progress:{ userId, mediaItemId, mediaItemType, isFinished, finishedAt,
+//              currentTime, ebookLocation, ebookProgress,
+//              hideFromContinueListening, lastUpdate }
+// - bookmarks: { userId, libraryItemId, time, title, createdAt } (from users.bookmarks JSON)
+// finishedAt / updatedAt are Sequelize DATEs (ISO strings); we convert to epoch ms.
+export async function readImportInventory(client) {
+  const c = client
+  const toMs = (v) => {
+    if (v == null) return null
+    const n = typeof v === 'number' ? v : Date.parse(String(v))
+    return Number.isFinite(n) ? n : null
+  }
+
+  // Users.
+  const usersRes = await c.execute(
+    `SELECT id, username, email, type, isActive FROM users`,
+  )
+  const users = usersRes.rows.map((r) => ({
+    id: String(r.id),
+    username: r.username != null ? String(r.username) : '',
+    email: r.email != null ? String(r.email) : null,
+    type: r.type != null ? String(r.type) : 'user',
+    isActive: r.isActive == null ? true : Boolean(r.isActive),
+  }))
+
+  // Library items joined to books for asin/isbn/author. Author is the first
+  // author name via the bookAuthors join table; a LEFT JOIN keeps items with no
+  // author. Podcasts have no book row (b.id null) - flagged isPodcast.
+  const itemsRes = await c.execute(
+    `SELECT li.id AS libraryItemId, li.mediaId AS mediaId, li.mediaType AS mediaType,
+            li.ino AS ino, li.title AS liTitle,
+            b.title AS bookTitle, b.asin AS asin, b.isbn AS isbn,
+            (SELECT a.name FROM authors a
+               JOIN bookAuthors ba ON ba.authorId = a.id
+              WHERE ba.bookId = b.id LIMIT 1) AS author
+       FROM libraryItems li
+       LEFT JOIN books b ON b.id = li.mediaId`,
+  )
+  const items = itemsRes.rows.map((r) => ({
+    libraryItemId: String(r.libraryItemId),
+    mediaId: r.mediaId != null ? String(r.mediaId) : '',
+    title: String(r.bookTitle ?? r.liTitle ?? ''),
+    author: r.author != null ? String(r.author) : null,
+    asin: r.asin != null && String(r.asin) !== '' ? String(r.asin) : null,
+    isbn: r.isbn != null && String(r.isbn) !== '' ? String(r.isbn) : null,
+    ino: r.ino != null && String(r.ino) !== '' ? String(r.ino) : null,
+    isPodcast: String(r.mediaType) === 'podcast',
+  }))
+
+  // Progress rows. lastUpdate from updatedAt (epoch ms).
+  const progRes = await c.execute(
+    `SELECT userId, mediaItemId, mediaItemType, isFinished, finishedAt, currentTime,
+            ebookLocation, ebookProgress, hideFromContinueListening, updatedAt
+       FROM mediaProgresses`,
+  )
+  const progress = progRes.rows.map((r) => ({
+    userId: String(r.userId),
+    mediaItemId: String(r.mediaItemId),
+    mediaItemType: r.mediaItemType != null ? String(r.mediaItemType) : 'book',
+    isFinished: Boolean(r.isFinished),
+    finishedAt: toMs(r.finishedAt),
+    currentTime: Number(r.currentTime) || 0,
+    ebookLocation: r.ebookLocation != null ? String(r.ebookLocation) : null,
+    ebookProgress: r.ebookProgress != null ? Number(r.ebookProgress) : null,
+    hideFromContinueListening: Boolean(r.hideFromContinueListening),
+    lastUpdate: toMs(r.updatedAt) ?? 0,
+  }))
+
+  // Bookmarks live as a JSON array on each user row.
+  const bmRes = await c.execute(`SELECT id AS userId, bookmarks FROM users WHERE bookmarks IS NOT NULL`)
+  const bookmarks = []
+  for (const r of bmRes.rows) {
+    let arr = null
+    try {
+      arr = JSON.parse(String(r.bookmarks ?? '[]'))
+    } catch {
+      arr = null
+    }
+    if (!Array.isArray(arr)) continue
+    for (const b of arr) {
+      if (!b?.libraryItemId) continue
+      bookmarks.push({
+        userId: String(r.userId),
+        libraryItemId: String(b.libraryItemId),
+        time: Number(b.time) || 0,
+        title: b.title != null ? String(b.title) : '',
+        createdAt: toMs(b.createdAt),
+      })
+    }
+  }
+
+  return { users, items, progress, bookmarks }
+}
+
 // --- Small in-memory TTL cache -------------------------------------------
 //
 // playbackSessions has NO secondary indexes and the db is read-only (we cannot
