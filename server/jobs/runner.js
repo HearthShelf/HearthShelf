@@ -106,19 +106,98 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
   return runId
 }
 
-// Start the scheduler: on boot, schedule every registered job on its interval.
-// Intervals are overridable per-job via HS_JOB_<ID>_INTERVAL_MS (id uppercased,
-// non-alnum -> _). Timers are unref()'d so they never keep the process alive.
-// Jobs do NOT run immediately on boot (a fresh box shouldn't hammer Audible at
-// startup); the first run is one interval out, or whenever the admin clicks Run.
+// Minimal 5-field cron matcher (minute hour day-of-month month day-of-week).
+// Supports '*', comma lists, ranges 'a-b', and steps '*/n' / 'a-b/n'. Enough for
+// the schedule presets the Backups UI offers (daily/weekly at a time). Returns
+// false on any unparseable field so a bad cron never fires wildly.
+function cronFieldMatches(field, value) {
+  if (field === '*') return true
+  for (const part of field.split(',')) {
+    const [rangePart, stepPart] = part.split('/')
+    const step = stepPart ? parseInt(stepPart, 10) : 1
+    if (!Number.isFinite(step) || step <= 0) return false
+    let lo
+    let hi
+    if (rangePart === '*') {
+      lo = -Infinity
+      hi = Infinity
+    } else if (rangePart.includes('-')) {
+      const [a, b] = rangePart.split('-').map((n) => parseInt(n, 10))
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return false
+      lo = a
+      hi = b
+    } else {
+      const n = parseInt(rangePart, 10)
+      if (!Number.isFinite(n)) return false
+      lo = n
+      hi = n
+    }
+    if (value < lo || value > hi) continue
+    const base = rangePart === '*' ? 0 : lo
+    if ((value - base) % step === 0) return true
+  }
+  return false
+}
+
+// True if `cron` (5-field) matches the given Date (local time, minute-granular).
+export function cronMatches(cron, date) {
+  if (!cron || typeof cron !== 'string') return false
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length !== 5) return false
+  const [min, hour, dom, mon, dow] = fields
+  const dowVal = date.getDay() // 0-6, Sun=0 (cron 0 or 7 = Sun)
+  return (
+    cronFieldMatches(min, date.getMinutes()) &&
+    cronFieldMatches(hour, date.getHours()) &&
+    cronFieldMatches(dom, date.getDate()) &&
+    cronFieldMatches(mon, date.getMonth() + 1) &&
+    (cronFieldMatches(dow, dowVal) || (dowVal === 0 && cronFieldMatches(dow, 7)))
+  )
+}
+
+// Start the scheduler. Two kinds of job:
+//   - interval jobs (defaultIntervalMs): a setInterval, overridable via
+//     HS_JOB_<ID>_INTERVAL_MS. Kept for series-roster.
+//   - cron jobs (job.cronSchedule()): a single per-minute tick evaluates each
+//     one's current cron (read live from config, so a schedule change in the UI
+//     takes effect without a restart) and runs it when the minute matches.
+// Timers are unref()'d so they never keep the process alive. Jobs do NOT run
+// immediately on boot; the first run is on schedule or a manual click.
 export function startJobs() {
+  const cronJobs = JOBS.filter((j) => typeof j.cronSchedule === 'function')
+
   for (const job of JOBS) {
+    if (typeof job.cronSchedule === 'function') continue // handled by the cron tick
     const envKey = `HS_JOB_${job.id.replace(/[^a-z0-9]/gi, '_').toUpperCase()}_INTERVAL_MS`
     const everyMs = Number(process.env[envKey] || String(job.defaultIntervalMs))
     if (!Number.isFinite(everyMs) || everyMs <= 0) continue
     const timer = setInterval(() => {
       void runJob(job.id, { trigger: 'schedule' })
     }, everyMs)
+    if (typeof timer.unref === 'function') timer.unref()
+  }
+
+  if (cronJobs.length) {
+    // Track the last minute we fired each cron job so a slightly-jittery tick
+    // can't double-fire within the same minute.
+    const lastFiredMinute = new Map()
+    const tick = async () => {
+      const now = new Date()
+      const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`
+      for (const job of cronJobs) {
+        try {
+          const cron = await job.cronSchedule()
+          if (!cron) continue // '' / off = no schedule
+          if (!cronMatches(cron, now)) continue
+          if (lastFiredMinute.get(job.id) === minuteKey) continue
+          lastFiredMinute.set(job.id, minuteKey)
+          void runJob(job.id, { trigger: 'schedule' })
+        } catch {
+          // a config read failure just skips this job this minute
+        }
+      }
+    }
+    const timer = setInterval(() => void tick(), 60 * 1000)
     if (typeof timer.unref === 'function') timer.unref()
   }
 }

@@ -22,7 +22,24 @@ const FILE = path.join(DIR, 'hearthshelf.db')
 const url = process.env.HS_DB_URL || pathToFileURL(FILE).toString()
 const authToken = process.env.HS_DB_TOKEN || undefined
 
-export const db = createClient({ url, authToken })
+// The live libSQL client. Held behind a stable proxy (`db`) so a restore can
+// swap the underlying connection out from under every importer (they all import
+// the same `db` binding) after replacing the database file. reopenDb() rebuilds
+// this and re-runs pragmas + migrations. On the remote (Turso) path there is no
+// local file to swap, so reopen is a no-op there.
+let client = createClient({ url, authToken })
+
+// A proxy that always forwards to the current `client`. Route modules do
+// `import { db }` once; swapping `client` here transparently reconnects them.
+export const db = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      const value = client[prop]
+      return typeof value === 'function' ? value.bind(client) : value
+    },
+  },
+)
 
 // WAL lets readers and the single writer run concurrently without blocking -
 // the right mode for a small multi-user box. No-op / harmless on remote libSQL.
@@ -115,6 +132,18 @@ const SCHEMA = [
      audplexus_key     TEXT,
      audible_region    TEXT,
      updated_at        INTEGER NOT NULL
+   )`,
+  // HS backup schedule + retention (see docs/data-lifecycle/backups.md). A single
+  // instance-wide row, admin-owned. env overrides DB per field (HS_BACKUP_SCHEDULE,
+  // HS_BACKUPS_TO_KEEP, HS_BACKUP_PATH) like ai_config / integrations_config.
+  // Defaults: nightly 01:00, keep 7 - backups ship ON (opt-out) so a fresh box
+  // protects itself. off_box_path mirrors each backup to a host mount when set.
+  `CREATE TABLE IF NOT EXISTS backup_config (
+     id           INTEGER PRIMARY KEY CHECK (id = 1),
+     schedule     TEXT NOT NULL DEFAULT '0 1 * * *',
+     keep         INTEGER NOT NULL DEFAULT 7,
+     off_box_path TEXT,
+     updated_at   INTEGER NOT NULL
    )`,
   // AI config is a single instance-wide row (the admin's provider/key), not
   // per-user, so it stays single-row.
@@ -635,6 +664,44 @@ export function initDb() {
     })()
   }
   return ready
+}
+
+// Close the current libSQL client so the hearthshelf.db file can be moved or
+// replaced (Windows won't move an open file; a stale handle also risks the new
+// file being opened against old WAL). Pair with reopenDb() after the swap. The
+// proxy `db` will throw if used between close and reopen - the restore holds the
+// busy gate across both so nothing else queries in that window. No-op on remote.
+export function closeDb() {
+  if (process.env.HS_DB_URL) return
+  try {
+    client.close?.()
+  } catch {
+    // best-effort
+  }
+  ready = null
+  serverIdReady = null
+}
+
+// Reconnect to hearthshelf.db (after a restore replaced the file). Opens a fresh
+// client against the same URL and re-runs schema + migrations so an older backup
+// upgrades forward. No-op on the remote (Turso) path. Callers close first
+// (closeDb), swap the file, then reopen.
+export async function reopenDb() {
+  if (process.env.HS_DB_URL) return // remote primary; nothing to reopen
+  closeDb()
+  client = createClient({ url, authToken })
+  await initDb()
+}
+
+// Checkpoint the WAL so the main db file is complete before it's copied/moved
+// (a restore's file swap must not miss uncommitted WAL pages). Best-effort.
+export async function checkpointWal() {
+  if (process.env.HS_DB_URL) return
+  try {
+    await db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch {
+    // best-effort
+  }
 }
 
 // This instance's stable server_id. Generated once (UUIDv4) and persisted, so

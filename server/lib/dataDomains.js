@@ -169,6 +169,18 @@ export const DATA_DOMAINS = [
     userRefs: 'key',
   },
   {
+    key: 'backup-config',
+    tables: ['backup_config'],
+    files: null,
+    scope: 'instance',
+    secretColumns: {},
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: [],
+  },
+  {
     key: 'community-config',
     tables: ['community_config'],
     files: null,
