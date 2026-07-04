@@ -128,13 +128,54 @@ export function deleteApiKey(keyId: string): Promise<void> {
   return absRequest<void>(`/api/api-keys/${keyId}`, { method: 'DELETE' })
 }
 
-// --- Backups ---
+// --- Backups (AudiobookShelf's own) ---
 export function getBackups(): Promise<ABSBackupsResponse> {
   return absRequest<ABSBackupsResponse>('/api/backups')
 }
 
 export function runBackup(): Promise<void> {
   return absRequest<void>('/api/backups', { method: 'POST' })
+}
+
+export function deleteBackup(backupId: string): Promise<void> {
+  return absRequest<void>(`/api/backups/${backupId}`, { method: 'DELETE' })
+}
+
+// ABS's apply route is a GET; the server replaces its database + metadata and
+// reconnects (no process restart), so the response is best-effort.
+export function applyBackup(backupId: string): Promise<void> {
+  return absRequest<void>(`/api/backups/${backupId}/apply`)
+}
+
+// A same-origin URL for downloading a backup (used for a plain <a download>).
+// The nginx /abs-api proxy forwards it; the bearer rides via the fetch below
+// rather than the URL, so we fetch+blob instead of a bare link.
+export async function downloadBackupBlob(backupId: string): Promise<Blob> {
+  const res = await fetch(`/abs-api/api/backups/${backupId}/download`, {
+    headers: authHeader(),
+  })
+  if (!res.ok) throw new Error(`Download failed (${res.status})`)
+  return res.blob()
+}
+
+// Upload a .audiobookshelf backup. POST /api/backups/upload is multipart; ABS
+// reads it off req.files.file. absRequest serializes JSON, so hit the proxy
+// directly with FormData.
+export async function uploadBackup(file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch('/abs-api/api/backups/upload', {
+    method: 'POST',
+    headers: authHeader(),
+    body: form,
+  })
+  if (!res.ok) throw new Error(`Upload failed (${res.status})`)
+}
+
+// The bearer header for direct (non-absRequest) fetches.
+function authHeader(): Record<string, string> {
+  const token = useAuthStore.getState().token
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 // --- Sessions (all users, admin) ---
