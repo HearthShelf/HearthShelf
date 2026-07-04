@@ -27,9 +27,6 @@ dist-ssr
 .env
 .env.local
 .env.*.local
-
-# Internal reference docs (not public)
-docs/
 server/.devdata/
 
 # Local-only agent notes
