@@ -9,7 +9,7 @@ import {
   getPublicIp,
   setServerName as saveServerName,
 } from '@/api/runtime'
-import { createLibrary, checkFolderExists, updateUser } from '@/api/admin'
+import { createLibrary, checkFolderExists, updateUser, updateServerSettings } from '@/api/admin'
 import {
   startPairing,
   checkReachability,
@@ -141,6 +141,12 @@ export function OnboardingPage() {
   const [pathState, setPathState] = useState<
     'idle' | 'checking' | 'exists' | 'missing' | 'unknown'
   >('idle')
+
+  // ----- backups (final step opt-in) -----
+  // On AIO we own the bundled ABS, so nightly auto-backups are enabled by
+  // default (opt-out) when the wizard finishes. On Slim we never silently touch
+  // a foreign ABS's settings - we only recommend it (see the connect step card).
+  const [enableBackups, setEnableBackups] = useState(true)
 
   // ----- pairing / verify step -----
   const [pairCode, setPairCode] = useState<string | null>(null)
@@ -353,6 +359,7 @@ export function OnboardingPage() {
         name: serverName.trim() || undefined,
       })
       setPairCode(result.code)
+      await applyBackupOptIn()
       await markOnboarded()
       await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
       setStep('pairing')
@@ -363,11 +370,25 @@ export function OnboardingPage() {
     }
   }
 
+  // On AIO, turn on nightly ABS auto-backups (ABS's own conventions: 1:30 AM,
+  // keep 2) if the admin left the opt-in checked. Best-effort - a backup-schedule
+  // failure must never block finishing onboarding. No-op on Slim (we don't touch
+  // a foreign ABS's settings; the connect step only recommends it there).
+  async function applyBackupOptIn() {
+    if (!isAio || !enableBackups) return
+    try {
+      await updateServerSettings({ backupSchedule: '30 1 * * *', backupsToKeep: 2 })
+    } catch {
+      // non-fatal; the admin can turn backups on later from Config > Backups
+    }
+  }
+
   // Finish a local-only setup: mark onboarded and go straight into the app.
   async function finishLocal() {
     setError(null)
     setBusy(true)
     try {
+      await applyBackupOptIn()
       await markOnboarded()
       await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
       navigate('/', { replace: true })
@@ -812,6 +833,35 @@ export function OnboardingPage() {
                 </p>
               </div>
             </details>
+          </div>
+        )}
+
+        {/* Backups: AIO owns the bundled ABS, so offer an opt-OUT toggle that
+            turns on nightly auto-backups. Slim points at a foreign ABS we won't
+            silently change, so show a recommendation instead of a toggle. */}
+        {isAio ? (
+          <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={enableBackups}
+              onChange={(e) => setEnableBackups(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">Back up my library every night</span>
+              <span className="block text-muted-foreground">
+                Recommended. Keeps the last 2 automatic backups of your AudiobookShelf data. You can
+                change this any time in Settings &gt; Backups.
+              </span>
+            </span>
+          </label>
+        ) : (
+          <div className="flex items-start gap-2.5 rounded-md border px-4 py-3 text-sm">
+            <Icon name="cloud_sync" className="mt-0.5 text-[18px] text-muted-foreground" />
+            <p className="text-muted-foreground">
+              Tip: turn on automatic backups in Settings &gt; Backups so your data is protected.
+              AudiobookShelf ships with them off.
+            </p>
           </div>
         )}
 
