@@ -35,7 +35,7 @@ function isPlayerActions(v) {
 // step with packages/core/src/lib/settings.ts.
 const DEFS = {
   // Appearance (account)
-  theme: { scope: 'account', type: 'enum', values: ['dark', 'light', 'flat', 'oled'] },
+  theme: { scope: 'account', type: 'enum', values: ['auto', 'dark', 'light', 'flat', 'oled'] },
   accentMode: { scope: 'account', type: 'enum', values: ['dynamic', 'manual'] },
   accentHex: { scope: 'account', type: 'string', pattern: /^#[0-9a-fA-F]{6}$/ },
   glow: { scope: 'account', type: 'number', min: 0, max: 60, int: true },
