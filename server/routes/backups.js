@@ -29,6 +29,8 @@ import {
 } from '../lib/backup.js'
 import { runJob, isJobRunning } from '../jobs/runner.js'
 import { createArchive, estimateArchive, restoreArchive } from '../lib/archive.js'
+import { runReconcile, reprovisionServiceRoot } from '../lib/reconcile.js'
+import { setHostedConfig } from '../lib/hosted.js'
 
 // A .hsbackup is small (the DB + a few avatars), but give generous headroom.
 const MAX_BACKUP_UPLOAD_BYTES = 512 * 1024 * 1024
@@ -61,6 +63,28 @@ export async function handleBackups(req, res, url, ctx) {
   if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
 
   const serverId = await getServerId()
+
+  // --- reconcile (post-restore / post-migration) -------------------------
+
+  // GET /hs/backups/reconcile - check service accounts, connection URLs, and
+  // whether the library rescanned onto new item ids. Uses the caller's admin
+  // token. Also rewrites stale connections.abs_url as a side effect (idempotent).
+  if (p === '/hs/backups/reconcile' && req.method === 'GET') {
+    const report = await runReconcile(ctx.absToken)
+    return (json(res, 200, report), true)
+  }
+
+  // POST /hs/backups/reconcile/reprovision - re-create the AIO service root when
+  // a restore replaced it, and adopt its token as the backend's admin token.
+  if (p === '/hs/backups/reconcile/reprovision' && req.method === 'POST') {
+    try {
+      const { token, username } = await reprovisionServiceRoot(ctx.absToken)
+      await setHostedConfig({ absAdminToken: token })
+      return (json(res, 200, { ok: true, username }), true)
+    } catch (err) {
+      return (json(res, 400, { error: 'reprovision_failed', detail: String(err?.message ?? err) }), true)
+    }
+  }
 
   // --- .hsarchive (Phase 2 portability format) ---------------------------
 

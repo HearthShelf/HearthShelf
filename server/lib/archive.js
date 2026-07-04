@@ -180,7 +180,7 @@ export async function estimateArchive(absToken) {
 // Apply the ABS half: upload it to ABS then trigger apply. ABS's apply
 // (GET /api/backups/:id/apply) replaces its sqlite + metadata and reconnects
 // with no process restart. Returns true on success. Best-effort logging.
-async function applyAbsHalf(absToken, absBytes, logger) {
+export async function applyAbsHalf(absToken, absBytes, logger) {
   const base = absBase()
   if (!base || !absToken) throw new Error('AudiobookShelf is not reachable to restore its half.')
   const auth = { Authorization: `Bearer ${absToken}` }

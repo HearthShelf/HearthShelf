@@ -17,12 +17,16 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { json, readBody } from '../lib/http.js'
+import { json, readBody, readBodyBuffer } from '../lib/http.js'
 import { getMode, isAdmin } from '../lib/context.js'
 import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import { getHostedConfig, setHostedConfig } from '../lib/hosted.js'
 import { detectPublicIp } from '../lib/hsdirect.js'
 import { getServerId, getServerName, setServerName } from '../db.js'
+import { restoreFromUpload, restoreOnboardingAvailable } from '../lib/restoreOnboarding.js'
+
+// A restore upload can be a full archive (ABS + HS backups), so allow a large body.
+const MAX_RESTORE_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 // This HearthShelf backend's version, read once from server/package.json so the
 // Config UI can show what the box is running. Falls back to null if unreadable.
@@ -259,6 +263,33 @@ export async function handleRuntime(req, res, url, ctx) {
     return (json(res, 200, { token, username }), true)
   }
 
+  // Restore-from-backup during first-run setup (playbooks M1 / M2). Accepts a
+  // raw .hsarchive or bare .audiobookshelf body, drives a throwaway ABS /init,
+  // applies the ABS half, restores the HS half if present, reconciles, and marks
+  // onboarded. AIO-only and pre-onboarding (structural gate, like init-admin).
+  // Returns an honest summary of what was restored. The admin then logs in with
+  // the RESTORED credentials (the ABS restore replaced the users table).
+  if (url.pathname === '/hs/runtime/restore' && req.method === 'POST') {
+    if (getMode() !== 'aio') return (json(res, 404, { error: 'not_found' }), true)
+    if ((await getProvisioning()).onboarded) {
+      return (json(res, 409, { error: 'already_onboarded' }), true)
+    }
+    let buf
+    try {
+      buf = await readBodyBuffer(req, MAX_RESTORE_UPLOAD_BYTES)
+    } catch (err) {
+      if (err?.code === 'payload_too_large') return (json(res, 413, { error: 'too_large' }), true)
+      return (json(res, 400, { error: 'read_failed' }), true)
+    }
+    if (!buf.length) return (json(res, 400, { error: 'empty' }), true)
+    try {
+      const summary = await restoreFromUpload(buf)
+      return (json(res, 200, { ok: true, summary }), true)
+    } catch (err) {
+      return (json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }), true)
+    }
+  }
+
   // Report the box's public IP to the onboarding wizard so the Connect step can
   // work from the real public address instead of the LAN one the browser sees.
   // Gated to the AIO first-run window (no admin token exists yet on that step);
@@ -276,6 +307,9 @@ export async function handleRuntime(req, res, url, ctx) {
   const prov = await getProvisioning()
   const hosted = await getHostedConfig().catch(() => null)
   const serverName = await getServerName().catch(() => null)
+  // Whether the wizard can offer "Restore from backup" (AIO, pre-onboarding,
+  // ABS up + uninitialised). False on slim/hosted and on an already-set-up box.
+  const restoreAvailable = await restoreOnboardingAvailable().catch(() => false)
 
   // On AIO we are the source of truth for ABS setup (we provisioned it), so trust
   // our own record - it's also available before ABS finishes booting. On slim we
@@ -299,6 +333,8 @@ export async function handleRuntime(req, res, url, ctx) {
     serverId: await getServerId(),
     // The HearthShelf backend version this box is running, for the Config UI.
     hsVersion: HS_VERSION,
+    // Whether the wizard can offer a restore-from-backup path on this fresh box.
+    restoreAvailable,
   })
   return true
 }
