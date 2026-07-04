@@ -8,6 +8,8 @@ import {
   markOnboarded,
   getPublicIp,
   setServerName as saveServerName,
+  restoreFromBackup,
+  type RestoreSummary,
 } from '@/api/runtime'
 import { createLibrary, checkFolderExists, updateUser, updateServerSettings } from '@/api/admin'
 import {
@@ -78,7 +80,15 @@ const SLIM_STEPS_EMAIL = ['Email', 'Name', 'Connect']
 // Wizard steps. AIO uses name -> account -> library -> connect-aio -> pairing.
 // Slim uses (email if missing) -> name -> connect-aio -> pairing. 'connect-aio'
 // + 'pairing' are shared across modes despite the name.
-type AioStep = 'name' | 'slim-email' | 'account' | 'library' | 'connect-aio' | 'pairing' | 'done'
+type AioStep =
+  | 'name'
+  | 'slim-email'
+  | 'account'
+  | 'restore'
+  | 'library'
+  | 'connect-aio'
+  | 'pairing'
+  | 'done'
 
 export function OnboardingPage() {
   const navigate = useNavigate()
@@ -111,6 +121,9 @@ export function OnboardingPage() {
   // Slim: set once we've saved an email this session, so the email guard doesn't
   // re-trap the name step (the cached user object won't reflect the new email).
   const [emailJustSet, setEmailJustSet] = useState(false)
+
+  // ----- restore-from-backup step (aio first-run) -----
+  const [restoreSummary, setRestoreSummary] = useState<RestoreSummary | null>(null)
 
   // ----- connect decision -----
   // null = the admin hasn't touched the toggle, so it shows its default (aio:on,
@@ -380,6 +393,24 @@ export function OnboardingPage() {
       await updateServerSettings({ backupSchedule: '30 1 * * *', backupsToKeep: 2 })
     } catch {
       // non-fatal; the admin can turn backups on later from Config > Backups
+    }
+  }
+
+  // AIO restore-from-backup: upload the file, run the restore, and show the
+  // summary. On success the box is set up; the admin signs in with the RESTORED
+  // credentials (the ABS restore replaced the users table), so we route to login
+  // from the summary rather than trying to auto-sign-in.
+  async function submitRestore(file: File) {
+    setError(null)
+    setBusy(true)
+    try {
+      const summary = await restoreFromBackup(file)
+      setRestoreSummary(summary)
+      await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Restore failed. Please check the file and try again.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -675,6 +706,159 @@ export function OnboardingPage() {
             {busy ? 'Creating account…' : 'Create account and continue'}
           </Button>
         </form>
+
+        {config?.restoreAvailable && (
+          <p className="text-center text-sm text-muted-foreground">
+            Moving from another server or recovering from a crash?{' '}
+            <button
+              type="button"
+              className="font-medium text-foreground underline underline-offset-2"
+              onClick={() => {
+                setError(null)
+                setStep('restore')
+              }}
+            >
+              Restore from a backup instead
+            </button>
+          </p>
+        )}
+      </Shell>
+    )
+  }
+
+  // ===== AIO first-run: restore from a backup (M1 / M2) =====
+  if (isAio && step === 'restore') {
+    // After a successful restore, show the honest summary + next actions.
+    if (restoreSummary) {
+      const s = restoreSummary
+      const rec = s.reconcile
+      return (
+        <Shell>
+          <Eyebrow>Restored</Eyebrow>
+          <h1 className="text-2xl font-bold tracking-tight">Here’s what came back</h1>
+
+          <ul className="flex flex-col gap-2 text-sm">
+            <li className="flex items-start gap-2">
+              <Icon
+                name={s.absRestored ? 'check_circle' : 'cancel'}
+                className={`mt-0.5 text-[18px] ${s.absRestored ? 'text-green-500' : 'text-muted-foreground'}`}
+              />
+              <span>
+                {s.absRestored
+                  ? 'Your library, users, and listening progress are restored.'
+                  : 'AudiobookShelf data was not restored.'}
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Icon
+                name={s.hsRestored ? 'check_circle' : 'info'}
+                className={`mt-0.5 text-[18px] ${s.hsRestored ? 'text-green-500' : 'text-muted-foreground'}`}
+              />
+              <span>
+                {s.hsRestored
+                  ? 'HearthShelf’s data (clubs, notes, reading history, settings) is restored.'
+                  : 'HearthShelf features (clubs, notes, settings sync) start fresh - the backup had no HearthShelf data.'}
+              </span>
+            </li>
+          </ul>
+
+          {/* Sharp-edge warnings from the reconcile step. */}
+          {rec?.serviceRootMissing && (
+            <div className="rounded-md border px-4 py-3 text-sm">
+              <p className="font-medium">HearthShelf’s service account needs to be recreated</p>
+              <p className="text-muted-foreground">
+                The restore replaced the user list, so some HearthShelf background features
+                (recommendations, downloads) won’t work until it’s recreated. You can do this from
+                Settings &gt; Users after signing in.
+              </p>
+            </div>
+          )}
+          {rec?.items?.zeroMatch && (
+            <div className="rounded-md border border-amber-500/40 px-4 py-3 text-sm">
+              <p className="font-medium">Your audiobook files may be in a new location</p>
+              <p className="text-muted-foreground">
+                None of the restored library items matched files on disk. If you moved your audio to
+                a new drive, HearthShelf history may not line up until the library is re-linked.
+              </p>
+            </div>
+          )}
+          {s.warnings.map((w, i) => (
+            <p key={i} className="text-sm text-muted-foreground">
+              {w}
+            </p>
+          ))}
+
+          <div className="rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+            {s.userCount != null && s.userCount > 0 ? (
+              <>
+                All{' '}
+                <span className="font-medium text-foreground">{s.userCount}</span> restored{' '}
+                {s.userCount === 1 ? 'account keeps its' : 'accounts keep their'} original password.
+                Sign in with the username and password from{' '}
+                <span className="font-medium text-foreground">the server you backed up</span>.
+              </>
+            ) : (
+              <>
+                Sign in with the username and password from{' '}
+                <span className="font-medium text-foreground">the server you backed up</span> - not
+                the temporary setup account.
+              </>
+            )}
+          </div>
+
+          <Button className="w-full" onClick={() => navigate('/login', { replace: true })}>
+            Go to sign in
+          </Button>
+        </Shell>
+      )
+    }
+
+    // Upload form.
+    return (
+      <Shell>
+        <Eyebrow>First-run setup</Eyebrow>
+        <h1 className="text-2xl font-bold tracking-tight">Restore from a backup</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Upload a HearthShelf archive (<code>.hsarchive</code>) or an AudiobookShelf backup
+          (<code>.audiobookshelf</code>). We’ll rebuild your server from it. Make sure your audiobook
+          files are mounted first - they aren’t inside the backup.
+        </p>
+
+        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed px-4 py-8 text-center text-sm">
+          <Icon name="upload_file" className="text-2xl text-muted-foreground" />
+          <span className="font-medium">Choose a backup file</span>
+          <span className="text-muted-foreground">.hsarchive or .audiobookshelf</span>
+          <input
+            type="file"
+            accept=".hsarchive,.audiobookshelf,.zip"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void submitRestore(f)
+              e.target.value = ''
+            }}
+          />
+        </label>
+
+        {busy && (
+          <p className="text-center text-sm text-muted-foreground">
+            Restoring… this can take a minute for a large library.
+          </p>
+        )}
+        <ErrorLine error={error} />
+
+        <button
+          type="button"
+          className="text-center text-sm text-muted-foreground underline underline-offset-2"
+          disabled={busy}
+          onClick={() => {
+            setError(null)
+            setStep('account')
+          }}
+        >
+          Back to creating an account
+        </button>
       </Shell>
     )
   }

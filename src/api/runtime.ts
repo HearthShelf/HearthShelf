@@ -4,7 +4,9 @@
 // bare ABS login form. See server/routes/runtime.js.
 
 import { useAuthStore } from '@/store/authStore'
-import type { HSMode, HSRuntimeInfo } from '@hearthshelf/core'
+import type { HSMode, HSRuntimeInfo, RestoreSummary } from '@hearthshelf/core'
+
+export type { RestoreSummary }
 
 export type { HSMode }
 export type RuntimeConfig = HSRuntimeInfo
@@ -81,6 +83,30 @@ export async function initAdmin(credentials: {
 
 export function markOnboarded(): Promise<{ onboarded: boolean }> {
   return runtimeFetch<{ onboarded: boolean }>('/onboarded', { method: 'POST' })
+}
+
+// AIO first-run only: restore the whole server from an uploaded .hsarchive or a
+// bare .audiobookshelf backup. The backend drives ABS init + apply, restores the
+// HearthShelf half if present, reconciles, and marks onboarded. Returns an honest
+// summary of what was restored. The raw file rides as the request body (the
+// backend reads bytes, not multipart). Throws with the backend's detail on error.
+export async function restoreFromBackup(file: File): Promise<RestoreSummary> {
+  const res = await fetch('/hs/runtime/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/zip' },
+    body: file,
+  })
+  if (!res.ok) {
+    let detail = ''
+    try {
+      detail = ((await res.json()) as { detail?: string })?.detail ?? ''
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail || `Restore failed (${res.status})`)
+  }
+  const data = (await res.json()) as { summary: RestoreSummary }
+  return data.summary
 }
 
 // Set the server's display name (onboarding name step + Server Settings edit).
