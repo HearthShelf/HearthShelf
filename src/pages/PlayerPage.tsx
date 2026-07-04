@@ -131,6 +131,10 @@ const RULE_COPY: Record<AutoRuleId, { label: string; desc: string }> = {
     label: 'New books in a series',
     desc: "Suggest the first unread book in any series you've started.",
   },
+  'book-club': {
+    label: 'Book club picks',
+    desc: "Add what your book clubs are reading, current book first.",
+  },
 }
 
 function QueuePanel({

@@ -113,6 +113,10 @@ const RULE_LABELS: Record<AutoRuleId, { title: string; desc: string }> = {
     title: 'New book in a started series',
     desc: 'Queue unread books from any series you have begun but not completed.',
   },
+  'book-club': {
+    title: 'Book club picks',
+    desc: 'Queue what your book clubs are reading, current book first.',
+  },
 }
 
 // Drag-to-reorder list of the Auto rules, each with an on/off toggle. The list

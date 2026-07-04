@@ -56,6 +56,10 @@ const RULE_COPY: Record<AutoRuleId, { label: string; desc: string }> = {
     label: 'New books in series you started',
     desc: "Add fresh releases from a series you haven't finished yet.",
   },
+  'book-club': {
+    label: 'Book club picks',
+    desc: "Add what your book clubs are reading, current book first.",
+  },
 }
 
 const LISTS = [
