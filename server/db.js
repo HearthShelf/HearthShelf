@@ -401,6 +401,47 @@ const SCHEMA = [
      telemetry_id TEXT,
      updated_at   INTEGER NOT NULL
    )`,
+  // --- Scheduled jobs (Sonarr/Radarr-style) --------------------------------
+  // One row per job execution (scheduled tick or manual "run now"). The runner
+  // writes 'running' on start and flips to 'ok'/'error' on finish. summary is a
+  // short human line; items_processed/items_total drive a progress readout.
+  `CREATE TABLE IF NOT EXISTS job_runs (
+     id              TEXT PRIMARY KEY,
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     job_id          TEXT NOT NULL,
+     trigger         TEXT NOT NULL,           -- 'schedule' | 'manual'
+     status          TEXT NOT NULL,           -- 'running' | 'ok' | 'error'
+     started_at      INTEGER NOT NULL,
+     finished_at     INTEGER,
+     summary         TEXT,
+     error           TEXT,
+     items_processed INTEGER NOT NULL DEFAULT 0,
+     items_total     INTEGER NOT NULL DEFAULT 0
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_job_runs_job
+     ON job_runs (server_id, job_id, started_at)`,
+  // The log stream for a run, one row per line, ordered by seq.
+  `CREATE TABLE IF NOT EXISTS job_run_logs (
+     run_id  TEXT NOT NULL,
+     seq     INTEGER NOT NULL,
+     at      INTEGER NOT NULL,
+     level   TEXT NOT NULL,                   -- 'info' | 'warn' | 'error'
+     message TEXT NOT NULL,
+     PRIMARY KEY (run_id, seq)
+   )`,
+  // Precomputed Audible series roster, GLOBAL (no user_id - "owned" is a
+  // library-wide fact). Keyed by lowercased series name (how the client asks).
+  // books_json is the enriched roster: each Audible book + sequence + owned flag.
+  `CREATE TABLE IF NOT EXISTS series_roster (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     name_key      TEXT NOT NULL,             -- lowercased series name
+     name          TEXT NOT NULL,             -- original series name
+     series_asin   TEXT,                      -- null when unresolved
+     series_title  TEXT,
+     books_json    TEXT NOT NULL,             -- JSON array of enriched books
+     resolved_at   INTEGER NOT NULL,
+     PRIMARY KEY (server_id, name_key)
+   )`,
 ]
 
 // Bring a pre-server_id database up to the keyed schema. Adds the server_id

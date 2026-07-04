@@ -62,6 +62,8 @@ import { hsDirectOnStartup } from './lib/hsdirect.js'
 import { emailRelayOnStartup } from './lib/emailRelay.js'
 import { startVersionReporting } from './lib/versionReport.js'
 import { startTelemetryReporting } from './lib/telemetry.js'
+import { handleJobs } from './routes/jobs.js'
+import { startJobs } from './jobs/runner.js'
 
 const PORT = process.env.QG_PORT || 8080
 
@@ -116,6 +118,7 @@ const ROUTES = [
   handleAudible,
   handleAudplexus,
   handleIntegrations,
+  handleJobs,
 ]
 
 const server = http.createServer(async (req, res) => {
@@ -175,6 +178,9 @@ initDb()
     // If the admin opted in, send anonymous usage stats (startup + weekly). No-op
     // when opted out (the default). Background; never delays serving.
     void startTelemetryReporting()
+    // Schedule the background jobs (series-roster refresh, nightly). Manual "Run
+    // now" is available from the admin Jobs panel. Timers are unref()'d.
+    startJobs()
     server.listen(PORT, () => {
       // eslint-disable-next-line no-console
       console.log(

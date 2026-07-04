@@ -14,6 +14,7 @@
 
 import { json } from '../lib/http.js'
 import { getIntegrations } from '../integrations.js'
+import { getSeriesRoster } from '../lib/seriesRosterStore.js'
 
 const PAGE_SIZE = 25
 const RESPONSE_GROUPS =
@@ -36,7 +37,7 @@ function apiBase(region) {
 }
 
 // Resolve the configured Audible region from the integrations config.
-async function currentRegion() {
+export async function currentRegion() {
   const { audibleRegion } = await getIntegrations()
   return audibleRegion || 'us'
 }
@@ -141,7 +142,7 @@ async function searchAudible(query, page, region) {
 // most common series whose title matches the query (case-insensitive). ABS
 // exposes no series ASIN, so this is the bridge - best-effort, returns null when
 // no confident match.
-async function resolveSeriesAsin(name, region) {
+export async function resolveSeriesAsin(name, region) {
   const norm = name.trim().toLowerCase()
   const { results } = await searchAudible(name, 1, region)
   const tally = new Map() // seriesAsin -> { title, asin, count }
@@ -158,7 +159,7 @@ async function resolveSeriesAsin(name, region) {
 }
 
 // Fetch the child books of a series by its ASIN, ordered by series sequence.
-async function fetchSeriesBooks(seriesAsin, region) {
+export async function fetchSeriesBooks(seriesAsin, region) {
   const base = apiBase(region)
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 15000)
@@ -227,10 +228,29 @@ export async function handleAudible(req, res, url, ctx) {
   }
 
   // Series books by name: GET /hs/audible/series?q=<series name>
-  // Resolves the series ASIN, then returns its books ordered by sequence.
+  // Prefers the precomputed roster (the nightly series-roster job) - it carries a
+  // library-wide `owned` flag per book and needs no live Audible call. Falls back
+  // to resolving live for a series the job hasn't swept yet (new series, or job
+  // never run), so a cold instance still works while the sweep catches up.
   if (p === '/hs/audible/series') {
     const name = (url.searchParams.get('q') ?? '').trim()
     if (name.length < 2) return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+
+    // 1) Precomputed (owned-flagged) roster, if the job has recorded this series.
+    const precomputed = await getSeriesRoster(name)
+    if (precomputed) {
+      return (
+        json(res, 200, {
+          name: precomputed.name,
+          seriesAsin: precomputed.seriesAsin,
+          seriesTitle: precomputed.seriesTitle,
+          books: precomputed.books,
+        }),
+        true
+      )
+    }
+
+    // 2) Live resolve (in-memory TTL cache), for a series not yet swept.
     const key = `series|${region}|${name.toLowerCase()}`
     const cached = cacheGet(key)
     if (cached) return (json(res, 200, cached), true)

@@ -615,4 +615,60 @@ export async function getChapters(libraryItemId) {
   })
 }
 
+// --- Series enumeration (for the series-roster job) ------------------------
+//
+// The whole library's series membership, read straight from ABS's own tables so
+// a background job can enumerate every series and the books owned in each WITHOUT
+// any user token or per-item API call. ABS stores series membership in the
+// bookSeries join (bookId, seriesId, sequence), the series name in series.name,
+// and each book's Audible id in books.asin - so we can compute a library-wide
+// "owned" fact (does the library hold this ASIN / this sequence / this title in
+// the series) that isn't per-user.
+
+// Every distinct series in the library: { seriesId, name }. Ordered by name.
+// [] on any failure or when the ABS db isn't mounted.
+export async function getAllSeries() {
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute(`
+      SELECT DISTINCT s.id AS seriesId, s.name AS name
+      FROM series s
+      JOIN bookSeries bs ON bs.seriesId = s.id
+      WHERE s.name IS NOT NULL AND s.name != ''
+      ORDER BY s.name
+    `)
+    return res.rows.map((r) => ({ seriesId: String(r.seriesId), name: String(r.name) }))
+  } catch {
+    return []
+  }
+}
+
+// The books the library owns in one series: { asin, title, sequence }. asin/title
+// may be '' when ABS has none. sequence is ABS's bookSeries.sequence (a string,
+// e.g. "4" or "2.5") or ''. [] on any failure.
+export async function getOwnedSeriesBooks(seriesId) {
+  if (!seriesId) return []
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT b.asin AS asin, b.title AS title, bs.sequence AS sequence
+        FROM bookSeries bs
+        JOIN books b ON b.id = bs.bookId
+        WHERE bs.seriesId = ?
+      `,
+      args: [seriesId],
+    })
+    return res.rows.map((r) => ({
+      asin: r.asin == null ? '' : String(r.asin),
+      title: r.title == null ? '' : String(r.title),
+      sequence: r.sequence == null ? '' : String(r.sequence),
+    }))
+  } catch {
+    return []
+  }
+}
+
 export const ABS_DB_PATH_RESOLVED = ABS_DB_PATH
