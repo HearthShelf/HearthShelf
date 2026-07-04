@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ePub, { type Book, type Rendition, type NavItem } from 'epubjs'
+import { cfiStorageKey, readerDimOpacity, audioAnchorFraction } from '@hearthshelf/core'
 import { getItem, ebookUrl, libraryKeys } from '@/api/libraries'
 import { useAuthStore } from '@/store/authStore'
 import { usePlayerStore } from '@/store/playerStore'
@@ -18,8 +19,6 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 import { ReaderSettingsPanel } from '@/components/reader/ReaderSettingsPanel'
-
-const CFI_KEY = (id: string) => `hs-reader-cfi-${id}`
 
 interface ReaderPageProps {
   // When set, the reader renders as an inline "read along" panel (e.g. beside
@@ -75,7 +74,7 @@ export function ReaderPage({ itemId: itemIdProp, inline, onClose }: ReaderPagePr
     const book = bookRef.current
     const rendition = renditionRef.current
     if (!book || !rendition || audioDuration <= 0) return
-    const pct = Math.min(1, Math.max(0, audioCurrent / audioDuration))
+    const pct = audioAnchorFraction(audioCurrent, audioDuration)
     const cfi = book.locations.cfiFromPercentage(pct)
     if (cfi) void rendition.display(cfi)
   }, [audioCurrent, audioDuration])
@@ -113,7 +112,7 @@ export function ReaderPage({ itemId: itemIdProp, inline, onClose }: ReaderPagePr
         })
         renditionRef.current = rendition
 
-        const savedCfi = localStorage.getItem(CFI_KEY(itemId)) || undefined
+        const savedCfi = localStorage.getItem(cfiStorageKey(itemId)) || undefined
         rendition
           .display(savedCfi)
           .then(() => {
@@ -145,7 +144,7 @@ export function ReaderPage({ itemId: itemIdProp, inline, onClose }: ReaderPagePr
 
     function onRelocated(loc: { start: { cfi: string; href: string } }) {
       if (cancelled || !book || !itemId) return
-      localStorage.setItem(CFI_KEY(itemId), loc.start.cfi)
+      localStorage.setItem(cfiStorageKey(itemId), loc.start.cfi)
       const pct = book.locations.percentageFromCfi(loc.start.cfi)
       if (typeof pct === 'number' && !Number.isNaN(pct)) setProgress(pct)
       const item = book.navigation?.get(loc.start.href)
@@ -230,7 +229,7 @@ export function ReaderPage({ itemId: itemIdProp, inline, onClose }: ReaderPagePr
     ['--rd-fill' as string]: theme.fill,
     ['--rd-surface' as string]: theme.surface,
   }
-  const dim = Math.max(0, (100 - prefs.brightness) / 100) * 0.72
+  const dim = readerDimOpacity(prefs.brightness)
 
   if (!itemId) return <ErrorState message="No book selected." />
 

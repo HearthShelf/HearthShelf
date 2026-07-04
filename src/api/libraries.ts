@@ -1,3 +1,4 @@
+import { ABS_ENDPOINTS } from '@hearthshelf/core'
 import { absRequest } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import type {
@@ -42,7 +43,7 @@ export function getItem(itemId: string): Promise<ABSLibraryItemDetail> {
 // proxied ABS endpoint accepts ?token= for file serving.
 export function ebookUrl(itemId: string, token: string | null): string {
   const params = token ? `?token=${encodeURIComponent(token)}` : ''
-  return `/abs-api/api/items/${itemId}/ebook${params}`
+  return `/abs-api${ABS_ENDPOINTS.itemEbook(itemId)}${params}`
 }
 
 // Editable subset of an item's metadata. PATCH /api/items/:id/media accepts a
