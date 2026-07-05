@@ -9,7 +9,7 @@ import { db, getServerId } from '../db.js'
 // Persist one series' enriched roster. `books` is the array already stamped with
 // owned flags. Upsert so a re-run refreshes in place.
 export async function saveSeriesRoster({ name, seriesAsin, seriesTitle, books }) {
-  const serverId = getServerId()
+  const serverId = await getServerId()
   const nameKey = name.trim().toLowerCase()
   await db.execute({
     sql: `
@@ -39,7 +39,7 @@ export async function saveSeriesRoster({ name, seriesAsin, seriesTitle, books })
 // route returns ({ name, seriesAsin, seriesTitle, books, resolvedAt }) or null
 // when this series hasn't been swept yet.
 export async function getSeriesRoster(name) {
-  const serverId = getServerId()
+  const serverId = await getServerId()
   const nameKey = String(name ?? '')
     .trim()
     .toLowerCase()
