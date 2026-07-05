@@ -492,6 +492,50 @@ const SCHEMA = [
      resolved_at   INTEGER NOT NULL,
      PRIMARY KEY (server_id, name_key)
    )`,
+
+  // Release subscriptions: a user follows an upcoming book (kind='book', keyed by
+  // asin) or a whole series (kind='series', keyed by series_asin, auto-covering
+  // its future books). The full display payload (title/author/cover/dates) is
+  // stored here so clients + the Home banner never refetch Audible to render it;
+  // the push job updates available/available_at as books land in ABS. One row per
+  // (server_id, user_id, id).
+  `CREATE TABLE IF NOT EXISTS subscriptions (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     user_id       TEXT NOT NULL,
+     id            TEXT NOT NULL,             -- app-generated uuid
+     kind          TEXT NOT NULL,             -- 'book' | 'series'
+     asin          TEXT,                      -- book subs: the awaited product
+     series_asin   TEXT,                      -- series subs + parent series of a book sub
+     title         TEXT NOT NULL,
+     author        TEXT,
+     series_title  TEXT,
+     sequence      TEXT,
+     cover_art_url TEXT,
+     narrator      TEXT,
+     duration_min  INTEGER,
+     release_date  TEXT,                      -- 'YYYY-MM-DD'
+     publication_datetime TEXT,               -- ISO 8601
+     available     INTEGER NOT NULL DEFAULT 0,-- 1 once the book is owned in ABS
+     available_at  INTEGER,                   -- ms epoch when it landed, else null
+     notified_json TEXT,                      -- JSON: which push signals already fired
+     created_at    INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id, id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_subscriptions_user
+     ON subscriptions (server_id, user_id)`,
+
+  // Expo push tokens per user+device. A user can have several devices; one row
+  // per token. Refreshed on each app launch (upsert on token).
+  `CREATE TABLE IF NOT EXISTS push_tokens (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     user_id       TEXT NOT NULL,
+     token         TEXT NOT NULL,             -- ExponentPushToken[...]
+     platform      TEXT,                      -- 'ios' | 'android'
+     updated_at    INTEGER NOT NULL,
+     PRIMARY KEY (server_id, token)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_push_tokens_user
+     ON push_tokens (server_id, user_id)`,
 ]
 
 // Bring a pre-server_id database up to the keyed schema. Adds the server_id

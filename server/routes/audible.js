@@ -63,6 +63,13 @@ function mapProduct(product) {
     seriesAsin = preferred.asin ?? undefined
   }
 
+  // Precise publication instant (better for day-accurate countdowns than the
+  // date-only release_date); `upcoming` is a future release relative to now.
+  const publicationDatetime = product.publication_datetime ?? undefined
+  const releaseDate = product.release_date ?? undefined
+  const relMs = Date.parse(publicationDatetime || releaseDate || '')
+  const upcoming = Number.isNaN(relMs) ? undefined : relMs > Date.now()
+
   return {
     asin: product.asin,
     title: product.title ?? '',
@@ -72,7 +79,9 @@ function mapProduct(product) {
     description,
     coverArtUrl,
     durationMinutes: product.runtime_length_min ?? undefined,
-    releaseDate: product.release_date ?? undefined,
+    releaseDate,
+    publicationDatetime,
+    upcoming,
     rating: product.rating?.overall_distribution?.display_stars ?? undefined,
     series,
     seriesAsin,
