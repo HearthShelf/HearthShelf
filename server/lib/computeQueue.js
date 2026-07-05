@@ -87,7 +87,11 @@ export async function resolveQueue(ctx) {
       libraries.map((l) =>
         Promise.all([
           absJson(ctx, `/api/libraries/${encodeURIComponent(l.id)}/items?minified=1&limit=0`),
-          absJson(ctx, `/api/libraries/${encodeURIComponent(l.id)}/series?limit=0`),
+          // NOTE: ABS's /series endpoint does NOT treat limit=0 as "all" the way
+          // /items does - limit=0 returns an EMPTY results array (total is still
+          // reported). We must pass a concrete, large limit or the queue builder
+          // gets no series and the finish-series / new-in-series rules never fire.
+          absJson(ctx, `/api/libraries/${encodeURIComponent(l.id)}/series?limit=100000`),
         ]),
       ),
     )
