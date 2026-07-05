@@ -3,10 +3,12 @@
 // { id, name, description, defaultIntervalMs, run(logger) -> summary string }.
 
 import { runSeriesRoster } from './seriesRoster.js'
+import { runReleaseNotify } from './releaseNotify.js'
 import { runBackupJob } from '../lib/backup.js'
 import { getBackupConfig } from '../backupConfig.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const HOUR_MS = 60 * 60 * 1000
 
 export const JOBS = [
   {
@@ -16,6 +18,14 @@ export const JOBS = [
       'Resolves every series in your library against Audible and records which books you own, so missing-book lists load instantly and accurately.',
     defaultIntervalMs: DAY_MS, // nightly
     run: runSeriesRoster,
+  },
+  {
+    id: 'release-notify',
+    name: 'Release notifications',
+    description:
+      'Checks the books and series people are following and sends a push notification when a book is available in the library, on its release day, or a few days before.',
+    defaultIntervalMs: 6 * HOUR_MS,
+    run: runReleaseNotify,
   },
   {
     id: 'hs-backup',

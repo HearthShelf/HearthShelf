@@ -866,4 +866,47 @@ export async function getOwnedSeriesBooks(seriesId) {
   }
 }
 
+// The set of all book ASINs held in the library (lowercased). Loaded once by the
+// release-notification job to detect when a followed book has landed in ABS.
+export async function getOwnedAsins() {
+  const set = new Set()
+  const c = await ensureClient()
+  if (!c) return set
+  try {
+    const res = await c.execute(`SELECT asin FROM books WHERE asin IS NOT NULL AND asin != ''`)
+    for (const r of res.rows) if (r.asin) set.add(String(r.asin).toLowerCase())
+  } catch {
+    // Return whatever we have; a missing table just means no matches.
+  }
+  return set
+}
+
+// Resolve a book by its Audible ASIN to its library-item id + title, for a push
+// deep-link once the followed book is in the library. null when not present.
+export async function getLibraryItemByAsin(asin) {
+  if (!asin) return null
+  const c = await ensureClient()
+  if (!c) return null
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT li.id AS libraryItemId, b.title AS title
+        FROM books b
+        JOIN libraryItems li ON li.mediaId = b.id
+        WHERE lower(b.asin) = ?
+        LIMIT 1
+      `,
+      args: [String(asin).toLowerCase()],
+    })
+    const row = res.rows[0]
+    if (!row) return null
+    return {
+      libraryItemId: row.libraryItemId == null ? null : String(row.libraryItemId),
+      title: row.title == null ? '' : String(row.title),
+    }
+  } catch {
+    return null
+  }
+}
+
 export const ABS_DB_PATH_RESOLVED = ABS_DB_PATH
