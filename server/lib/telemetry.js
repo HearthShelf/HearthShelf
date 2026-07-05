@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { db, initDb, getServerId } from '../db.js'
 import { getMode } from './context.js'
 import { getHostedConfig } from './hosted.js'
+import { getLibraryBookCount } from './absdb.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
@@ -97,10 +98,13 @@ async function scalar(sql) {
   }
 }
 
-// Best-effort ABS library size (total items) + version from its public endpoints.
-// Never throws; returns { books: 0, absVersion: null } on any failure.
+// Best-effort ABS library size + version. The book count comes straight from ABS's
+// SQLite (read-only, via absdb.js) so it needs no admin token; it returns 0 when
+// the ABS db isn't mounted (some slim installs). The version comes from the public
+// /status. Never throws; returns { books: 0, absVersion: null } on any failure.
 async function absSnapshot() {
   const out = { books: 0, absVersion: null }
+  out.books = await getLibraryBookCount().catch(() => 0)
   if (!ABS_URL) return out
   const base = ABS_URL.replace(/\/$/, '')
   try {

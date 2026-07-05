@@ -421,6 +421,23 @@ export async function getUserEmail(userId) {
   }
 }
 
+// Total number of book library items across the whole server. Read straight from
+// ABS's libraryItems table (the same read-only connection the social features
+// use). Returns 0 when the ABS db isn't mounted (e.g. a slim install without the
+// config volume) or on any error - callers treat 0 as "unknown/none".
+export async function getLibraryBookCount() {
+  const c = await ensureClient()
+  if (!c) return 0
+  try {
+    const res = await c.execute(
+      `SELECT COUNT(*) AS n FROM libraryItems WHERE mediaType = 'book'`,
+    )
+    return Number(res.rows[0]?.n) || 0
+  } catch {
+    return 0
+  }
+}
+
 // How many distinct users have finished a given library item. The progress rows
 // reference the book by its media id (books.id), not the library-item id, so we
 // hop libraryItems -> books to resolve it. Returns 0 on any failure.
