@@ -49,6 +49,7 @@ import { handleNotes } from './routes/notes.js'
 import { handleClubs } from './routes/clubs.js'
 import { handleRmab } from './routes/rmab.js'
 import { handleAudible } from './routes/audible.js'
+import { handleSubscriptions } from './routes/subscriptions.js'
 import { handleAudplexus } from './routes/audplexus.js'
 import { handleIntegrations } from './routes/integrations.js'
 import { handleHosted } from './routes/hosted.js'
@@ -121,6 +122,7 @@ const ROUTES = [
   handleTelemetry,
   handleRmab,
   handleAudible,
+  handleSubscriptions,
   handleAudplexus,
   handleIntegrations,
   handleJobs,
