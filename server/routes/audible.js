@@ -210,6 +210,29 @@ export async function fetchSeriesBooks(seriesAsin, region) {
   }
 }
 
+// Fetch a single Audible product by ASIN, mapped to our result shape. null when
+// not found. Used by the upcoming-book page (reachable fresh, e.g. from a push
+// deep-link, without the series roster in hand).
+export async function fetchProduct(asin, region) {
+  const base = apiBase(region)
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), 15000)
+  try {
+    const params = new URLSearchParams({ response_groups: RESPONSE_GROUPS })
+    const r = await fetch(
+      `${base}/1.0/catalog/products/${encodeURIComponent(asin)}?${params.toString()}`,
+      { signal: ctrl.signal, headers: { Accept: 'application/json' } },
+    )
+    if (!r.ok) return null
+    const data = await r.json()
+    return data?.product ? mapProduct(data.product) : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 export async function handleAudible(req, res, url, ctx) {
   const p = url.pathname
   if (!p.startsWith('/hs/audible/')) return false
@@ -234,6 +257,19 @@ export async function handleAudible(req, res, url, ctx) {
     const result = await searchAudible(q, page, region)
     cacheSet(key, result)
     return (json(res, 200, { query: q, ...result }), true)
+  }
+
+  // Single product by ASIN: GET /hs/audible/product?asin=<asin>
+  if (p === '/hs/audible/product') {
+    const asin = (url.searchParams.get('asin') ?? '').trim()
+    if (!asin) return (json(res, 400, { error: 'asin_required' }), true)
+    const key = `product|${region}|${asin}`
+    const cached = cacheGet(key)
+    if (cached) return (json(res, 200, cached), true)
+    const product = await fetchProduct(asin, region)
+    if (!product) return (json(res, 404, { error: 'not_found' }), true)
+    cacheSet(key, product)
+    return (json(res, 200, product), true)
   }
 
   // Series books by name: GET /hs/audible/series?q=<series name>
