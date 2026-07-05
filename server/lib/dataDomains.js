@@ -290,6 +290,36 @@ export const DATA_DOMAINS = [
     itemRefs: [],
     userRefs: 'key',
   },
+  {
+    // Release subscriptions: the books/series a user follows for notifications.
+    // The awaited book's identifiers are Audible ASINs (asin / series_asin), not
+    // ABS library-item ids, so there are no itemRefs to re-map on merge.
+    key: 'release-subscriptions',
+    tables: ['subscriptions'],
+    files: null,
+    scope: 'user',
+    secretColumns: {},
+    backup: 'always',
+    userExport: true, // the user's own follow list
+    merge: 'union', // hand-picked follows from each device combine
+    itemRefs: [],
+    userRefs: 'key',
+  },
+  {
+    // Expo push tokens per user+device. Device-specific and sensitive (a push
+    // token targets a physical device), so never exported and never merged - each
+    // device re-registers its own token on launch.
+    key: 'push-tokens',
+    tables: ['push_tokens'],
+    files: null,
+    scope: 'user',
+    secretColumns: { push_tokens: ['token'] },
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: 'key',
+  },
 ]
 
 // Tables that belong to no lifecycle domain by design: operational history and
