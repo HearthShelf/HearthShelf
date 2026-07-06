@@ -112,9 +112,11 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
       if (controller.signal.aborted) {
         logger.warn('Cancelled by admin')
       } else {
+        // Guard on status = 'running' so a cancel that lands right as the job
+        // finishes stays authoritative (the cancelled 'error' row isn't clobbered).
         await db
           .execute({
-            sql: `UPDATE job_runs SET status = 'ok', finished_at = ?, summary = ? WHERE id = ?`,
+            sql: `UPDATE job_runs SET status = 'ok', finished_at = ?, summary = ? WHERE id = ? AND status = 'running'`,
             args: [Date.now(), String(summary ?? 'Done').slice(0, 500), runId],
           })
           .catch(() => {})
