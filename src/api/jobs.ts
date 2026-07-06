@@ -61,6 +61,10 @@ export async function runJobNow(id: string): Promise<{ runId: string | null }> {
   return hsFetch(`/${encodeURIComponent(id)}/run`, { method: 'POST' })
 }
 
+export async function cancelJob(id: string): Promise<{ runId: string | null }> {
+  return hsFetch(`/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+}
+
 export async function getJobRuns(id: string): Promise<{ runs: JobRun[] }> {
   return hsFetch(`/${encodeURIComponent(id)}/runs`)
 }

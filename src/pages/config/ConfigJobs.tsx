@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getJobs, runJobNow, getRunLogs, jobKeys, type JobSummary, type JobRun } from '@/api/jobs'
+import {
+  getJobs,
+  runJobNow,
+  cancelJob,
+  getRunLogs,
+  jobKeys,
+  type JobSummary,
+  type JobRun,
+} from '@/api/jobs'
+import { useAdvancedMode } from '@/pages/config/AdvancedMode'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 
@@ -67,6 +76,7 @@ function RunLogs({ runId }: { runId: string }) {
 
 function JobCard({ job }: { job: JobSummary }) {
   const qc = useQueryClient()
+  const { advanced } = useAdvancedMode()
   const [showLogs, setShowLogs] = useState(false)
   const run = job.lastRun
   const running = job.running || run?.status === 'running'
@@ -78,6 +88,11 @@ function JobCard({ job }: { job: JobSummary }) {
       // Refresh the list (status -> running) and poll for a bit.
       void qc.invalidateQueries({ queryKey: jobKeys.list })
     },
+  })
+
+  const kill = useMutation({
+    mutationFn: () => cancelJob(job.id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: jobKeys.list }),
   })
 
   const meta = run ? STATUS_META[run.status] : null
@@ -93,14 +108,27 @@ function JobCard({ job }: { job: JobSummary }) {
           <div className="job-name">{job.name}</div>
           <div className="job-desc">{job.description}</div>
         </div>
-        <button
-          className="btn btn-primary"
-          disabled={running || trigger.isPending}
-          onClick={() => trigger.mutate()}
-        >
-          <Icon name={running ? 'hourglass_top' : 'play_arrow'} fill />
-          {running ? 'Running...' : 'Run now'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
+          {advanced && running && (
+            <button
+              className="btn btn-danger"
+              disabled={kill.isPending}
+              onClick={() => kill.mutate()}
+              title="Stop this running job"
+            >
+              <Icon name="stop_circle" fill />
+              {kill.isPending ? 'Stopping...' : 'Kill'}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            disabled={running || trigger.isPending}
+            onClick={() => trigger.mutate()}
+          >
+            <Icon name={running ? 'hourglass_top' : 'play_arrow'} fill />
+            {running ? 'Running...' : 'Run now'}
+          </button>
+        </div>
       </div>
 
       <div className="job-meta">

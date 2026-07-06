@@ -32,6 +32,7 @@ import { ConfigCommunity } from '@/pages/config/ConfigCommunity'
 import { ConfigHosted } from '@/pages/config/ConfigHosted'
 import { StatsPage } from '@/pages/StatsPage'
 import { ConfigStub } from '@/pages/config/ConfigStub'
+import { AdvancedModeProvider, AdvancedToggle } from '@/pages/config/AdvancedMode'
 
 interface NavEntry {
   id: string
@@ -90,7 +91,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
     {
       label: 'Server',
       items: [
-        { id: 'settings', icon: 'tune', label: 'Settings' },
+        { id: 'settings', icon: 'tune', label: 'General' },
         {
           id: 'libraries',
           icon: 'video_library',
@@ -202,44 +203,47 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
   const wrapMode = isMobile ? (mobileMenu ? ' cfg-menu' : ' cfg-detail') : ''
 
   return (
-    <div className={'page config-wrap fade-in' + wrapMode}>
-      <nav className="config-nav">
-        {groups.map((g) => (
-          <div key={g.label}>
-            <div className="cn-label">{g.label}</div>
-            {g.items.map((it) => (
-              <button
-                key={it.id}
-                className={'cn-item' + (activeId === it.id ? ' on' : '')}
-                onClick={() => navigate(`/config/${it.id}`)}
-              >
-                <Icon name={it.icon} fill={activeId === it.id} />
-                {it.label}
-                {it.badge != null && <span className="cn-badge">{it.badge}</span>}
-                <Icon name="chevron_right" className="cn-chev" />
-              </button>
-            ))}
+    <AdvancedModeProvider>
+      <div className={'page config-wrap fade-in' + wrapMode}>
+        <nav className="config-nav">
+          {groups.map((g) => (
+            <div key={g.label}>
+              <div className="cn-label">{g.label}</div>
+              {g.items.map((it) => (
+                <button
+                  key={it.id}
+                  className={'cn-item' + (activeId === it.id ? ' on' : '')}
+                  onClick={() => navigate(`/config/${it.id}`)}
+                >
+                  <Icon name={it.icon} fill={activeId === it.id} />
+                  {it.label}
+                  {it.badge != null && <span className="cn-badge">{it.badge}</span>}
+                  <Icon name="chevron_right" className="cn-chev" />
+                </button>
+              ))}
+            </div>
+          ))}
+          <div className="config-foot">
+            HearthShelf · server admin
+            <br />
+            {status?.app ?? 'audiobookshelf'} {status?.serverVersion ?? '—'}
+            <br />
+            {window.location.host}
           </div>
-        ))}
-        <div className="config-foot">
-          HearthShelf · server admin
-          <br />
-          {status?.app ?? 'audiobookshelf'} {status?.serverVersion ?? '—'}
-          <br />
-          {window.location.host}
-        </div>
-      </nav>
-      {!mobileMenu && (
-        <div className="config-body">
-          {isMobile && (
-            <button className="cfg-back" onClick={() => navigate('/config')}>
-              <Icon name="arrow_back" /> All settings
-            </button>
-          )}
-          {body()}
-        </div>
-      )}
-    </div>
+        </nav>
+        {!mobileMenu && (
+          <div className="config-body">
+            {isMobile && (
+              <button className="cfg-back" onClick={() => navigate('/config')}>
+                <Icon name="arrow_back" /> All settings
+              </button>
+            )}
+            <AdvancedToggle />
+            {body()}
+          </div>
+        )}
+      </div>
+    </AdvancedModeProvider>
   )
 }
 
