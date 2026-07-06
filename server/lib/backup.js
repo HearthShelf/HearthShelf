@@ -125,9 +125,7 @@ async function copyFile(src, dest) {
 // timestamp). Runs against the primary backup dir only.
 async function sweepRetention(keep, logger) {
   try {
-    const files = (await fs.readdir(BACKUP_DIR))
-      .filter((f) => f.endsWith(BACKUP_EXT))
-      .sort() // ascending; timestamp in the name sorts chronologically
+    const files = (await fs.readdir(BACKUP_DIR)).filter((f) => f.endsWith(BACKUP_EXT)).sort() // ascending; timestamp in the name sorts chronologically
     const excess = files.length - keep
     if (excess > 0) {
       for (const f of files.slice(0, excess)) {
@@ -140,12 +138,27 @@ async function sweepRetention(keep, logger) {
   }
 }
 
+// Thrown when a cancel is requested at a phase boundary. Caught by runBackupJob
+// so a cancelled backup ends cleanly instead of as a failure.
+class BackupCancelled extends Error {
+  constructor() {
+    super('Cancelled by admin')
+    this.name = 'BackupCancelled'
+  }
+}
+
 // Create a backup now. Returns { filename, size, path }. `logger` is the job
-// logger (optional); pass one when run as a scheduled/manual job.
-export async function createBackup(logger) {
+// logger (optional); pass one when run as a scheduled/manual job. `signal` (also
+// optional) lets a Kill bail out at a phase boundary, before anything durable is
+// written. The heavy single operations (VACUUM INTO, zip write) can't be
+// interrupted midway, so cancellation lands between phases, not inside them.
+export async function createBackup(logger, signal) {
   if (busy) throw new Error('A backup or restore is already in progress.')
   busy = true
   const tmpSnap = path.join(BACKUP_DIR, `.snapshot-${crypto.randomUUID()}.db`)
+  const checkCancelled = () => {
+    if (signal?.aborted) throw new BackupCancelled()
+  }
   try {
     await initDb()
     await ensureDir(BACKUP_DIR)
@@ -154,6 +167,7 @@ export async function createBackup(logger) {
     const serverName = await getServerName()
     const createdAt = Date.now()
 
+    checkCancelled()
     logger?.info?.('Snapshotting hearthshelf.db')
     await snapshotDb(tmpSnap)
 
@@ -172,6 +186,7 @@ export async function createBackup(logger) {
       fileRoots,
     }
 
+    checkCancelled()
     logger?.info?.('Building archive')
     const zip = new AdmZip()
     zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2)))
@@ -180,6 +195,7 @@ export async function createBackup(logger) {
 
     const filename = `hearthshelf-${slug(serverName)}-${stamp(createdAt)}${BACKUP_EXT}`
     const outPath = path.join(BACKUP_DIR, filename)
+    checkCancelled()
     zip.writeZip(outPath)
     const size = (await fs.stat(outPath)).size
     logger?.info?.(`Wrote ${filename} (${size} bytes)`)
@@ -205,9 +221,17 @@ export async function createBackup(logger) {
 }
 
 // The job entry point (registry.js). Returns a one-line summary.
-export async function runBackupJob(logger) {
-  const { filename, size } = await createBackup(logger)
-  return `Backed up ${filename} (${(size / 1024).toFixed(0)} KB)`
+export async function runBackupJob(logger, signal) {
+  try {
+    const { filename, size } = await createBackup(logger, signal)
+    return `Backed up ${filename} (${(size / 1024).toFixed(0)} KB)`
+  } catch (err) {
+    if (err instanceof BackupCancelled) {
+      logger?.warn?.('Cancelled before the archive was written')
+      return 'Cancelled by admin'
+    }
+    throw err
+  }
 }
 
 // --- Listing / reading / deleting ----------------------------------------
@@ -302,7 +326,12 @@ export async function saveUploadedBackup(buf) {
   const outPath = path.join(BACKUP_DIR, filename)
   await fs.writeFile(outPath, buf)
   const size = (await fs.stat(outPath)).size
-  return { id: filename.slice(0, -BACKUP_EXT.length), filename, size, createdAt: manifest.createdAt }
+  return {
+    id: filename.slice(0, -BACKUP_EXT.length),
+    filename,
+    size,
+    createdAt: manifest.createdAt,
+  }
 }
 
 // --- Restore ---------------------------------------------------------------

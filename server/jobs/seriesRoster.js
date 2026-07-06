@@ -56,10 +56,19 @@ function stampOwned(audibleBooks, ownedBooks) {
 }
 
 // Small delay so we don't hammer the Audible catalog API across a large library.
-const between = (ms) => new Promise((r) => setTimeout(r, ms))
+// Resolves early if the run is cancelled so a Kill doesn't wait out the pacing.
+const between = (ms, signal) =>
+  new Promise((r) => {
+    if (signal?.aborted) return r()
+    const t = setTimeout(r, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t)
+      r()
+    })
+  })
 const PACING_MS = Number(process.env.HS_JOB_SERIES_PACING_MS || '250')
 
-export async function runSeriesRoster(logger) {
+export async function runSeriesRoster(logger, signal) {
   if (!(await absDbAvailable())) {
     logger.warn('ABS database not available (HS_ABS_DB_PATH) - cannot enumerate series. Skipping.')
     return 'Skipped: ABS database not mounted'
@@ -74,6 +83,10 @@ export async function runSeriesRoster(logger) {
   let unresolved = 0
   let i = 0
   for (const s of seriesList) {
+    if (signal?.aborted) {
+      logger.warn(`Cancelled after ${i} of ${seriesList.length} series`)
+      return `Cancelled after ${i} of ${seriesList.length} series (${resolved} resolved)`
+    }
     i++
     try {
       const match = await resolveSeriesAsin(s.name, region)
@@ -102,7 +115,7 @@ export async function runSeriesRoster(logger) {
       logger.warn(`[${i}/${seriesList.length}] ${s.name}: ${String(err?.message ?? err)}`)
     }
     logger.progress(i, seriesList.length)
-    if (PACING_MS > 0 && i < seriesList.length) await between(PACING_MS)
+    if (PACING_MS > 0 && i < seriesList.length) await between(PACING_MS, signal)
   }
 
   return `Resolved ${resolved}, unresolved ${unresolved} of ${seriesList.length} series`
