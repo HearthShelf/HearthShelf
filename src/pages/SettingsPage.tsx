@@ -578,6 +578,16 @@ export function SettingsPage() {
                   }
                 />
                 <SetRow
+                  title="Search outside your library"
+                  desc="Also find audiobooks you don't own yet. Search shows them in a 'Not in your library' section so you can request them."
+                  control={
+                    <Toggle
+                      on={s.searchExternalSources}
+                      onClick={() => put('searchExternalSources', !s.searchExternalSources)}
+                    />
+                  }
+                />
+                <SetRow
                   title="Show what others have read"
                   desc="See community comparisons and what other listeners are reading."
                   disabled

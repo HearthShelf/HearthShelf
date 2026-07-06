@@ -91,6 +91,9 @@ export interface SettingsState {
   libraryFill: boolean
   unifiedHome: boolean
   showOthersBooks: boolean
+  // When on, Search also looks up titles you don't own via the Audible catalog
+  // and shows them in a "Not in your library" section.
+  searchExternalSources: boolean
   // Tri-state: null = no explicit choice (follow the server's default sharing
   // setting); true/false = the user's own choice, which the admin default never
   // overrides. Only written once the user actually toggles it.
@@ -185,6 +188,7 @@ export const useSettingsStore = create<SettingsState>()(
       libraryFill: false,
       unifiedHome: false,
       showOthersBooks: true,
+      searchExternalSources: true,
       shareReadBooks: null,
       shareCurrentlyListening: null,
       useGravatar: null,

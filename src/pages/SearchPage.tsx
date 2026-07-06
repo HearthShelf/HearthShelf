@@ -7,7 +7,7 @@ import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
 import { BookTile } from '@/components/library/BookTile'
-import { RmabSearchLane } from '@/components/requests/RmabSearchLane'
+import { ExternalSearchLane } from '@/components/requests/ExternalSearchLane'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -171,7 +171,7 @@ export function SearchPage() {
         </div>
       )}
 
-      {q.length >= 2 && <RmabSearchLane query={q} ownedKeys={ownedKeys} />}
+      {q.length >= 2 && <ExternalSearchLane query={q} ownedKeys={ownedKeys} />}
     </div>
   )
 }
