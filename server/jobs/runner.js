@@ -12,9 +12,30 @@ import { JOBS } from './registry.js'
 // Per-job mutex: a scheduled tick and a manual "run now" (or two clicks) must
 // never overlap. Value is the in-flight run id.
 const running = new Map() // jobId -> runId
+// AbortController for each in-flight run, so an admin can cancel a running job.
+// Value is the controller; keyed by jobId (mirrors `running`).
+const controllers = new Map() // jobId -> AbortController
 
 export function isJobRunning(jobId) {
   return running.has(jobId)
+}
+
+// Signal a running job to stop. Aborts the run's signal (co-operative: the job
+// must watch signal.aborted / listen for 'abort' to bail early) and marks the
+// run row as cancelled so the panel reflects it immediately. Returns the run id
+// that was cancelled, or null when the job isn't running.
+export async function cancelJob(jobId) {
+  const runId = running.get(jobId)
+  const controller = controllers.get(jobId)
+  if (!runId || !controller) return null
+  controller.abort()
+  await db
+    .execute({
+      sql: `UPDATE job_runs SET status = 'error', finished_at = ?, error = ? WHERE id = ? AND status = 'running'`,
+      args: [Date.now(), 'Cancelled by admin', runId],
+    })
+    .catch(() => {})
+  return runId
 }
 
 // A logger handed to each job's run(). Buffers lines and flushes them to
@@ -61,6 +82,8 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
 
   const runId = crypto.randomUUID()
   running.set(jobId, runId)
+  const controller = new AbortController()
+  controllers.set(jobId, controller)
   const serverId = await getServerId()
   const startedAt = Date.now()
 
@@ -78,28 +101,39 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
   const logger = makeLogger(runId)
 
   // Background execution - never block the caller (scheduler tick / HTTP route).
+  // The job's run() receives the abort signal as a second arg (older jobs that
+  // take only (logger) simply ignore it); cancelJob() aborts it.
   void (async () => {
     try {
       logger.info(`Starting ${job.name} (${trigger})`)
-      const summary = await job.run(logger)
-      await db
-        .execute({
-          sql: `UPDATE job_runs SET status = 'ok', finished_at = ?, summary = ? WHERE id = ?`,
-          args: [Date.now(), String(summary ?? 'Done').slice(0, 500), runId],
-        })
-        .catch(() => {})
-      logger.info(`Finished: ${summary ?? 'Done'}`)
+      const summary = await job.run(logger, controller.signal)
+      // If we were aborted mid-run, cancelJob() already wrote the 'error' row;
+      // don't clobber it with an 'ok'.
+      if (controller.signal.aborted) {
+        logger.warn('Cancelled by admin')
+      } else {
+        await db
+          .execute({
+            sql: `UPDATE job_runs SET status = 'ok', finished_at = ?, summary = ? WHERE id = ?`,
+            args: [Date.now(), String(summary ?? 'Done').slice(0, 500), runId],
+          })
+          .catch(() => {})
+        logger.info(`Finished: ${summary ?? 'Done'}`)
+      }
     } catch (err) {
-      const msg = String(err?.message ?? err).slice(0, 500)
+      const msg = controller.signal.aborted
+        ? 'Cancelled by admin'
+        : String(err?.message ?? err).slice(0, 500)
       await db
         .execute({
-          sql: `UPDATE job_runs SET status = 'error', finished_at = ?, error = ? WHERE id = ?`,
+          sql: `UPDATE job_runs SET status = 'error', finished_at = ?, error = ? WHERE id = ? AND status = 'running'`,
           args: [Date.now(), msg, runId],
         })
         .catch(() => {})
-      logger.error(`Failed: ${msg}`)
+      logger.error(controller.signal.aborted ? 'Cancelled by admin' : `Failed: ${msg}`)
     } finally {
       running.delete(jobId)
+      controllers.delete(jobId)
     }
   })()
 

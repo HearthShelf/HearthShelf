@@ -3,6 +3,7 @@
 //
 //   GET  /hs/jobs                     -> list jobs + their latest run
 //   POST /hs/jobs/:id/run             -> trigger a run now (202, returns runId)
+//   POST /hs/jobs/:id/cancel          -> stop a running job (202, returns runId)
 //   GET  /hs/jobs/:id/runs            -> recent runs for a job
 //   GET  /hs/jobs/runs/:runId/logs    -> the log lines for a run
 
@@ -10,7 +11,7 @@ import { json } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { db, getServerId } from '../db.js'
 import { JOBS } from '../jobs/registry.js'
-import { runJob, isJobRunning } from '../jobs/runner.js'
+import { runJob, cancelJob, isJobRunning } from '../jobs/runner.js'
 
 // The latest run row for each job id, as a map { jobId: run }.
 async function latestRuns(serverId) {
@@ -78,6 +79,16 @@ export async function handleJobs(req, res, url, ctx) {
     if (!JOBS.some((j) => j.id === jobId)) return (json(res, 404, { error: 'unknown_job' }), true)
     if (isJobRunning(jobId)) return (json(res, 409, { error: 'already_running' }), true)
     const runId = await runJob(jobId, { trigger: 'manual' })
+    return (json(res, 202, { runId }), true)
+  }
+
+  // POST /hs/jobs/:id/cancel - stop a running job.
+  const cancelMatch = p.match(/^\/hs\/jobs\/([^/]+)\/cancel$/)
+  if (cancelMatch && req.method === 'POST') {
+    const jobId = decodeURIComponent(cancelMatch[1])
+    if (!JOBS.some((j) => j.id === jobId)) return (json(res, 404, { error: 'unknown_job' }), true)
+    if (!isJobRunning(jobId)) return (json(res, 409, { error: 'not_running' }), true)
+    const runId = await cancelJob(jobId)
     return (json(res, 202, { runId }), true)
   }
 
