@@ -164,7 +164,14 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
           new Date(existingNotAfter).toISOString(),
           '- skipping issuance',
         )
-        await reloadNginx()
+        const reloadResult = await reloadNginx()
+        // Report success. Without this the diagnostic 'failed' written above (the
+        // only writable status for stashing last_error) is left as the box's last
+        // reported status - so a box that holds a valid cert and skips issuance
+        // shows "failed" in the admin dash forever, even though HTTPS is fine. The
+        // issuance path already reports 'active' at its end; the skip path must too.
+        const diag = `diag-ok: cert_still_valid reload=${reloadResult}`
+        await reportStatus(serverId, serverSecret, 'active', diag, existingNotAfter)
         return { ok: true, host, publicUrl, reason: 'cert_still_valid', skipped: true }
       }
       // Cert present but stable_host missing - fall through and re-issue to rebuild it.
