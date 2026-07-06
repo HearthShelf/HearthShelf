@@ -30,6 +30,7 @@ import {
   clearHostedConfig,
   resolveHostedContext,
   verifyGrant,
+  getLinkedAbsUserIds,
 } from '../lib/hosted.js'
 import { acquireCert, getHsDirectState } from '../lib/hsdirect.js'
 import { emailRelayEndpoint, emailRelayOptedOut, emailRelayOnStartup } from '../lib/emailRelay.js'
@@ -731,6 +732,51 @@ export async function handleHosted(req, res, url, _ctx) {
           email,
           role,
         }),
+      })
+    } catch (err) {
+      return (
+        json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }),
+        true
+      )
+    }
+    const data = await cpRes.json().catch(() => ({}))
+    return (json(res, cpRes.status, data), true)
+  }
+
+  // Which ABS users have an hs.com account linked to this server. Purely local
+  // (hosted_user_keys), so this works even if the control plane is unreachable.
+  if (p === '/hs/hosted/linked-users' && req.method === 'GET') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+
+    const serverId = await getServerId()
+    const linked = await getLinkedAbsUserIds(serverId)
+    return (json(res, 200, { linked }), true)
+  }
+
+  // List pending invites for this server. Forwards to the control plane (the
+  // source of truth for pending_invites), the same way the invite POST does.
+  if (p === '/hs/hosted/invites' && req.method === 'GET') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+
+    const cfg = await getHostedConfig()
+    if (!cfg?.issuer || !cfg?.serverSecret) {
+      return (
+        json(res, 409, { error: 'not_paired', detail: 'pair with app.hearthshelf.com first' }),
+        true
+      )
+    }
+
+    const serverId = await getServerId()
+    const cpBase = cfg.issuer.replace(/\/$/, '')
+
+    let cpRes
+    try {
+      cpRes = await fetch(`${cpBase}/servers/invites-for-server`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_id: serverId, server_secret: cfg.serverSecret }),
       })
     } catch (err) {
       return (

@@ -282,6 +282,18 @@ async function syncUsername(adminToken, absUserId, desired, current) {
   }
 }
 
+// The ABS user ids that have signed in via app.hearthshelf.com on this server,
+// i.e. have a cached per-user key in hosted_user_keys. Used by the admin Users
+// UI to show "linked to hs.com" - purely local, no control-plane call.
+export async function getLinkedAbsUserIds(serverId) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT abs_user_id, email FROM hosted_user_keys WHERE server_id = ?`,
+    args: [serverId],
+  })
+  return r.rows.map((row) => ({ absUserId: String(row.abs_user_id), email: String(row.email) }))
+}
+
 // Resolve a verified grant into the standard ctx the rest of the backend uses:
 //   { absUrl, absToken, serverId, userId, username, role }
 // absToken is a per-user ABS API key (minted once, cached). username is the
