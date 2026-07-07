@@ -54,6 +54,9 @@ export function useQueueAdvance() {
       progressById,
       currentItemId: usePlayerStore.getState().libraryItemId,
       rules: queueRules,
+      // Feed the durable hand-queued list into the 'manual' rule so a
+      // hand-picked queue survives the Auto rebuild.
+      manualBooks: useQueueStore.getState().manual,
     })
   }, [activeId, ensure, queueRules])
 

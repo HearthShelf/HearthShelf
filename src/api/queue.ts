@@ -33,11 +33,12 @@ export function getServerQueue(): Promise<ServerQueue> {
 
 export function putServerQueue(
   items: QueueEntry[],
+  manual: QueueEntry[],
   playlistId: string | null,
   updatedAt: number,
 ): Promise<ServerQueue> {
   return queueFetch<ServerQueue>({
     method: 'PUT',
-    body: JSON.stringify({ items, playlistId, updatedAt }),
+    body: JSON.stringify({ items, manual, playlistId, updatedAt }),
   })
 }

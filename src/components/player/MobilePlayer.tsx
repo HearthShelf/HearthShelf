@@ -60,6 +60,10 @@ const RULE_COPY: Record<AutoRuleId, { label: string; desc: string }> = {
     label: 'Book club picks',
     desc: "Add what your book clubs are reading, current book first.",
   },
+  manual: {
+    label: 'Books you queued by hand',
+    desc: 'Play the books you added to your queue, after your Auto picks.',
+  },
 }
 
 const LISTS = [
@@ -221,7 +225,9 @@ export function MobilePlayer({
   const setSetting = useSettingsStore((s) => s.set)
 
   const queueItems = useQueueStore((s) => s.items)
+  const manualItems = useQueueStore((s) => s.manual)
   const reorder = useQueueStore((s) => s.reorder)
+  const removeFromQueue = useQueueStore((s) => s.remove)
   const setQueueStoreMode = useQueueStore((s) => s.setMode)
 
   const sleep = useSleepTimer()
@@ -233,6 +239,8 @@ export function MobilePlayer({
   const [edit, setEdit] = useState(false)
   const [drag, setDrag] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
+  const [mDrag, setMDrag] = useState<number | null>(null)
+  const [mOver, setMOver] = useState<number | null>(null)
   const [aDrag, setADrag] = useState<number | null>(null)
   const [aOver, setAOver] = useState<number | null>(null)
   const [lists, setLists] = useState<Record<string, boolean>>({})
@@ -343,6 +351,11 @@ export function MobilePlayer({
     if (drag != null && over != null && drag !== over) reorder(drag, over)
     setDrag(null)
     setOver(null)
+  }
+  const commitM = () => {
+    if (mDrag != null && mOver != null && mDrag !== mOver) reorder(mDrag, mOver)
+    setMDrag(null)
+    setMOver(null)
   }
   const commitA = () => {
     if (aDrag == null || aOver == null || aDrag === aOver) {
@@ -979,6 +992,97 @@ export function MobilePlayer({
                   </button>
                 </div>
               ))
+            )}
+            {queueMode === 'auto' && (
+              <>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    padding: '10px 4px 2px',
+                  }}
+                >
+                  Books you queued by hand
+                </div>
+                {manualItems.length === 0 ? (
+                  <div style={{ padding: '2px 4px 8px', color: 'var(--text-muted)', fontSize: 12 }}>
+                    Nothing queued by hand. Books you add play after your Auto picks.
+                  </div>
+                ) : (
+                  manualItems.map((b, i) => (
+                    <div
+                      key={b.libraryItemId}
+                      className={
+                        'mp-row' +
+                        (mDrag === i ? ' drag' : '') +
+                        (mOver === i && mDrag !== null && mDrag !== i ? ' over' : '')
+                      }
+                      draggable
+                      onDragStart={() => setMDrag(i)}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        if (mOver !== i) setMOver(i)
+                      }}
+                      onDrop={commitM}
+                      onDragEnd={commitM}
+                    >
+                      <Icon
+                        name="drag_indicator"
+                        style={{
+                          width: 22,
+                          textAlign: 'center',
+                          color: 'var(--text-muted)',
+                          fontSize: 20,
+                          cursor: 'grab',
+                        }}
+                      />
+                      <div
+                        style={{
+                          width: 46,
+                          height: 46,
+                          borderRadius: 9,
+                          overflow: 'hidden',
+                          flex: 'none',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => jumpTo(b.libraryItemId)}
+                      >
+                        <Cover
+                          itemId={b.libraryItemId}
+                          title={b.title}
+                          fs={4}
+                          style={{ width: '100%', height: '100%', borderRadius: 0 }}
+                        />
+                      </div>
+                      <div
+                        style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                        onClick={() => jumpTo(b.libraryItemId)}
+                      >
+                        <div className="mp-clamp1" style={{ fontSize: 13.5, fontWeight: 600 }}>
+                          {b.title}
+                        </div>
+                        <div
+                          className="mp-clamp1"
+                          style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}
+                        >
+                          {b.author}
+                        </div>
+                      </div>
+                      <button
+                        className="mp-ib"
+                        style={{ width: 40, height: 40 }}
+                        onClick={() => removeFromQueue(b.libraryItemId)}
+                        title="Remove"
+                      >
+                        <Icon name="close" style={{ fontSize: 20 }} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </>
             )}
           </div>
         </Sheet>

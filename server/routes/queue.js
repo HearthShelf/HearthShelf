@@ -13,9 +13,11 @@ export async function handleQueue(req, res, url, ctx) {
   if (req.method === 'GET') {
     // The server owns the queue: in 'auto' mode this computes it from the user's
     // rules + ABS library/progress + club picks and persists it; other modes
-    // return the stored (manual) queue. Clients just display the result.
-    const { items, playlistId, updatedAt } = await resolveQueue(ctx)
-    return (json(res, 200, { items, playlistId, updatedAt }), true)
+    // return the stored (manual) queue. Clients just display the result. `manual`
+    // is the durable hand-queued list, carried alongside so a client can edit it
+    // even while Auto drives the active `items`.
+    const { items, manual, playlistId, updatedAt } = await resolveQueue(ctx)
+    return (json(res, 200, { items, manual, playlistId, updatedAt }), true)
   }
   if (req.method === 'PUT') {
     let body
@@ -24,12 +26,18 @@ export async function handleQueue(req, res, url, ctx) {
     } catch {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
-    const { items, playlistId, updatedAt } = body ?? {}
+    const { items, manual, playlistId, updatedAt } = body ?? {}
     if (!Array.isArray(items) || typeof updatedAt !== 'number') {
+      return (json(res, 400, { error: 'invalid_queue' }), true)
+    }
+    // manual is optional: absent = preserve the stored list; present must be an
+    // array (the hand-queued list the client is replacing).
+    if (manual !== undefined && !Array.isArray(manual)) {
       return (json(res, 400, { error: 'invalid_queue' }), true)
     }
     const saved = await setQueue(ctx.serverId, ctx.userId, {
       items,
+      manual,
       playlistId: playlistId ?? null,
       updatedAt,
     })
@@ -38,6 +46,7 @@ export async function handleQueue(req, res, url, ctx) {
     return (
       json(res, 200, {
         items: saved.items,
+        manual: saved.manual,
         playlistId: saved.playlistId,
         updatedAt: saved.updatedAt,
         applied: saved.applied,

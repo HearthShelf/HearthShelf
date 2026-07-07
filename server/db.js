@@ -220,10 +220,15 @@ const SCHEMA = [
   // @hearthshelf/core QueueState). Queue MODE and auto-rules are preferences
   // and live in app_settings instead - only the item list churns often enough
   // (every auto-advance rebuild) to warrant its own table.
+  // items_json is the ACTIVE up-next list (rebuilt in Auto/Playlist, mirrors
+  // the manual list in Manual mode). manual_json is the DURABLE hand-queued
+  // list: it drives Manual mode and, in Auto mode, feeds the 'manual' rule so a
+  // hand-picked queue survives every Auto rebuild. Auto never overwrites it.
   `CREATE TABLE IF NOT EXISTS listening_queue (
      server_id    TEXT NOT NULL DEFAULT 'local',
      user_id      TEXT NOT NULL,
      items_json   TEXT NOT NULL DEFAULT '[]',
+     manual_json  TEXT NOT NULL DEFAULT '[]',
      playlist_id  TEXT,
      updated_at   INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
@@ -580,6 +585,10 @@ const MIGRATIONS = [
   // uploads, so the DEFAULT 'upload' backfills them correctly; only the hosted
   // WebApp writes 'clerk' rows when it copies a user's SSO photo.
   `ALTER TABLE avatars ADD COLUMN source TEXT NOT NULL DEFAULT 'upload'`,
+  // Durable hand-queued list, distinct from the ephemeral items_json Auto
+  // rebuilds (see the listening_queue comment above). Existing rows default to
+  // an empty manual list; their items_json is left as-is.
+  `ALTER TABLE listening_queue ADD COLUMN manual_json TEXT NOT NULL DEFAULT '[]'`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

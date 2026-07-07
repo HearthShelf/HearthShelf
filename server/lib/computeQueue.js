@@ -108,6 +108,9 @@ export async function resolveQueue(ctx) {
       currentItemId: currentItemIdFromProgress(mediaProgress),
       rules,
       clubBooks,
+      // The user's durable hand-queued list feeds the 'manual' rule so a
+      // hand-picked queue survives this rebuild instead of being overwritten.
+      manualBooks: stored.manual,
     })
   } catch {
     // ABS unreachable or a fetch failed: keep the last good queue rather than
@@ -117,10 +120,16 @@ export async function resolveQueue(ctx) {
 
   // Server-stamped write always applies (updatedAt >= any client's), so the
   // freshly computed auto queue becomes the shared truth across devices.
+  // `manual` is omitted so the stored hand-queued list is preserved.
   const saved = await setQueue(serverId, userId, {
     items,
     playlistId: null,
     updatedAt: Date.now(),
   })
-  return { items: saved.items, playlistId: saved.playlistId, updatedAt: saved.updatedAt }
+  return {
+    items: saved.items,
+    manual: saved.manual,
+    playlistId: saved.playlistId,
+    updatedAt: saved.updatedAt,
+  }
 }

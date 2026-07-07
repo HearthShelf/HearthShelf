@@ -118,6 +118,10 @@ const RULE_LABELS: Record<AutoRuleId, { title: string; desc: string }> = {
     title: 'Book club picks',
     desc: 'Queue what your book clubs are reading, current book first.',
   },
+  manual: {
+    title: 'Books you queued by hand',
+    desc: 'Queue the books you added yourself. Drag to set where they land.',
+  },
 }
 
 // Drag-to-reorder list of the Auto rules, each with an on/off toggle. The list

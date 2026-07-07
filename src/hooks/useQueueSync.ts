@@ -33,6 +33,7 @@ export function useQueueSync() {
       hydrating.current = true
       useQueueStore.setState({
         items: server.items,
+        manual: server.manual,
         playlistId: server.playlistId,
         updatedAt: server.updatedAt,
       })
@@ -74,14 +75,15 @@ export function useQueueSync() {
       if (!hydrated.current || hydrating.current) return
       if (timer.current) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => {
-        const { items, playlistId, updatedAt } = useQueueStore.getState()
-        putServerQueue(items, playlistId, updatedAt)
+        const { items, manual, playlistId, updatedAt } = useQueueStore.getState()
+        putServerQueue(items, manual, playlistId, updatedAt)
           .then((res) => {
             // Our write was stale (another device moved faster) - adopt the
             // server's state unless we've since started playing here.
             if (res.applied === false && !usePlayerStore.getState().sessionId) {
               useQueueStore.setState({
                 items: res.items,
+                manual: res.manual,
                 playlistId: res.playlistId,
                 updatedAt: res.updatedAt,
               })
