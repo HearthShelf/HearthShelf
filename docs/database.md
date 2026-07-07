@@ -54,7 +54,7 @@ Created on boot via `CREATE TABLE IF NOT EXISTS` (see `server/db.js`):
 | Table | Holds |
 | --- | --- |
 | `app_settings` | per-user app settings (theme, accent, sleep prefs, queue mode + auto-rules…), one JSON blob per ABS user id - drives cross-device sync |
-| `listening_queue` | the user's up-next queue (ordered item list + playlist id), one row per ABS user id - see `docs/queue.md` |
+| `listening_queue` | the user's up-next queue: the active item list (rebuilt in Auto/Playlist), the durable hand-queued `manual` list (drives Manual mode + the Auto `manual` rule), and playlist id - one row per ABS user id, see `docs/queue.md` |
 | `ai_config` | the editable QuestGiver AI config (provider, model, key, rate limit, QuestGiver + Discover on/off) - single row; any `QG_*` / `DISCOVER_ENABLED` env var overrides its field |
 | `integrations_config` | editable connections for external services (ReadMeABook url+token, Audplexus url+key, Audible region) - single row; any `RMAB_*` / `AUDPLEXUS_*` / `AUDIBLE_REGION` env var overrides its field |
 | `community_config` | instance-wide community settings (leaderboard default sharing) - single row, seeded from `COMMUNITY_DEFAULT_SHARE` on first boot |
