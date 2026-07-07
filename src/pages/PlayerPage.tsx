@@ -10,6 +10,7 @@ import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
 import { RecentListens } from '@/components/player/RecentListens'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { MobilePlayer } from '@/components/player/MobilePlayer'
+import { ManualQueueEditor } from '@/components/player/ManualQueueEditor'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { AddToListMenu } from '@/components/library/AddToListMenu'
 import { useQueueStore, type QueueMode, type AutoRuleId } from '@/store/queueStore'
@@ -155,7 +156,6 @@ function QueuePanel({
   onPlay: (id: string) => void
 }) {
   const items = useQueueStore((s) => s.items)
-  const manual = useQueueStore((s) => s.manual)
   const remove = useQueueStore((s) => s.remove)
   const reorder = useQueueStore((s) => s.reorder)
   const setQueueMode = useQueueStore((s) => s.setMode)
@@ -163,7 +163,6 @@ function QueuePanel({
   const setSetting = useSettingsStore((s) => s.set)
   const autoRules = useSettingsStore((s) => s.queueAutoRules)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const [manualDragIdx, setManualDragIdx] = useState<number | null>(null)
   const [showRules, setShowRules] = useState(false)
 
   const setMode = (v: QueueMode) => {
@@ -255,55 +254,7 @@ function QueuePanel({
         )}
         {queueMode === 'auto' && (
           <div style={{ marginBottom: 12 }}>
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: 0.4,
-                textTransform: 'uppercase',
-                color: 'var(--text-muted)',
-                padding: '4px 4px 6px',
-              }}
-            >
-              Books you queued by hand
-            </div>
-            {manual.length === 0 ? (
-              <div className="pop-empty" style={{ padding: '4px 4px 8px' }}>
-                Nothing queued by hand. Add books with "Add to list" - they play
-                after your Auto picks.
-              </div>
-            ) : (
-              manual.map((q, i) => (
-                <div
-                  className={'queue-row' + (manualDragIdx === i ? ' dragging' : '')}
-                  key={q.libraryItemId}
-                  draggable
-                  onDragStart={() => setManualDragIdx(i)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => {
-                    if (manualDragIdx !== null && manualDragIdx !== i) reorder(manualDragIdx, i)
-                    setManualDragIdx(null)
-                  }}
-                  onDragEnd={() => setManualDragIdx(null)}
-                >
-                  <span className="q-handle" title="Drag to reorder">
-                    <Icon name="drag_indicator" />
-                  </span>
-                  <Cover itemId={q.libraryItemId} title={q.title} fs={3} />
-                  <div
-                    className="q-meta"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => onPlay(q.libraryItemId)}
-                  >
-                    <div className="q-t">{q.title}</div>
-                    <div className="q-s">{q.author}</div>
-                  </div>
-                  <span className="bm-x" title="Remove" onClick={() => remove(q.libraryItemId)}>
-                    <Icon name="close" />
-                  </span>
-                </div>
-              ))
-            )}
+            <ManualQueueEditor mode="auto" onPlay={onPlay} showAutoPicks={false} />
           </div>
         )}
       </div>

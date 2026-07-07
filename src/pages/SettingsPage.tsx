@@ -31,6 +31,7 @@ import {
   type ReaderPrefs,
 } from '@/store/readerPrefsStore'
 import { Icon } from '@/components/common/Icon'
+import { ManualQueueEditor } from '@/components/player/ManualQueueEditor'
 import { AvatarUpload } from '@/components/common/AvatarUpload'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CoverStyleDemo } from '@/components/common/CoverStyleDemo'
@@ -552,6 +553,21 @@ export function SettingsPage() {
                   </div>
                   <RuleList rules={s.queueAutoRules} onChange={(r) => put('queueAutoRules', r)} />
                 </div>
+                {(s.queueMode === 'manual' || s.queueMode === 'auto') && (
+                  <div className="set-row set-row-stack">
+                    <div className="sr-meta">
+                      <div className="sr-t">
+                        {s.queueMode === 'auto' ? 'Your queue' : 'Manual queue'}
+                      </div>
+                      <div className="sr-d">
+                        {s.queueMode === 'auto'
+                          ? 'Auto picks are shown grayed out. Drag or remove the books you queued by hand below.'
+                          : 'Drag to set the order, or remove a book.'}
+                      </div>
+                    </div>
+                    <ManualQueueEditor mode={s.queueMode} />
+                  </div>
+                )}
                 {s.queueMode === 'playlist' && (
                   <SetRow
                     title="Playlist to follow"
