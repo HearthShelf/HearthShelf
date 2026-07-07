@@ -11,6 +11,7 @@ import {
   DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS,
   SETTINGS_CATALOG,
   settingDefault,
+  normalizeAutoRules,
 } from '@hearthshelf/core'
 
 // Client-only user preferences (appearance, playback, library, sleep). Rendered
@@ -230,14 +231,24 @@ export const useSettingsStore = create<SettingsState>()(
           const localAt = state.meta[key] ?? -1
           // Per-key last-writer-wins: server wins ties.
           if (remote.updatedAt >= localAt) {
-            patch[key] = remote.value
+            // Backfill rules added since the value was stored (book-club,
+            // manual) so the picker never hides a rule the shared set defines.
+            patch[key] = key === 'queueAutoRules' ? normalizeAutoRules(remote.value) : remote.value
             meta[key] = remote.updatedAt
           }
         }
         if (Object.keys(patch).length) set({ ...patch, meta } as Partial<SettingsState>)
       },
     }),
-    { name: 'hearthshelf:settings' },
+    {
+      name: 'hearthshelf:settings',
+      // Backfill rules added since a value was persisted (book-club, manual) as
+      // soon as localStorage rehydrates, so the picker shows the full rule set
+      // without waiting for a server pull.
+      onRehydrateStorage: () => (state) => {
+        if (state) state.queueAutoRules = normalizeAutoRules(state.queueAutoRules)
+      },
+    },
   ),
 )
 
