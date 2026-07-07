@@ -95,6 +95,10 @@ export interface SettingsState {
   // When on, Search also looks up titles you don't own via the Audible catalog
   // and shows them in a "Not in your library" section.
   searchExternalSources: boolean
+  // Per-provider toggles for the search-link icons on a book's detail page.
+  externalLinkGoodreads: boolean
+  externalLinkAudible: boolean
+  externalLinkHardcover: boolean
   // Tri-state: null = no explicit choice (follow the server's default sharing
   // setting); true/false = the user's own choice, which the admin default never
   // overrides. Only written once the user actually toggles it.
@@ -190,6 +194,9 @@ export const useSettingsStore = create<SettingsState>()(
       unifiedHome: false,
       showOthersBooks: true,
       searchExternalSources: true,
+      externalLinkGoodreads: true,
+      externalLinkAudible: true,
+      externalLinkHardcover: true,
       shareReadBooks: null,
       shareCurrentlyListening: null,
       useGravatar: null,

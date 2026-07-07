@@ -608,6 +608,36 @@ export function SettingsPage() {
                   }
                 />
                 <SetRow
+                  title="Goodreads link on book pages"
+                  desc="Show a Goodreads search link on each book's detail page."
+                  control={
+                    <Toggle
+                      on={s.externalLinkGoodreads}
+                      onClick={() => put('externalLinkGoodreads', !s.externalLinkGoodreads)}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Audible link on book pages"
+                  desc="Show an Audible search link on each book's detail page."
+                  control={
+                    <Toggle
+                      on={s.externalLinkAudible}
+                      onClick={() => put('externalLinkAudible', !s.externalLinkAudible)}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Hardcover link on book pages"
+                  desc="Show a Hardcover search link on each book's detail page."
+                  control={
+                    <Toggle
+                      on={s.externalLinkHardcover}
+                      onClick={() => put('externalLinkHardcover', !s.externalLinkHardcover)}
+                    />
+                  }
+                />
+                <SetRow
                   title="Show what others have read"
                   desc="See community comparisons and what other listeners are reading."
                   disabled

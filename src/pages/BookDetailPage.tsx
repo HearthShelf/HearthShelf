@@ -11,6 +11,7 @@ import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { usePlayer } from '@/hooks/usePlayer'
 import { usePlayerStore } from '@/store/playerStore'
 import { useAuthStore } from '@/store/authStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import { formatDuration, formatTimestamp, stripHtml } from '@/lib/format'
 import type { ABSLibraryItemDetail } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
@@ -36,35 +37,44 @@ function formatBytes(bytes: number): string {
 }
 
 // Deep links to external book sites, built from real ISBN/ASIN metadata, with
-// a title+author search fallback. Which appear is an admin choice (Server ->
-// Integrations); all three are shown here until that surface exists.
-function externalLinks(book: ABSLibraryItemDetail) {
+// a title+author search fallback. Which providers appear is a per-user choice
+// (Settings -> Library), each defaulting to on.
+function externalLinks(
+  book: ABSLibraryItemDetail,
+  enabled: { goodreads: boolean; audible: boolean; hardcover: boolean },
+) {
   const m = book.media.metadata
   const author = m.authors[0]?.name ?? ''
   const q = encodeURIComponent(`${m.title ?? ''} ${author}`.trim())
   const links: { key: string; icon: string; label: string; href: string }[] = []
-  links.push({
-    key: 'goodreads',
-    icon: 'menu_book',
-    label: 'Goodreads',
-    href: m.isbn
-      ? `https://www.goodreads.com/search?q=${m.isbn}`
-      : `https://www.goodreads.com/search?q=${q}`,
-  })
-  links.push({
-    key: 'audible',
-    icon: 'headphones',
-    label: 'Audible',
-    href: m.asin
-      ? `https://www.audible.com/pd/${m.asin}`
-      : `https://www.audible.com/search?keywords=${q}`,
-  })
-  links.push({
-    key: 'hardcover',
-    icon: 'auto_stories',
-    label: 'Hardcover',
-    href: `https://hardcover.app/search?q=${q}`,
-  })
+  if (enabled.goodreads) {
+    links.push({
+      key: 'goodreads',
+      icon: 'menu_book',
+      label: 'Goodreads',
+      href: m.isbn
+        ? `https://www.goodreads.com/search?q=${m.isbn}`
+        : `https://www.goodreads.com/search?q=${q}`,
+    })
+  }
+  if (enabled.audible) {
+    links.push({
+      key: 'audible',
+      icon: 'headphones',
+      label: 'Audible',
+      href: m.asin
+        ? `https://www.audible.com/pd/${m.asin}`
+        : `https://www.audible.com/search?keywords=${q}`,
+    })
+  }
+  if (enabled.hardcover) {
+    links.push({
+      key: 'hardcover',
+      icon: 'auto_stories',
+      label: 'Hardcover',
+      href: `https://hardcover.app/search?q=${q}`,
+    })
+  }
   return links
 }
 
@@ -76,6 +86,9 @@ export function BookDetailPage() {
   const { markFinished, isPending: marking } = useMarkFinished()
   const sessionItemId = usePlayerStore((s) => s.libraryItemId)
   const token = useAuthStore((s) => s.token)
+  const extGoodreads = useSettingsStore((s) => s.externalLinkGoodreads)
+  const extAudible = useSettingsStore((s) => s.externalLinkAudible)
+  const extHardcover = useSettingsStore((s) => s.externalLinkHardcover)
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<DetailTab>('chapters')
   const [editing, setEditing] = useState(false)
@@ -158,7 +171,11 @@ export function BookDetailPage() {
   const playLabel = finished ? 'Listen again' : pct > 0 ? 'Resume' : 'Start listening'
 
   const description = m.description ? stripHtml(m.description) : ''
-  const links = externalLinks(data)
+  const links = externalLinks(data, {
+    goodreads: extGoodreads,
+    audible: extAudible,
+    hardcover: extHardcover,
+  })
 
   // Finished-by chips: only render when the backend served real data and at
   // least one (privacy-filtered) user finished the book.
@@ -410,21 +427,23 @@ export function BookDetailPage() {
             </Dropdown>
           </div>
 
-          <div className="detail-ext">
-            {links.map((l) => (
-              <a
-                key={l.key}
-                className="ext-link"
-                href={l.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={`Open on ${l.label}`}
-              >
-                <Icon name={l.icon} /> {l.label}
-                <Icon name="open_in_new" style={{ fontSize: 15, opacity: 0.6 }} />
-              </a>
-            ))}
-          </div>
+          {links.length > 0 && (
+            <div className="detail-ext">
+              {links.map((l) => (
+                <a
+                  key={l.key}
+                  className="ext-link"
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`Open on ${l.label}`}
+                >
+                  <Icon name={l.icon} /> {l.label}
+                  <Icon name="open_in_new" style={{ fontSize: 15, opacity: 0.6 }} />
+                </a>
+              ))}
+            </div>
+          )}
 
           {description && (
             <>
