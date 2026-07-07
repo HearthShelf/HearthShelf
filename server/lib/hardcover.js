@@ -2,15 +2,26 @@
 // Access Token (Settings > Hardcover API on hardcover.app), NOT OAuth -
 // stored per ABS user in hardcover_accounts (see lib/finishedBooks.js).
 //
-// IMPORTANT - schema verification status: docs.hardcover.app returned 403 to
-// automated fetch while building this, so the query/mutation shapes below are
-// inferred from third-party write-ups and search results, NOT confirmed
-// against Hardcover's live GraphQL schema. Before relying on this module:
-//   1. Get a real PAT (hardcover.app account settings).
-//   2. Run a standard GraphQL introspection query against ENDPOINT below.
-//   3. Confirm/fix every TODO in this file against the real schema.
-// Until then, treat searchBook/upsertReadBook as best-effort scaffolding, not
-// verified working code.
+// Query/mutation shapes below are confirmed against the live schema via
+// introspection (api.hardcover.app/v1/graphql) and the published schema at
+// github.com/hardcoverapp/hardcover-docs. Notable non-obvious bits:
+//   - `me` and `user_books` are Hasura array fields (return arrays, not
+//     single objects), even though there's exactly one caller/row.
+//   - `books(where: ...)` rejects `_ilike` ("not permitted on this server");
+//     book lookup must go through the `search()` Typesense function instead,
+//     whose hits are shaped as `{ document: { id (string!), title,
+//     contributions: [{ author: { name } }] } }`.
+//   - `UserBookCreateInput` has no date-finished field. status_id comes from
+//     `user_book_statuses` (3 = "Read"), and the actual finish date is set by
+//     a separate `insert_user_book_read` call with `DatesReadInput.finished_at`.
+//   - `insert_user_book` can fail "successfully": a duplicate/invalid insert
+//     comes back as 200 OK with `{ error: "..." }` in the payload, not a
+//     GraphQL `errors[]` array.
+//
+// A snapshot of the full schema (as of 2026-07-07) is kept alongside this
+// file at ./hardcover.schema.graphql for offline reference - docs.hardcover.app
+// 403s automated fetches, so re-pull it from
+// github.com/hardcoverapp/hardcover-docs/blob/main/schema.graphql if it goes stale.
 
 const ENDPOINT = 'https://api.hardcover.app/v1/graphql'
 
@@ -56,13 +67,10 @@ async function gql(token, query, variables) {
 }
 
 // Verify a PAT and return the account's username, or null if invalid.
-// TODO(unverified): the `me { id username }` shape is a guess at the
-// lightest possible authenticated query - confirm the real field name(s) via
-// introspection (may be `me`, `viewer`, or require an explicit user id).
 export async function verifyToken(token) {
   try {
     const data = await gql(token, `query { me { id username } }`)
-    const me = Array.isArray(data?.me) ? data.me[0] : data?.me
+    const me = data?.me?.[0]
     return me?.username ? String(me.username) : me?.id ? String(me.id) : null
   } catch (err) {
     if (err.code === 'invalid_token') return null
@@ -70,58 +78,72 @@ export async function verifyToken(token) {
   }
 }
 
-// Resolve a Hardcover book id from title/author/isbn.
-// TODO(unverified): query name/shape is a guess (`books` full-text search via
-// a `where`/`search` argument). Confirm the actual search query, its filter
-// argument names, and which field holds a usable book id for
-// insert_user_book (Hardcover separates "books" from "editions" - may need an
-// edition id instead of a book id depending on the mutation's real schema).
-export async function searchBook(token, { title, author, isbn }) {
+// Resolve a Hardcover book id from title/author/isbn via the Typesense-backed
+// `search` function (plain `where`/`_ilike` book queries are rejected by the
+// server). Returns { id, title } where id is the string book id used by
+// insert_user_book's book_id (Int) after Number() conversion.
+export async function searchBook(token, { title, author }) {
   const data = await gql(
     token,
     `query SearchBooks($query: String!) {
-       books(where: { title: { _ilike: $query } }, limit: 5) {
-         id
-         title
-         contributions { author { name } }
+       search(query: $query, query_type: "Book", per_page: 5, page: 1) {
+         results
        }
      }`,
-    { query: `%${title}%` },
+    { query: title },
   )
-  const candidates = data?.books || []
+  const hits = data?.search?.results?.hits || []
+  if (!hits.length) return null
+  const candidates = hits.map((h) => h.document).filter(Boolean)
   if (!candidates.length) return null
-  if (!author) return candidates[0]
+  if (!author) return { id: candidates[0].id, title: candidates[0].title }
   const authorLower = author.toLowerCase()
   const match = candidates.find((b) =>
     (b.contributions || []).some((c) => c.author?.name?.toLowerCase().includes(authorLower)),
   )
-  return match || candidates[0]
+  const best = match || candidates[0]
+  return { id: best.id, title: best.title }
 }
 
 // Mark a book as read with a finish date and optional rating.
-// TODO(unverified): `insert_user_book` is a guess at the mutation name;
-// whether date_finished/rating are inline object fields here or require a
-// separate "user_book_read" insert (Hardcover models reading as discrete
-// passes, not a single status) is unconfirmed. status_id=3 ("read") is a
-// guess at the enum value - confirm against the real `book_status_type`
-// lookup before shipping. Also unconfirmed: how to detect/avoid duplicate
-// inserts on a re-run (idempotent upsert vs. an explicit existence check).
+// status_id 3 = "Read" per the user_book_statuses lookup table. The finish
+// date isn't a field on UserBookCreateInput - it's set via a follow-up
+// insert_user_book_read call. insert_user_book can fail "successfully" (200
+// OK with an `error` string in the payload, no GraphQL errors[]), so that
+// case is checked explicitly.
 export async function upsertReadBook(token, { bookId, dateFinished, rating }) {
   const data = await gql(
     token,
-    `mutation UpsertReadBook($object: UserBookInput!) {
+    `mutation UpsertReadBook($object: UserBookCreateInput!) {
        insert_user_book(object: $object) {
+         error
          id
        }
      }`,
     {
       object: {
-        book_id: bookId,
+        book_id: Number(bookId),
         status_id: 3,
-        ...(dateFinished ? { date_finished: dateFinished } : {}),
         ...(rating ? { rating } : {}),
       },
     },
   )
-  return data?.insert_user_book?.id ?? null
+  if (data?.insert_user_book?.error) {
+    const err = new Error(data.insert_user_book.error)
+    err.code = 'hardcover_error'
+    throw err
+  }
+  const userBookId = data?.insert_user_book?.id ?? null
+  if (userBookId && dateFinished) {
+    await gql(
+      token,
+      `mutation SetFinishedDate($userBookId: Int!, $read: DatesReadInput!) {
+         insert_user_book_read(user_book_id: $userBookId, user_book_read: $read) {
+           error
+         }
+       }`,
+      { userBookId, read: { finished_at: dateFinished } },
+    )
+  }
+  return userBookId
 }
