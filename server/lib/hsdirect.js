@@ -119,16 +119,13 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
   const certIssuer = await certIssuerString(crtPath).catch(() => '(read failed)')
   const isStaging = await certIsUntrustedStaging(crtPath).catch(() => false)
   log('existing cert issuer:', certIssuer, '| staging?', isStaging)
-  // DIAGNOSTIC: record (via the only writable status, 'failed') what we read off
-  // disk - the issuer and whether staging-detection fired. This lands in
-  // server_certs.last_error in D1, queryable without container shell access. A
-  // successful re-issue immediately overwrites it with status='active'.
-  await reportStatus(
-    serverId,
-    serverSecret,
-    'failed',
-    `diag: issuer="${certIssuer}" staging=${isStaging} certDir=${CERT_DIR}`,
-  ).catch(() => {})
+  // Diagnostic note (issuer + staging-detection result) carried along and attached
+  // to whatever the REAL outcome turns out to be below - never reported as its own
+  // 'failed' status. Reporting it standalone used to briefly set status='failed' in
+  // D1 even when the cert was perfectly valid; if the follow-up 'active' report then
+  // dropped (e.g. a transient D1 timeout), that bogus 'failed' was left stranded as
+  // the last-known status shown in the admin console.
+  const diagNote = `diag: issuer="${certIssuer}" staging=${isStaging} certDir=${CERT_DIR}`
   if (isStaging) {
     log('existing cert is from a staging/test CA (untrusted) - forcing re-issuance')
   }
@@ -165,12 +162,7 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
           '- skipping issuance',
         )
         const reloadResult = await reloadNginx()
-        // Report success. Without this the diagnostic 'failed' written above (the
-        // only writable status for stashing last_error) is left as the box's last
-        // reported status - so a box that holds a valid cert and skips issuance
-        // shows "failed" in the admin dash forever, even though HTTPS is fine. The
-        // issuance path already reports 'active' at its end; the skip path must too.
-        const diag = `diag-ok: cert_still_valid reload=${reloadResult}`
+        const diag = `diag-ok: cert_still_valid reload=${reloadResult} | ${diagNote}`
         await reportStatus(serverId, serverSecret, 'active', diag, existingNotAfter)
         return { ok: true, host, publicUrl, reason: 'cert_still_valid', skipped: true }
       }
@@ -435,9 +427,13 @@ async function persistPublicUrl(serverId, serverSecret, publicUrl, { force = fal
   }
 }
 
-async function reportStatus(serverId, serverSecret, status, error, notAfter) {
+// Retries on failure (including non-2xx, e.g. a transient D1 timeout on the CP
+// side) so a single blip can't strand a stale/wrong status in D1 - this is the
+// only thing the admin console reads, so an unreported 'active' would otherwise
+// leave whatever status was last recorded (possibly 'failed') showing forever.
+async function reportStatus(serverId, serverSecret, status, error, notAfter, attempt = 1) {
   try {
-    await fetch(`${CP_URL}/servers/cert-status`, {
+    const res = await fetch(`${CP_URL}/servers/cert-status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -450,8 +446,14 @@ async function reportStatus(serverId, serverSecret, status, error, notAfter) {
       }),
       signal: AbortSignal.timeout(15000),
     })
-  } catch {
-    /* best-effort */
+    if (!res.ok) throw new Error(`cert-status ${res.status}`)
+  } catch (e) {
+    if (attempt >= 3) {
+      warn('cert-status report failed after retries:', e.message)
+      return
+    }
+    await new Promise((r) => setTimeout(r, attempt * 2000))
+    await reportStatus(serverId, serverSecret, status, error, notAfter, attempt + 1)
   }
 }
 
@@ -474,11 +476,35 @@ export async function hsDirectOnStartup() {
   // valid) and persistPublicUrl only re-pushes when the address actually changed,
   // which re-PATCHes the Clerk redirect_uri so OIDC sign-in keeps working. Without
   // this the pin would only refresh on restart or renewal (hours-days stale).
-  const everyMs = Number(process.env.HSDIRECT_REFRESH_INTERVAL_MS || String(2 * 60 * 60 * 1000)) // 2h
-  const timer = setInterval(() => {
-    acquireCert().catch((e) => warn('periodic refresh failed:', e.message))
-  }, everyMs)
-  if (typeof timer.unref === 'function') timer.unref() // don't hold the process open
+  //
+  // Cadence is throttled by how much life the cert has left: far from expiry
+  // there's no renewal to race, so IP-change detection alone doesn't need the
+  // tight 2h loop - a box sitting on a fresh 90-day cert was otherwise checking in
+  // every 2h (and writing to D1 every time via reportStatus) for ~60 days
+  // straight. Inside the renewal window we go back to the tight interval since
+  // that's when a missed IP change or renewal actually matters.
+  const activeIntervalMs = Number(
+    process.env.HSDIRECT_REFRESH_INTERVAL_MS || String(2 * 60 * 60 * 1000),
+  ) // 2h, used once inside the renewal window
+  const idleIntervalMs = Number(
+    process.env.HSDIRECT_IDLE_REFRESH_INTERVAL_MS || String(24 * 60 * 60 * 1000),
+  ) // 24h, used while the cert has comfortable life left
+
+  const crtPath = path.join(CERT_DIR, 'fullchain.pem')
+  const nextInterval = async () => {
+    const notAfter = await certNotAfterMs(crtPath).catch(() => null)
+    return notAfter && notAfter - Date.now() > RENEW_WINDOW_MS ? idleIntervalMs : activeIntervalMs
+  }
+
+  const scheduleNext = async () => {
+    const delay = await nextInterval()
+    const timer = setTimeout(async () => {
+      await acquireCert().catch((e) => warn('periodic refresh failed:', e.message))
+      scheduleNext()
+    }, delay)
+    if (typeof timer.unref === 'function') timer.unref() // don't hold the process open
+  }
+  scheduleNext()
 }
 
 /**
