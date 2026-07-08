@@ -33,6 +33,7 @@ export function ImportGoodreadsPage() {
   const [rows, setRows] = useState<ReviewRow[] | null>(null)
   const [matching, setMatching] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [backfillAbs, setBackfillAbs] = useState(true)
 
   const handleFile = async (file: File) => {
     setParseError(null)
@@ -77,6 +78,10 @@ export function ImportGoodreadsPage() {
   }
 
   const unresolvedCount = useMemo(() => rows?.filter((r) => !r.resolved).length ?? 0, [rows])
+  const matchedCount = useMemo(
+    () => rows?.filter((r) => r.resolved && r.resolvedLibraryItemId).length ?? 0,
+    [rows],
+  )
 
   const resolveRow = (index: number, libraryItemId: string | null) => {
     setRows((cur) =>
@@ -118,11 +123,15 @@ export function ImportGoodreadsPage() {
         rating: r.rating,
         libraryItemId: r.resolvedLibraryItemId,
       }))
-      return importRows(reviewed)
+      return importRows(reviewed, backfillAbs)
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: finishedBooksKeys.list })
-      show(`Imported ${result.inserted + result.updated} books`)
+      const backfilled = result.absBackfilled ?? 0
+      show(
+        `Imported ${result.inserted + result.updated} books` +
+          (backfilled ? ` · ${backfilled} marked finished in your library` : ''),
+      )
       setRows(null)
     },
     onError: () => show('Import failed - try again'),
@@ -260,9 +269,31 @@ export function ImportGoodreadsPage() {
             ))}
           </div>
 
+          <label
+            className="cfg-line"
+            style={{ gap: 10, marginTop: 'var(--s4)', cursor: 'pointer', alignItems: 'flex-start' }}
+          >
+            <input
+              type="checkbox"
+              checked={backfillAbs}
+              onChange={(e) => setBackfillAbs(e.target.checked)}
+              style={{ marginTop: 3 }}
+            />
+            <div className="cl-meta">
+              <div className="cl-t">Mark matched books finished in my library</div>
+              <div className="cl-d">
+                Sets each matched book&rsquo;s finished date to when you read it, so your reading
+                totals and this-year count fill in on your Stats page.
+                {matchedCount ? ` ${matchedCount} book${matchedCount === 1 ? '' : 's'} will update.` : ''}{' '}
+                Listening time, streaks, and the heatmap can&rsquo;t be filled in&mdash;Goodreads
+                doesn&rsquo;t record how long you listened.
+              </div>
+            </div>
+          </label>
+
           <button
             className="btn-sm btn-green"
-            style={{ marginTop: 'var(--s4)' }}
+            style={{ marginTop: 'var(--s3)' }}
             disabled={unresolvedCount > 0 || commit.isPending}
             onClick={() => commit.mutate()}
           >

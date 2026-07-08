@@ -63,10 +63,13 @@ export function matchRows(
   })
 }
 
-export function importRows(rows: ImportRow[]): Promise<{ inserted: number; updated: number }> {
+export function importRows(
+  rows: ImportRow[],
+  backfillAbs = false,
+): Promise<{ inserted: number; updated: number; absBackfilled?: number }> {
   return fbFetch('/import', {
     method: 'POST',
-    body: JSON.stringify({ rows }),
+    body: JSON.stringify({ rows, backfillAbs }),
   })
 }
 

@@ -27,6 +27,7 @@ function rowToFinishedBook(r) {
     rating: r.rating == null ? null : Number(r.rating),
     hardcoverBookId: r.hardcover_book_id ? String(r.hardcover_book_id) : null,
     hardcoverSyncedAt: r.hardcover_synced_at == null ? null : Number(r.hardcover_synced_at),
+    absSyncedAt: r.abs_synced_at == null ? null : Number(r.abs_synced_at),
     createdAt: Number(r.created_at),
     updatedAt: Number(r.updated_at),
   }
@@ -49,15 +50,22 @@ async function upsertRow(serverId, userId, source, row) {
   const libraryItemId = row.libraryItemId || null
   const keyLibraryItemId = libraryItemId ?? ''
   const existing = await db.execute({
-    sql: `SELECT id FROM finished_books
+    sql: `SELECT id, library_item_id, date_finished FROM finished_books
           WHERE server_id = ? AND user_id = ? AND source = ?
             AND COALESCE(library_item_id, '') = ? AND title = ?`,
     args: [serverId, userId, source, keyLibraryItemId, row.title],
   })
   if (existing.rows[0]?.id) {
+    // If the match or the finish date changed, the ABS backfill is stale - clear
+    // abs_synced_at so the row is re-written to ABS with the corrected data.
+    const prevItem = existing.rows[0].library_item_id ? String(existing.rows[0].library_item_id) : null
+    const prevDate = existing.rows[0].date_finished ? String(existing.rows[0].date_finished) : null
+    const resyncNeeded = prevItem !== libraryItemId || prevDate !== (row.dateFinished || null)
     await db.execute({
       sql: `UPDATE finished_books SET
-              library_item_id = ?, author = ?, isbn = ?, date_finished = ?, rating = ?, updated_at = ?
+              library_item_id = ?, author = ?, isbn = ?, date_finished = ?, rating = ?, updated_at = ?${
+                resyncNeeded ? ', abs_synced_at = NULL' : ''
+              }
             WHERE id = ?`,
       args: [
         libraryItemId,
@@ -202,5 +210,52 @@ export async function markHardcoverSynced(id, hardcoverBookId) {
   await db.execute({
     sql: `UPDATE finished_books SET hardcover_book_id = ?, hardcover_synced_at = ?, updated_at = ? WHERE id = ?`,
     args: [hardcoverBookId, Date.now(), Date.now(), id],
+  })
+}
+
+// Rows whose finish has not yet been written back into ABS's mediaProgress.
+// Two callers want different subsets:
+//   matchedOnly=true  -> only rows already linked to a library item (the
+//                        import path writes these as the caller, no re-match)
+//   matchedOnly=false -> also stub rows (no library_item_id) for the promotion
+//                        job to re-match against a now-larger library
+export async function getUnsyncedAbsFinishedBooks(serverId, userId, matchedOnly = false) {
+  await initDb()
+  const r = await db.execute({
+    sql: `SELECT * FROM finished_books
+          WHERE server_id = ? AND user_id = ? AND abs_synced_at IS NULL
+            AND date_finished IS NOT NULL${matchedOnly ? ' AND library_item_id IS NOT NULL' : ''}`,
+    args: [serverId, userId],
+  })
+  return r.rows.map(rowToFinishedBook)
+}
+
+export async function markAbsSynced(id) {
+  await initDb()
+  await db.execute({
+    sql: `UPDATE finished_books SET abs_synced_at = ?, updated_at = ? WHERE id = ?`,
+    args: [Date.now(), Date.now(), id],
+  })
+}
+
+// Distinct (server_id, user_id) pairs that have at least one finished_books row
+// still needing an ABS backfill (a dated stub to re-match, or a matched row whose
+// finish hasn't reached ABS yet). Drives the promotion job's per-user loop.
+export async function getUsersWithPendingAbsBackfill() {
+  await initDb()
+  const r = await db.execute(
+    `SELECT DISTINCT server_id, user_id FROM finished_books
+     WHERE abs_synced_at IS NULL AND date_finished IS NOT NULL`,
+  )
+  return r.rows.map((row) => ({ serverId: String(row.server_id), userId: String(row.user_id) }))
+}
+
+// The promotion job resolves a stub against the library: attach a library_item_id
+// and clear any stale ABS sync stamp. Keeps the row's identity (id/title/date).
+export async function attachLibraryItem(id, libraryItemId) {
+  await initDb()
+  await db.execute({
+    sql: `UPDATE finished_books SET library_item_id = ?, abs_synced_at = NULL, updated_at = ? WHERE id = ?`,
+    args: [libraryItemId, Date.now(), id],
   })
 }

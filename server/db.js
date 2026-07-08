@@ -627,6 +627,11 @@ const MIGRATIONS = [
   // rebuilds (see the listening_queue comment above). Existing rows default to
   // an empty manual list; their items_json is left as-is.
   `ALTER TABLE listening_queue ADD COLUMN manual_json TEXT NOT NULL DEFAULT '[]'`,
+  // When a finished_books row's finish has been written back into ABS's own
+  // mediaProgress (so it counts toward the ABS-derived stats page), stamp the
+  // ms epoch here. NULL = not yet backfilled to ABS. Instance-local sync state,
+  // like hardcover_synced_at - deliberately NOT exported/merged across servers.
+  `ALTER TABLE finished_books ADD COLUMN abs_synced_at INTEGER`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

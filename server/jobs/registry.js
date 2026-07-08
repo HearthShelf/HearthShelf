@@ -5,6 +5,7 @@
 import { runSeriesRoster } from './seriesRoster.js'
 import { runReleaseNotify } from './releaseNotify.js'
 import { runStatsSnapshot } from './statsSnapshot.js'
+import { runAbsFinishBackfill } from './absFinishBackfill.js'
 import { runBackupJob } from '../lib/backup.js'
 import { getBackupConfig } from '../backupConfig.js'
 
@@ -35,6 +36,14 @@ export const JOBS = [
       "Records each person's daily listening so HearthShelf keeps a lasting history AudiobookShelf never saves - powering the listening heatmap, long-term trends, and best-ever streaks.",
     defaultIntervalMs: DAY_MS, // nightly
     run: runStatsSnapshot,
+  },
+  {
+    id: 'abs-finish-backfill',
+    name: 'Reading-history backfill',
+    description:
+      "Marks books from your imported reading history as finished in your library once they're added, using the date you read them - so your Stats page reflects books you finished before you owned them here.",
+    defaultIntervalMs: DAY_MS, // nightly
+    run: runAbsFinishBackfill,
   },
   {
     id: 'hs-backup',

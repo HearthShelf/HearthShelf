@@ -26,7 +26,10 @@ import {
   setHardcoverSyncResult,
   getUnsyncedFinishedBooks,
   markHardcoverSynced,
+  getUnsyncedAbsFinishedBooks,
+  markAbsSynced,
 } from '../lib/finishedBooks.js'
+import { writeFinishesAsUser } from '../lib/absProgress.js'
 
 async function fetchLibraryItems(ctx, libraryId) {
   const res = await fetch(
@@ -84,7 +87,28 @@ export async function handleFinishedBooks(req, res, url, ctx) {
     const rows = Array.isArray(body?.rows) ? body.rows : null
     if (!rows) return (json(res, 400, { error: 'rows required' }), true)
     const result = await upsertGoodreadsRows(ctx.serverId, ctx.userId, rows)
-    return (json(res, 200, result), true)
+
+    // Opt-in: write the matched rows' backdated finishes into ABS so they count
+    // toward the stats page. We write AS the caller (their own bearer is
+    // self-scoped to /api/me), so this works on every image without minting a
+    // key. Stub rows (no match) are left for the promotion job. Best-effort: a
+    // failed batch just leaves rows unsynced to retry, and never fails the
+    // import itself - the HS-side history is already saved.
+    let absBackfilled = 0
+    if (body?.backfillAbs) {
+      const pending = await getUnsyncedAbsFinishedBooks(ctx.serverId, ctx.userId, true)
+      if (pending.length) {
+        try {
+          absBackfilled = await writeFinishesAsUser(ctx.absToken, pending, ctx.absUrl)
+          if (absBackfilled) {
+            for (const row of pending) await markAbsSynced(row.id)
+          }
+        } catch {
+          // leave rows unsynced; the promotion job or a re-import will retry
+        }
+      }
+    }
+    return (json(res, 200, { ...result, absBackfilled }), true)
   }
 
   if (p === '/hs/finished-books/sync-abs' && req.method === 'POST') {
