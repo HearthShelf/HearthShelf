@@ -76,6 +76,15 @@ export async function hsDirectEligible() {
   return { ok: true, serverSecret: cfg.serverSecret }
 }
 
+// Node's fetch() failures collapse to the generic "fetch failed" in
+// err.message; the actual cause (ENOTFOUND, ECONNREFUSED, ETIMEDOUT, a TLS
+// error, ...) lives on err.cause and was previously dropped, making a genuine
+// network problem indistinguishable from "the broker is down" in the logs.
+function describeFetchError(e) {
+  const cause = e?.cause ? `${e.cause.code || e.cause.name || ''} ${e.cause.message || e.cause}`.trim() : ''
+  return cause ? `${e.message} (${cause})` : e.message
+}
+
 async function run(cmd, args, opts = {}) {
   return execFileP(cmd, args, { maxBuffer: 4 * 1024 * 1024, ...opts })
 }
@@ -186,7 +195,7 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
     }
     grant = await res.json()
   } catch (e) {
-    warn('cert-grant unreachable:', e.message)
+    warn('cert-grant unreachable:', describeFetchError(e))
     return { ok: false, reason: 'cp_unreachable' }
   }
 
@@ -244,8 +253,9 @@ export async function acquireCert({ force = false, reconcilePin = false } = {}) 
     const body = await res.json()
     certPem = body.cert
   } catch (e) {
-    warn('broker unreachable:', e.message)
-    await reportStatus(serverId, serverSecret, 'failed', `broker unreachable`)
+    const detail = describeFetchError(e)
+    warn('broker unreachable:', detail)
+    await reportStatus(serverId, serverSecret, 'failed', `broker unreachable: ${detail}`.slice(0, 200))
     return { ok: false, reason: 'broker_unreachable' }
   }
 
