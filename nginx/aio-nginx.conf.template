@@ -21,12 +21,18 @@ user  nginx;
 worker_processes  auto;
 pid        /var/run/nginx.pid;
 
-# Log to the container's stdout/stderr (Docker convention - the stock nginx image
-# does this). Setting it explicitly at the top level is REQUIRED: without it nginx
-# falls back to the compiled-in /var/log/nginx/error.log path, which in this image
-# is a /dev/stderr symlink that `nginx -t` can't open ("No such device or address")
-# - failing validation and blocking the reload.
-error_log /dev/stderr notice;
+# NO explicit error_log here - deliberately. An explicit `error_log /dev/stderr`
+# directive hits nginx's special-cased handling for that literal string, which
+# opens the fd directly rather than following the filesystem symlink - and that
+# direct open() fails with ENXIO ("No such device or address") under Docker's
+# piped container stdio, permanently failing `nginx -t` and blocking every
+# reload (this bit us in production: the reload after a fresh hs.direct cert
+# landed was silently skipped, so nginx kept serving plain HTTP forever even
+# though issuance succeeded). Omitting the directive falls back to the
+# compiled-in /var/log/nginx/error.log path, which in this image IS a
+# /dev/stderr symlink (same as the stock nginx.conf this template replaces) -
+# opening a symlink-to-device works fine, so logs still reach `docker logs`,
+# and `nginx -t` succeeds.
 
 # The stream module (incl. ssl_preread) is compiled into nginx.org's official
 # alpine nginx package (--with-stream), so no load_module is needed.
@@ -51,7 +57,12 @@ stream {
         proxy_pass $backend;
         # Hand the real client IP to the internal servers via PROXY protocol.
         proxy_protocol on;
-        access_log /dev/stdout demux;
+        # Path (not the literal /dev/stdout string) so nginx opens it as a
+        # normal file - which follows this image's stock access.log -> stdout
+        # symlink - instead of hitting nginx's special-cased /dev/stdout
+        # handling, which fails `nginx -t` under Docker's piped stdio (see the
+        # error_log comment above for the full explanation).
+        access_log /var/log/nginx/access.log demux;
     }
 }
 
@@ -60,7 +71,7 @@ http {
     default_type  application/octet-stream;
     sendfile        on;
     keepalive_timeout  65;
-    access_log /dev/stdout;
+    access_log /var/log/nginx/access.log;
 
     # Maps + CORS the server blocks rely on (rendered into conf.d by the entrypoint).
     include /etc/nginx/conf.d/upgrade-map.conf;
