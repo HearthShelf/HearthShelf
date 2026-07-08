@@ -498,6 +498,44 @@ const SCHEMA = [
      PRIMARY KEY (server_id, name_key)
    )`,
 
+  // Durable per-user daily listening history. ABS keeps NO history (a re-finish
+  // overwrites finishedAt; timeListening is a running sum), so trends, the full
+  // heatmap, and durable longest-ever streaks are impossible from ABS alone. The
+  // nightly stats-snapshot job (jobs/statsSnapshot.js) appends one immutable row
+  // per user per local day from ABS's playbackSessions/mediaProgresses; these
+  // accumulate into full history that survives ABS restarts/re-scans. Re-derivable
+  // by re-running the job over recent days (backup: 'derived'). Keyed by day.
+  `CREATE TABLE IF NOT EXISTS stats_daily (
+     server_id        TEXT NOT NULL DEFAULT 'local',
+     user_id          TEXT NOT NULL,
+     date             TEXT NOT NULL,          -- 'YYYY-MM-DD' local day bucket
+     seconds_listened INTEGER NOT NULL DEFAULT 0,
+     sessions         INTEGER NOT NULL DEFAULT 0,
+     books_finished   INTEGER NOT NULL DEFAULT 0,
+     snapshot_at      INTEGER NOT NULL,       -- ms epoch this row was last written
+     PRIMARY KEY (server_id, user_id, date)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_stats_daily_user
+     ON stats_daily (server_id, user_id, date)`,
+
+  // Durable per-user achievement unlocks. HS owns this - ABS has no concept of
+  // achievements, and an unlock's timestamp is a fact only HS records. The
+  // definitions live in code (lib/achievements/registry.js); these rows are just
+  // the unlocks (immutable unlocked_at) plus a progress counter for tiered ones.
+  // Written by the stats-snapshot job after it refreshes stats_daily. NOT
+  // re-derivable if history is trimmed, so backed up in full. No UI yet (billing
+  // deferred) - unlocks accumulate so the eventual reveal isn't empty.
+  `CREATE TABLE IF NOT EXISTS user_achievements (
+     server_id      TEXT NOT NULL DEFAULT 'local',
+     user_id        TEXT NOT NULL,
+     achievement_id TEXT NOT NULL,
+     unlocked_at    INTEGER NOT NULL,
+     progress       INTEGER NOT NULL DEFAULT 0,
+     PRIMARY KEY (server_id, user_id, achievement_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_user_achievements_user
+     ON user_achievements (server_id, user_id)`,
+
   // Release subscriptions: a user follows an upcoming book (kind='book', keyed by
   // asin) or a whole series (kind='series', keyed by series_asin, auto-covering
   // its future books). The full display payload (title/author/cover/dates) is

@@ -18,6 +18,8 @@ import {
   getFinishedCountsBulk,
   getFinishedUsers,
   getActiveListeners,
+  getUserCompareStats,
+  getServerAggregateStats,
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
@@ -123,6 +125,58 @@ export async function handleSocial(req, res, url, ctx) {
       return (json(res, 200, { available: true, byItem }), true)
     }
     return (json(res, 405, { error: 'method_not_allowed' }), true)
+  }
+
+  // Compare: the caller's own totals alongside a comparison target - the whole
+  // server aggregate (?scope=server, no identity leaked) or one opted-in user
+  // (?userId=). The user variant reuses the leaderboard privacy roster: the
+  // target must appear in the caller's privacy-filtered leaderboard (so only
+  // shareable users are ever comparable), otherwise 403. See HSCompareResponse.
+  if (req.method === 'GET' && p === '/hs/social/compare') {
+    if (!(await absDbAvailable())) {
+      return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
+    }
+    const me = await getUserCompareStats(ctx.userId)
+    if (!me) return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
+
+    const targetUserId = url.searchParams.get('userId') || ''
+    if (targetUserId) {
+      // Gate on the same privacy roster the leaderboard uses: build the visible
+      // set (explicit choice wins, else the admin default) and require the target
+      // to be in it. The caller comparing against themselves is always allowed.
+      const [rows, explicit, community] = await Promise.all([
+        getLeaderboard({ window: 'all' }),
+        getExplicitSharePrefs(ctx.serverId),
+        getCommunityConfig(),
+      ])
+      const shareable = new Set(
+        rows
+          .filter((r) => shares(r.userId, explicit, community.defaultShare, ctx.userId))
+          .map((r) => r.userId),
+      )
+      if (targetUserId !== ctx.userId && !shareable.has(targetUserId)) {
+        return (json(res, 403, { error: 'not_shareable' }), true)
+      }
+      const target = await getUserCompareStats(targetUserId)
+      if (!target) return (json(res, 404, { error: 'user_not_found' }), true)
+      const username = rows.find((r) => r.userId === targetUserId)?.username || ''
+      return (
+        json(res, 200, {
+          available: true,
+          scope: 'user',
+          me,
+          target,
+          userId: targetUserId,
+          username,
+        }),
+        true
+      )
+    }
+
+    // Default: compare against the server-wide per-user average.
+    const target = await getServerAggregateStats()
+    if (!target) return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
+    return (json(res, 200, { available: true, scope: 'server', me, target }), true)
   }
 
   if (req.method === 'GET' && p === '/hs/social/leaderboard') {

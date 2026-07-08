@@ -402,6 +402,201 @@ export async function getLeaderboard({ window = 'all' } = {}) {
   })
 }
 
+// How many distinct books one user has finished, optionally only those finished
+// on/after `sinceDate` ('YYYY-MM-DD'). Same isFinished/book filter as the
+// leaderboard, scoped to one user. The window is a lexicographic compare on
+// finishedAt (never datetime()) - safe against ABS's DATE text shape, matching
+// the leaderboard windowing. Returns 0 on any failure or when the db isn't
+// mounted (callers degrade the field to null then). Cached by (user, since).
+export async function getFinishedCountForUser(userId, sinceDate = null) {
+  if (!userId) return 0
+  const c = await ensureClient()
+  if (!c) return 0
+  return cached(`finishedForUser:${userId}:${sinceDate ?? ''}`, async () => {
+    try {
+      const sql = sinceDate
+        ? `SELECT COUNT(*) AS n FROM mediaProgresses
+           WHERE userId = ? AND isFinished = 1 AND mediaItemType = 'book'
+             AND finishedAt >= ?`
+        : `SELECT COUNT(*) AS n FROM mediaProgresses
+           WHERE userId = ? AND isFinished = 1 AND mediaItemType = 'book'`
+      const res = await c.execute({
+        sql,
+        args: sinceDate ? [userId, sinceDate] : [userId],
+      })
+      return Number(res.rows[0]?.n) || 0
+    } catch {
+      return 0
+    }
+  })
+}
+
+// --- Daily listening aggregates (for the stats-snapshot job) ---------------
+//
+// Per (user, day) listening totals for the snapshot job, over the recent window
+// only (playbackSessions has no index; a full-table scan is bounded by reading
+// just the last N days). date is ABS's own 'YYYY-MM-DD' day bucket, so the
+// windowing is a lexicographic >= compare (never datetime()), matching the
+// leaderboard. Books only; guests/inactive excluded to match every other
+// cross-user read. Returns [] on any failure or when the db isn't mounted.
+export async function getDailyListening(sinceDate) {
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT ps.userId AS userId, ps.date AS date,
+               SUM(ps.timeListening) AS seconds, COUNT(*) AS sessions
+        FROM playbackSessions ps
+        JOIN users u ON u.id = ps.userId
+        WHERE ps.mediaItemType = 'book'
+          AND ps.date >= ?
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        GROUP BY ps.userId, ps.date
+      `,
+      args: [String(sinceDate)],
+    })
+    return res.rows.map((r) => ({
+      userId: String(r.userId),
+      date: String(r.date),
+      seconds: Number(r.seconds) || 0,
+      sessions: Number(r.sessions) || 0,
+    }))
+  } catch {
+    return []
+  }
+}
+
+// Per (user, day) count of distinct books FINISHED on that day, over the recent
+// window. finishedAt is a DATE text; we bucket by its leading 'YYYY-MM-DD' via
+// substr (not datetime()) so the day key lines up with playbackSessions.date,
+// and window with a lexicographic >= on the same prefix. Books only;
+// guests/inactive excluded. Returns [] on any failure / when unmounted.
+export async function getDailyFinished(sinceDate) {
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT mp.userId AS userId,
+               substr(mp.finishedAt, 1, 10) AS date,
+               COUNT(*) AS finished
+        FROM mediaProgresses mp
+        JOIN users u ON u.id = mp.userId
+        WHERE mp.isFinished = 1
+          AND mp.mediaItemType = 'book'
+          AND mp.finishedAt IS NOT NULL
+          AND substr(mp.finishedAt, 1, 10) >= ?
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        GROUP BY mp.userId, substr(mp.finishedAt, 1, 10)
+      `,
+      args: [String(sinceDate)],
+    })
+    return res.rows.map((r) => ({
+      userId: String(r.userId),
+      date: String(r.date),
+      finished: Number(r.finished) || 0,
+    }))
+  } catch {
+    return []
+  }
+}
+
+// --- Compare (for /hs/social/compare) --------------------------------------
+//
+// One user's comparable totals: books finished (all-time), seconds listened
+// (all-time), and distinct active days (distinct playbackSessions.date). Books
+// only; the caller passes their own or an opted-in user's id (the route gates
+// which users are askable via the leaderboard privacy roster - this reader is
+// identity-neutral). null when the db isn't mounted. Cached per user.
+export async function getUserCompareStats(userId) {
+  if (!userId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  return cached(`compareUser:${userId}`, async () => {
+    try {
+      const [finishedRes, listenRes] = await Promise.all([
+        c.execute({
+          sql: `SELECT COUNT(*) AS n FROM mediaProgresses
+                WHERE userId = ? AND isFinished = 1 AND mediaItemType = 'book'`,
+          args: [userId],
+        }),
+        c.execute({
+          sql: `SELECT SUM(timeListening) AS secs, COUNT(DISTINCT date) AS days
+                FROM playbackSessions
+                WHERE userId = ? AND mediaItemType = 'book'`,
+          args: [userId],
+        }),
+      ])
+      return {
+        booksFinished: Number(finishedRes.rows[0]?.n) || 0,
+        secondsListened: Number(listenRes.rows[0]?.secs) || 0,
+        activeDays: Number(listenRes.rows[0]?.days) || 0,
+      }
+    } catch {
+      return null
+    }
+  })
+}
+
+// Server-wide per-user AVERAGES over eligible (non-guest, active) users: mean
+// books finished and mean seconds listened per user. No identity is leaked, so
+// this is available whenever the db is mounted. Averages are over the count of
+// users who have ANY book session or finish (the listening population), so a
+// library full of never-listened accounts doesn't drag the mean to zero.
+// activeDays is null for the aggregate (a per-user notion). Cached (server-wide).
+export async function getServerAggregateStats() {
+  const c = await ensureClient()
+  if (!c) return null
+  return cached('compareServerAgg', async () => {
+    try {
+      const [finishedRes, listenRes] = await Promise.all([
+        // Per-user finished counts, eligible users only.
+        c.execute(`
+          SELECT mp.userId AS userId, COUNT(*) AS n
+          FROM mediaProgresses mp
+          JOIN users u ON u.id = mp.userId
+          WHERE mp.isFinished = 1 AND mp.mediaItemType = 'book'
+            AND u.type != 'guest' AND u.isActive = 1
+          GROUP BY mp.userId
+        `),
+        c.execute(`
+          SELECT ps.userId AS userId, SUM(ps.timeListening) AS secs
+          FROM playbackSessions ps
+          JOIN users u ON u.id = ps.userId
+          WHERE ps.mediaItemType = 'book'
+            AND u.type != 'guest' AND u.isActive = 1
+          GROUP BY ps.userId
+        `),
+      ])
+      // Union the two populations so a user with listen time but no finish (or
+      // vice versa) still counts once toward the mean denominator.
+      const finishedByUser = new Map()
+      for (const r of finishedRes.rows) finishedByUser.set(String(r.userId), Number(r.n) || 0)
+      const secsByUser = new Map()
+      for (const r of listenRes.rows) secsByUser.set(String(r.userId), Number(r.secs) || 0)
+      const users = new Set([...finishedByUser.keys(), ...secsByUser.keys()])
+      const n = users.size
+      if (!n) return { booksFinished: 0, secondsListened: 0, activeDays: null }
+      let totalFinished = 0
+      let totalSecs = 0
+      for (const u of users) {
+        totalFinished += finishedByUser.get(u) || 0
+        totalSecs += secsByUser.get(u) || 0
+      }
+      return {
+        booksFinished: totalFinished / n,
+        secondsListened: totalSecs / n,
+        activeDays: null,
+      }
+    } catch {
+      return null
+    }
+  })
+}
+
 // One user's email, read read-only from ABS (the source of truth for accounts).
 // Used to derive a Gravatar fallback for the avatar route. Returns null when the
 // db is unavailable, the user is unknown, or they have no email on file.

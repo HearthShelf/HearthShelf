@@ -43,6 +43,30 @@ function activeDays(byDay) {
   return n
 }
 
+// Normalize ABS's dayOfWeek map into a dense '0'..'6' (Sun..Sat) map with every
+// weekday present. Mirror of @hearthshelf/core's dayOfWeekTotals - keep in sync
+// (this file is the server's hand-copy of core's stats math). ABS keys dayOfWeek
+// by weekday NAME; fold both name and numeric-index shapes to the index.
+const DOW_NAMES = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+}
+function dayOfWeekTotals(dayOfWeek) {
+  const out = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  for (const [key, val] of Object.entries(dayOfWeek ?? {})) {
+    const seconds = typeof val === 'number' ? val : 0
+    const named = DOW_NAMES[String(key).trim().toLowerCase()]
+    const idx = named !== undefined ? named : Number.parseInt(key, 10)
+    if (Number.isInteger(idx) && idx >= 0 && idx <= 6) out[idx] += seconds
+  }
+  return out
+}
+
 function mostListened(items) {
   return Object.entries(items ?? {})
     .map(([key, raw]) => {
@@ -70,7 +94,10 @@ export function callerNow(tzOffsetMin) {
   return new Date(nowMs - off * 60_000)
 }
 
-export function computeListeningStats(raw, now) {
+// `extra` carries the ABS-db-derived fields the pure fold can't compute
+// (booksFinished, booksThisYear, sessionCount); the route reads those and passes
+// them in. Absent -> null, matching @hearthshelf/core's client fallback.
+export function computeListeningStats(raw, now, extra = {}) {
   const byDay = raw?.days ?? {}
   return {
     totalTimeSec: raw?.totalTime ?? 0,
@@ -79,6 +106,10 @@ export function computeListeningStats(raw, now) {
     dayStreak: computeStreak(byDay, now),
     activeDays: activeDays(byDay),
     byDay,
+    byDayOfWeek: dayOfWeekTotals(raw?.dayOfWeek),
     mostListened: mostListened(raw?.items),
+    booksFinished: extra.booksFinished ?? null,
+    booksThisYear: extra.booksThisYear ?? null,
+    sessionCount: extra.sessionCount ?? null,
   }
 }

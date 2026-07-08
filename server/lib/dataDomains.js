@@ -157,6 +157,40 @@ export const DATA_DOMAINS = [
     userRefs: [],
   },
   {
+    // Durable daily listening history (the stats-snapshot job's output). Server
+    // scope: the job rebuilds every user's recent days from ABS, so it's
+    // re-derivable (backup 'derived') and never merged - a migrated box just
+    // re-snapshots. userRefs names the user_id column for completeness even
+    // though merge is skip. Not exported (it re-derives from ABS on the new box).
+    key: 'stats-history',
+    tables: ['stats_daily'],
+    files: null,
+    scope: 'server',
+    secretColumns: {},
+    backup: 'derived',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: ['stats_daily.user_id'],
+  },
+  {
+    // Achievement unlocks. HS owns these; an unlock's timestamp is not
+    // re-derivable if history is trimmed, so it's backed up in FULL (unlike the
+    // re-derivable stats_daily). Not merged - ABS user ids differ across installs,
+    // so unlocks are re-evaluated on the new box by the snapshot job. No user
+    // export yet (billing/reveal deferred).
+    key: 'achievements',
+    tables: ['user_achievements'],
+    files: null,
+    scope: 'server',
+    secretColumns: {},
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: ['user_achievements.user_id'],
+  },
+  {
     key: 'rate-limits',
     tables: ['rate_limits'],
     files: null,

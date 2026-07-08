@@ -4,6 +4,7 @@
 
 import { runSeriesRoster } from './seriesRoster.js'
 import { runReleaseNotify } from './releaseNotify.js'
+import { runStatsSnapshot } from './statsSnapshot.js'
 import { runBackupJob } from '../lib/backup.js'
 import { getBackupConfig } from '../backupConfig.js'
 
@@ -26,6 +27,14 @@ export const JOBS = [
       'Checks the books and series people are following and sends a push notification when a book is available in the library, on its release day, or a few days before.',
     defaultIntervalMs: 6 * HOUR_MS,
     run: runReleaseNotify,
+  },
+  {
+    id: 'stats-snapshot',
+    name: 'Listening history snapshot',
+    description:
+      "Records each person's daily listening so HearthShelf keeps a lasting history AudiobookShelf never saves - powering the listening heatmap, long-term trends, and best-ever streaks.",
+    defaultIntervalMs: DAY_MS, // nightly
+    run: runStatsSnapshot,
   },
   {
     id: 'hs-backup',
