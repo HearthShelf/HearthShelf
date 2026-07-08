@@ -26,6 +26,11 @@ export class HostedError extends Error {
   }
 }
 
+// Longer than the backend's own cert-issuance timeout (240s in
+// server/lib/hsdirect.js) so a slow-but-succeeding /pair call is never cut off
+// early - this only fires if the connection is genuinely stuck.
+const HOSTED_FETCH_TIMEOUT_MS = 5 * 60 * 1000
+
 async function hostedFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
   let res: Response
@@ -37,8 +42,12 @@ async function hostedFetch<T>(path: string, options: RequestInit = {}): Promise<
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
+      signal: AbortSignal.timeout(HOSTED_FETCH_TIMEOUT_MS),
     })
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'TimeoutError') {
+      throw new HostedError('timeout', 0, null)
+    }
     // Network-level failure (backend unreachable).
     throw new HostedError('network', 0, null)
   }

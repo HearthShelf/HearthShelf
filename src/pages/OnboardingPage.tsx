@@ -39,6 +39,8 @@ function pairingErrorMessage(e: unknown): string {
     case 'network':
     case 'control_plane_unreachable':
       return 'Couldn’t reach app.hearthshelf.com. Check your internet connection and try again.'
+    case 'timeout':
+      return 'This is taking much longer than expected. Check your internet connection and try again.'
     case 'public_url_required':
       return 'Enter your server’s public web address before connecting.'
     case 'reachability_check_failed':
@@ -101,6 +103,12 @@ export function OnboardingPage() {
   // ----- shared state -----
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Staged status line for beginPairing(): provisioning the secure address (ACME
+  // issuance) can genuinely take a couple of minutes, so we tell the admin what's
+  // happening and that it's still working rather than leaving a static "Setting
+  // up..." button as the only sign of life.
+  const [pairingProgress, setPairingProgress] = useState<string | null>(null)
 
   // ----- step machine (aio) -----
   // The dev rerun hatch (/hs/rerun-onboarding) lands on ?step=connect so we can
@@ -359,9 +367,24 @@ export function OnboardingPage() {
   }
 
   // Start pairing and show the code. Used by both aio (after library) and slim.
+  // No public URL means the backend provisions a secure connect-domain cert
+  // (ACME issuance) before it can return, which can take a couple of minutes -
+  // stage the status line so the wait doesn't read as a hang.
   async function beginPairing() {
     setError(null)
     setBusy(true)
+    setPairingProgress('Contacting app.hearthshelf.com…')
+    const usingOwnDomain = Boolean(publicUrlInput?.trim())
+    const timers: ReturnType<typeof setTimeout>[] = []
+    if (!usingOwnDomain) {
+      timers.push(
+        setTimeout(() => setPairingProgress('Setting up your secure web address…'), 4_000),
+        setTimeout(
+          () => setPairingProgress('Still working - this can take a couple of minutes…'),
+          30_000
+        )
+      )
+    }
     try {
       // Only send a public URL when the admin explicitly entered their own domain.
       // Otherwise leave it to the backend, which provisions + supplies the
@@ -379,6 +402,8 @@ export function OnboardingPage() {
     } catch (e) {
       setError(pairingErrorMessage(e))
     } finally {
+      timers.forEach(clearTimeout)
+      setPairingProgress(null)
       setBusy(false)
     }
   }
@@ -1049,6 +1074,9 @@ export function OnboardingPage() {
           </div>
         )}
 
+        {connect && busy && pairingProgress && (
+          <p className="text-center text-sm text-muted-foreground">{pairingProgress}</p>
+        )}
         <ErrorLine error={error} />
 
         {connect ? (
