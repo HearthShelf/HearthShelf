@@ -367,8 +367,19 @@ async function reloadNginx() {
   // Validate BEFORE reloading: a `reload` into a broken config can take nginx
   // down, which would brick LAN access too. `nginx -t` catches it first; if it
   // fails we leave the running config untouched and try again next cycle.
+  //
+  // stdio must be inherited here, NOT piped (execFile's default): nginx's
+  // `error_log /dev/stderr` directive OPENS that path at test/reload time (not
+  // just syntax-checks it), and /dev/stderr resolves to fd 2 via
+  // /proc/self/fd/2. When Node pipes stderr (the default), fd 2 is a pipe end
+  // owned by Node, and re-opening a pipe through its /proc/self/fd path fails
+  // with ENXIO ("No such device or address") - so `nginx -t` always failed
+  // validation here even on a syntactically-valid config, permanently blocking
+  // the reload that swaps in the TLS cert after pairing. Inheriting stdio gives
+  // nginx the container's real stderr, matching how the long-running master
+  // process (started by the entrypoint, not Node) already works.
   try {
-    await run('nginx', ['-t'])
+    await run('nginx', ['-t'], { stdio: 'inherit' })
   } catch (e) {
     warn(
       'rendered nginx config failed validation - NOT reloading:',
@@ -377,7 +388,7 @@ async function reloadNginx() {
     return `validate_failed: ${(e.stderr || e.message || '').slice(0, 200)}`
   }
   try {
-    await run('nginx', ['-s', 'reload'])
+    await run('nginx', ['-s', 'reload'], { stdio: 'inherit' })
     log('nginx re-rendered + reloaded (LAN HTTP + connect HTTPS on the WebUI port)')
     return 'reloaded'
   } catch (e) {
