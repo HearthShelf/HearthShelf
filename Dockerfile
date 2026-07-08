@@ -126,6 +126,19 @@ ENV ABS_PORT=13378 \
 COPY nginx/render-hsdirect.sh /usr/local/bin/render-hsdirect.sh
 RUN chmod +x /usr/local/bin/render-hsdirect.sh
 
+# The stock nginx:alpine image symlinks access.log/error.log to /dev/stdout/stderr,
+# which are themselves symlinks to /proc/self/fd/1|2 - a Docker container's stdio
+# pipes. `nginx -t` opens these paths for real (not just a syntax check), and a
+# fresh /proc/self/fd/N open() against a PIPE (rather than a regular file or true
+# device) can fail with ENXIO depending on the read end's state - this hit us in
+# production, deterministically failing the reload that swaps in a fresh connect-
+# domain cert after pairing (server/lib/hsdirect.js calls `nginx -t` from Node).
+# Point both logs at plain files instead so nginx never touches a pipe-backed path.
+# `docker logs` no longer shows nginx's own access/error lines; see docs/docker-images.md
+# for how to read them from the volume-backed log files.
+RUN rm -f /var/log/nginx/access.log /var/log/nginx/error.log && \
+    touch /var/log/nginx/access.log /var/log/nginx/error.log
+
 # Validate the cert-present demux config AT BUILD TIME so a structural error fails
 # the image build (caught in CI) instead of bricking a running box. We render the
 # templates with a fake cert + sample host, run `nginx -t`, then clean up.

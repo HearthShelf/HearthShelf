@@ -378,46 +378,24 @@ async function reloadNginx() {
   // down, which would brick LAN access too. `nginx -t` catches it first; if it
   // fails we leave the running config untouched and try again next cycle.
   //
-  // stdio must be inherited here, NOT piped (execFile's default): nginx's
-  // `error_log /dev/stderr` directive OPENS that path at test/reload time (not
-  // just syntax-checks it), and /dev/stderr resolves to fd 2 via
-  // /proc/self/fd/2. When Node pipes stderr (the default), fd 2 is a pipe end
-  // owned by Node, and re-opening a pipe through its /proc/self/fd path fails
-  // with ENXIO ("No such device or address") - so `nginx -t` always failed
-  // validation here even on a syntactically-valid config, permanently blocking
-  // the reload that swaps in the TLS cert after pairing. Inheriting stdio gives
-  // nginx the container's real stderr, matching how the long-running master
-  // process (started by the entrypoint, not Node) already works.
-  //
-  // Even with a real log path (not a literal /dev/stderr) and inherited stdio,
-  // `nginx -t` has still been observed to fail once with the same ENXIO on the
-  // access.log/error.log symlink, then succeed moments later against the exact
-  // same rendered config - a transient race around the reload, not a config
-  // problem (a real config error is deterministic and won't clear on its own).
-  // Retry a few times with a short delay so this self-heals instead of leaving
-  // the box stuck on plain HTTP until someone manually re-runs render-hsdirect.sh.
-  const VALIDATE_RETRIES = 3
-  const VALIDATE_RETRY_DELAY_MS = 1000
-  let validateError
-  for (let attempt = 1; attempt <= VALIDATE_RETRIES; attempt++) {
-    try {
-      await run('nginx', ['-t'], { stdio: 'inherit' })
-      validateError = null
-      break
-    } catch (e) {
-      validateError = e
-      if (attempt < VALIDATE_RETRIES) {
-        warn(`nginx -t failed (attempt ${attempt}/${VALIDATE_RETRIES}), retrying:`, (e.stderr || e.message || '').slice(0, 200))
-        await new Promise((r) => setTimeout(r, VALIDATE_RETRY_DELAY_MS))
-      }
-    }
-  }
-  if (validateError) {
+  // stdio must be inherited here, NOT piped (execFile's default): nginx's log
+  // directives OPEN their target paths at test/reload time (not just syntax-check
+  // them). The real fix for the ENXIO failures we hit here lives in the image
+  // itself (see the Dockerfile): access.log/error.log are plain files, not
+  // symlinks into a Docker stdio pipe, so nginx never does a /proc/self/fd/N
+  // open() against a pipe (which can fail with ENXIO depending on the read end's
+  // state - the actual root cause, not the literal-/dev/stderr theory an earlier
+  // fix here assumed). With real log files, stdio: 'inherit' is just for
+  // completeness/parity with the long-running master process; it's not load-
+  // bearing for `nginx -t` to succeed anymore.
+  try {
+    await run('nginx', ['-t'], { stdio: 'inherit' })
+  } catch (e) {
     warn(
       'rendered nginx config failed validation - NOT reloading:',
-      (validateError.stderr || validateError.message || '').slice(0, 500),
+      (e.stderr || e.message || '').slice(0, 500),
     )
-    return `validate_failed: ${(validateError.stderr || validateError.message || '').slice(0, 200)}`
+    return `validate_failed: ${(e.stderr || e.message || '').slice(0, 200)}`
   }
   try {
     await run('nginx', ['-s', 'reload'], { stdio: 'inherit' })

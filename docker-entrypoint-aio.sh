@@ -86,6 +86,12 @@ QG_PORT=8080 node /app/server/index.js &
 HS_PID=$!
 
 # --- nginx ---
+# access.log/error.log are plain files in this image (not symlinks to
+# /dev/stdout|stderr - see the Dockerfile comment for why), so nginx's own lines
+# no longer reach `docker logs` on their own. Tail them into this script's stdout
+# so they still show up there; see docs/docker-images.md for viewing them directly.
+tail -F /var/log/nginx/access.log /var/log/nginx/error.log 2>/dev/null &
+TAIL_PID=$!
 echo "[aio] starting nginx on :80"
 nginx -g 'daemon off;' &
 NGINX_PID=$!
@@ -93,8 +99,10 @@ NGINX_PID=$!
 # Supervise: if any process exits, stop the others and exit non-zero so Docker
 # restarts the whole container (simplest correct behavior for a single-box app).
 # `wait -n` isn't reliable in busybox ash, so poll each PID with `kill -0`.
+# TAIL_PID is just a log forwarder, not a supervised service - it's cleaned up on
+# exit but never itself triggers a restart of the other three.
 term() {
-  kill "$ABS_PID" "$HS_PID" "$NGINX_PID" 2>/dev/null || true
+  kill "$ABS_PID" "$HS_PID" "$NGINX_PID" "$TAIL_PID" 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap 'term; exit 0' TERM INT

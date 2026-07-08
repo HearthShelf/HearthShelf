@@ -64,3 +64,19 @@ nginx on port 80 is the only ingress.
 If you mount an `abs-config` volume that already has a root user, HearthShelf
 detects ABS is initialised, records that, and skips provisioning - it cannot
 recover your existing root password, so sign in with your existing ABS account.
+
+### Viewing nginx's logs
+
+`access.log`/`error.log` are plain files in this image, not symlinks to
+`/dev/stdout`/`/dev/stderr` - nginx opens them for real (not just a syntax check)
+every time the backend validates a re-rendered config after a connect-domain cert
+lands, and a symlink into Docker's stdio pipe could fail that open with `ENXIO`
+depending on the pipe's state. `docker-entrypoint-aio.sh` tails both files into
+the container's own stdout, so `docker compose -f docker-compose.aio.yml logs -f`
+still shows nginx's lines alongside ABS and the HearthShelf backend. To read them
+directly instead:
+
+```bash
+docker exec <container> tail -f /var/log/nginx/access.log
+docker exec <container> tail -f /var/log/nginx/error.log
+```

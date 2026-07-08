@@ -21,18 +21,15 @@ user  nginx;
 worker_processes  auto;
 pid        /var/run/nginx.pid;
 
-# NO explicit error_log here - deliberately. An explicit `error_log /dev/stderr`
-# directive hits nginx's special-cased handling for that literal string, which
-# opens the fd directly rather than following the filesystem symlink - and that
-# direct open() fails with ENXIO ("No such device or address") under Docker's
-# piped container stdio, permanently failing `nginx -t` and blocking every
-# reload (this bit us in production: the reload after a fresh hs.direct cert
-# landed was silently skipped, so nginx kept serving plain HTTP forever even
-# though issuance succeeded). Omitting the directive falls back to the
-# compiled-in /var/log/nginx/error.log path, which in this image IS a
-# /dev/stderr symlink (same as the stock nginx.conf this template replaces) -
-# opening a symlink-to-device works fine, so logs still reach `docker logs`,
-# and `nginx -t` succeeds.
+# NO explicit error_log here - the compiled-in default (/var/log/nginx/error.log)
+# is what we want. That path is a plain FILE in this image (the Dockerfile removes
+# the stock nginx:alpine symlinks to /dev/stderr), not a symlink into a Docker stdio
+# pipe - `nginx -t`/`-s reload` opens these paths for real, and a fresh
+# /proc/self/fd/N open() against a PIPE can fail with ENXIO depending on the read
+# end's state. This bit us in production: the reload after a fresh connect-domain
+# cert landed kept failing that open(), so nginx silently stayed on plain HTTP even
+# though issuance succeeded. `docker logs` no longer shows nginx's own lines as a
+# result; see docs/docker-images.md for how to read them from the log files.
 
 # The stream module (incl. ssl_preread) is compiled into nginx.org's official
 # alpine nginx package (--with-stream), so no load_module is needed.
@@ -57,11 +54,6 @@ stream {
         proxy_pass $backend;
         # Hand the real client IP to the internal servers via PROXY protocol.
         proxy_protocol on;
-        # Path (not the literal /dev/stdout string) so nginx opens it as a
-        # normal file - which follows this image's stock access.log -> stdout
-        # symlink - instead of hitting nginx's special-cased /dev/stdout
-        # handling, which fails `nginx -t` under Docker's piped stdio (see the
-        # error_log comment above for the full explanation).
         access_log /var/log/nginx/access.log demux;
     }
 }
