@@ -153,6 +153,14 @@ export function OnboardingPage() {
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
 
+  // The port to tell the admin to forward. AIO's single-port model (the whole
+  // box - LAN HTTP and connect-domain HTTPS - lives behind one host-mapped
+  // port) means it's almost never 443: it's whatever port they mapped the
+  // container to. Before pairing we don't know a public URL yet, so fall back
+  // to the port this very page loaded on - the browser is proof that port
+  // reaches the box, whether that's a LAN hop or an already-forwarded WAN one.
+  const forwardPort = window.location.port || '443'
+
   // ----- library step (aio) -----
   const [libName, setLibName] = useState('Audiobooks')
   const [libType, setLibType] = useState<'book' | 'podcast'>('book')
@@ -494,6 +502,17 @@ export function OnboardingPage() {
       const hsReady = ownDomain || hsDirect?.status === 'active'
       const reachUrl = ownDomain ? publicUrlInput?.trim() : (hsDirect?.publicUrl ?? undefined)
       const reachOk = reach?.reachable
+      // Prefer the real address's own port (e.g. hs.direct's :9277) over the
+      // page-load fallback now that we have one - it's the actual port being
+      // probed by the reachability check below.
+      const reachPort = (() => {
+        if (!reachUrl) return forwardPort
+        try {
+          return new URL(reachUrl).port || '443'
+        } catch {
+          return forwardPort
+        }
+      })()
       return (
         <Shell>
           <div className="flex flex-col items-center gap-2 text-center">
@@ -538,7 +557,8 @@ export function OnboardingPage() {
                 <>
                   <p className="text-amber-500">
                     Not yet. {label} works on your home network, but to reach it from outside, your
-                    router needs to send incoming connections to this machine (forward port 443).
+                    router needs to send incoming connections to this machine (forward port{' '}
+                    {reachPort}).
                   </p>
                   <ReachabilityHelp />
                 </>
@@ -1017,8 +1037,8 @@ export function OnboardingPage() {
               <Icon name="lan" className="mt-0.5 text-[18px] text-muted-foreground" />
               <p className="text-muted-foreground">
                 For access from outside your home, your router needs to forward
-                <span className="font-medium text-foreground"> port 443</span> to this machine.
-                We’ll check it for you right after connecting.
+                <span className="font-medium text-foreground"> port {forwardPort}</span> to this
+                machine. We’ll check it for you right after connecting.
               </p>
             </div>
 
