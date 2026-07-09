@@ -13,8 +13,14 @@
 
 import { json } from '../lib/http.js'
 import { callerNow, computeListeningStats } from '../lib/stats.js'
-import { absDbAvailable, getFinishedCountForUser } from '../lib/absdb.js'
-import { getHistoryForUser } from '../lib/statsHistoryStore.js'
+import {
+  absDbAvailable,
+  getFinishedCountForUser,
+  getFinishedExtremesForUser,
+  getTopFinishedAuthorForUser,
+  getTopFinishedNarratorForUser,
+} from '../lib/absdb.js'
+import { getHistoryForUser, getMonthlyForUser } from '../lib/statsHistoryStore.js'
 
 // Map the ?range= param to a 'YYYY-MM-DD' cutoff, or null for all history.
 // 'year' = last 365 days, 'all' (default) = everything HS has snapshotted.
@@ -55,8 +61,13 @@ export async function handleStats(req, res, url, ctx) {
       return (json(res, 200, { available: false, days: [] }), true)
     }
     const since = historyCutoff(url.searchParams.get('range') || 'all')
-    const days = await getHistoryForUser(ctx.userId, since)
-    return (json(res, 200, { available: true, days }), true)
+    const [days, months] = await Promise.all([
+      getHistoryForUser(ctx.userId, since),
+      // Monthly rollup is always over ALL history (the "by month" card wants the
+      // full picture, independent of the heatmap's range window).
+      getMonthlyForUser(ctx.userId),
+    ])
+    return (json(res, 200, { available: true, days, months }), true)
   }
 
   let raw
@@ -78,12 +89,32 @@ export async function handleStats(req, res, url, ctx) {
   const now = callerNow(Number.isNaN(tz) ? undefined : tz)
   const yearStart = `${now.getUTCFullYear()}-01-01`
   const dbUp = await absDbAvailable()
-  const [sessionCount, booksFinished, booksThisYear] = await Promise.all([
-    fetchSessionCount(ctx),
-    dbUp ? getFinishedCountForUser(ctx.userId) : Promise.resolve(null),
-    dbUp ? getFinishedCountForUser(ctx.userId, yearStart) : Promise.resolve(null),
-  ])
+  // Highlight badges (longest/shortest finished, most-read author/narrator) are
+  // direct ABS-db reads, so they need the db mounted; degrade to null otherwise.
+  const [sessionCount, booksFinished, booksThisYear, extremes, topAuthor, topNarrator] =
+    await Promise.all([
+      fetchSessionCount(ctx),
+      dbUp ? getFinishedCountForUser(ctx.userId) : Promise.resolve(null),
+      dbUp ? getFinishedCountForUser(ctx.userId, yearStart) : Promise.resolve(null),
+      dbUp ? getFinishedExtremesForUser(ctx.userId) : Promise.resolve(null),
+      dbUp ? getTopFinishedAuthorForUser(ctx.userId) : Promise.resolve(null),
+      dbUp ? getTopFinishedNarratorForUser(ctx.userId) : Promise.resolve(null),
+    ])
 
-  const stats = computeListeningStats(raw, now, { sessionCount, booksFinished, booksThisYear })
+  const highlights = dbUp
+    ? {
+        longestBook: extremes?.longest ?? null,
+        shortestBook: extremes?.shortest ?? null,
+        topAuthor: topAuthor ?? null,
+        topNarrator: topNarrator ?? null,
+      }
+    : null
+
+  const stats = computeListeningStats(raw, now, {
+    sessionCount,
+    booksFinished,
+    booksThisYear,
+    highlights,
+  })
   return (json(res, 200, stats), true)
 }

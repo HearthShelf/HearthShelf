@@ -72,3 +72,35 @@ export async function getHistoryForUser(userId, sinceDate = null) {
 export async function getAllHistoryForUser(userId) {
   return getHistoryForUser(userId, null)
 }
+
+// The caller's history rolled up by month, oldest first: one row per calendar
+// month HS has snapshotted, with that month's total seconds, books finished,
+// and count of active days (days with any listening). Powers the "by month"
+// averages card. `activeDays` counts days with seconds_listened > 0, so a month's
+// average-per-active-day is derivable client-side. [] on any failure or when the
+// snapshot job hasn't run yet. Returns the HSStatsMonth[] shape (@hearthshelf/core).
+export async function getMonthlyForUser(userId) {
+  if (!userId) return []
+  const serverId = await getServerId()
+  try {
+    const res = await db.execute({
+      sql: `SELECT substr(date, 1, 7) AS month,
+                   SUM(seconds_listened) AS seconds,
+                   SUM(books_finished)   AS books,
+                   SUM(CASE WHEN seconds_listened > 0 THEN 1 ELSE 0 END) AS active_days
+              FROM stats_daily
+             WHERE server_id = ? AND user_id = ?
+             GROUP BY month
+             ORDER BY month ASC`,
+      args: [serverId, String(userId)],
+    })
+    return res.rows.map((r) => ({
+      month: String(r.month),
+      seconds: Number(r.seconds) || 0,
+      books: Number(r.books) || 0,
+      activeDays: Number(r.active_days) || 0,
+    }))
+  } catch {
+    return []
+  }
+}

@@ -23,6 +23,7 @@ import {
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
+import { callerNow } from '../lib/stats.js'
 
 const LEADERBOARD_LIMIT = 100
 const WINDOWS = new Set(['week', 'month', 'all'])
@@ -136,7 +137,13 @@ export async function handleSocial(req, res, url, ctx) {
     if (!(await absDbAvailable())) {
       return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
     }
-    const me = await getUserCompareStats(ctx.userId)
+    // Caller-local year start for the booksThisYear comparison field (tz in
+    // minutes, like /hs/stats; falls back to the server clock without it).
+    const tz = Number.parseInt(url.searchParams.get('tz') ?? '', 10)
+    const now = callerNow(Number.isNaN(tz) ? undefined : tz)
+    const yearStart = `${now.getUTCFullYear()}-01-01`
+
+    const me = await getUserCompareStats(ctx.userId, yearStart)
     if (!me) return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
 
     const targetUserId = url.searchParams.get('userId') || ''
@@ -157,7 +164,7 @@ export async function handleSocial(req, res, url, ctx) {
       if (targetUserId !== ctx.userId && !shareable.has(targetUserId)) {
         return (json(res, 403, { error: 'not_shareable' }), true)
       }
-      const target = await getUserCompareStats(targetUserId)
+      const target = await getUserCompareStats(targetUserId, yearStart)
       if (!target) return (json(res, 404, { error: 'user_not_found' }), true)
       const username = rows.find((r) => r.userId === targetUserId)?.username || ''
       return (
@@ -174,7 +181,7 @@ export async function handleSocial(req, res, url, ctx) {
     }
 
     // Default: compare against the server-wide per-user average.
-    const target = await getServerAggregateStats()
+    const target = await getServerAggregateStats(yearStart)
     if (!target) return (json(res, 200, { available: false, scope: 'server', me: null, target: null }), true)
     return (json(res, 200, { available: true, scope: 'server', me, target }), true)
   }

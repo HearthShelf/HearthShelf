@@ -431,6 +431,114 @@ export async function getFinishedCountForUser(userId, sinceDate = null) {
   })
 }
 
+// --- Stats highlights (for /hs/stats) --------------------------------------
+//
+// Personal "highlight" badges over a user's FINISHED books, all from a direct db
+// read (needs the read-only db mounted; degrade to null on a slim install).
+// Books only; the caller's own finishes. Cached per user.
+
+// The user's longest + shortest FINISHED book by canonical length (books.duration,
+// FLOAT seconds - the book's length, not the per-user progress duration). Each is
+// { title, durationSec } or null (no finished book with a positive duration).
+export async function getFinishedExtremesForUser(userId) {
+  if (!userId) return { longest: null, shortest: null }
+  const c = await ensureClient()
+  if (!c) return { longest: null, shortest: null }
+  return cached(`finishedExtremes:${userId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `SELECT b.title AS title, b.duration AS dur
+                FROM mediaProgresses mp
+                JOIN books b ON b.id = mp.mediaItemId
+               WHERE mp.userId = ? AND mp.isFinished = 1
+                 AND mp.mediaItemType = 'book' AND b.duration > 0
+               ORDER BY b.duration`,
+        args: [userId],
+      })
+      const rows = res.rows
+      if (!rows.length) return { longest: null, shortest: null }
+      const mk = (r) => ({ title: String(r.title ?? ''), durationSec: Number(r.dur) || 0 })
+      return { shortest: mk(rows[0]), longest: mk(rows[rows.length - 1]) }
+    } catch {
+      return { longest: null, shortest: null }
+    }
+  })
+}
+
+// The author the user has FINISHED the most books by, as { name, count } or null.
+// Author via the bookAuthors join (matching readImportInventory's join). A book
+// with multiple authors counts toward each.
+export async function getTopFinishedAuthorForUser(userId) {
+  if (!userId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  return cached(`topFinishedAuthor:${userId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `SELECT a.name AS name, COUNT(*) AS n
+                FROM mediaProgresses mp
+                JOIN books b ON b.id = mp.mediaItemId
+                JOIN bookAuthors ba ON ba.bookId = b.id
+                JOIN authors a ON a.id = ba.authorId
+               WHERE mp.userId = ? AND mp.isFinished = 1 AND mp.mediaItemType = 'book'
+               GROUP BY a.name
+               ORDER BY n DESC
+               LIMIT 1`,
+        args: [userId],
+      })
+      const row = res.rows[0]
+      if (!row || !row.name) return null
+      return { name: String(row.name), count: Number(row.n) || 0 }
+    } catch {
+      return null
+    }
+  })
+}
+
+// The narrator the user has FINISHED the most books by, as { name, count } or
+// null. Narrators are a JSON string array on books.narrators (like books.genres),
+// so parse-and-count in JS - same shape as getFinishedGenresForUsers. A book with
+// multiple narrators counts toward each.
+export async function getTopFinishedNarratorForUser(userId) {
+  if (!userId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  return cached(`topFinishedNarrator:${userId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `SELECT b.narrators AS narrators
+                FROM mediaProgresses mp
+                JOIN books b ON b.id = mp.mediaItemId
+               WHERE mp.userId = ? AND mp.isFinished = 1 AND mp.mediaItemType = 'book'`,
+        args: [userId],
+      })
+      const counts = new Map()
+      for (const row of res.rows) {
+        const raw = row.narrators
+        if (raw == null) continue
+        let list
+        try {
+          list = typeof raw === 'string' ? JSON.parse(raw) : raw
+        } catch {
+          continue
+        }
+        if (!Array.isArray(list)) continue
+        for (const name of list) {
+          if (typeof name !== 'string' || !name) continue
+          counts.set(name, (counts.get(name) || 0) + 1)
+        }
+      }
+      let best = null
+      for (const [name, count] of counts) {
+        if (!best || count > best.count) best = { name, count }
+      }
+      return best
+    } catch {
+      return null
+    }
+  })
+}
+
 // --- Daily listening aggregates (for the stats-snapshot job) ---------------
 //
 // Per (user, day) listening totals for the snapshot job, over the recent window
@@ -507,17 +615,19 @@ export async function getDailyFinished(sinceDate) {
 // --- Compare (for /hs/social/compare) --------------------------------------
 //
 // One user's comparable totals: books finished (all-time), seconds listened
-// (all-time), and distinct active days (distinct playbackSessions.date). Books
-// only; the caller passes their own or an opted-in user's id (the route gates
-// which users are askable via the leaderboard privacy roster - this reader is
-// identity-neutral). null when the db isn't mounted. Cached per user.
-export async function getUserCompareStats(userId) {
+// (all-time), distinct active days (distinct playbackSessions.date), average
+// seconds per active day, and books finished this year (when `yearStart`, a
+// 'YYYY-01-01' cutoff, is given). Books only; the caller passes their own or an
+// opted-in user's id (the route gates which users are askable via the leaderboard
+// privacy roster - this reader is identity-neutral). null when the db isn't
+// mounted. Cached per (user, yearStart).
+export async function getUserCompareStats(userId, yearStart = null) {
   if (!userId) return null
   const c = await ensureClient()
   if (!c) return null
-  return cached(`compareUser:${userId}`, async () => {
+  return cached(`compareUser:${userId}:${yearStart ?? ''}`, async () => {
     try {
-      const [finishedRes, listenRes] = await Promise.all([
+      const [finishedRes, listenRes, yearRes] = await Promise.all([
         c.execute({
           sql: `SELECT COUNT(*) AS n FROM mediaProgresses
                 WHERE userId = ? AND isFinished = 1 AND mediaItemType = 'book'`,
@@ -529,11 +639,26 @@ export async function getUserCompareStats(userId) {
                 WHERE userId = ? AND mediaItemType = 'book'`,
           args: [userId],
         }),
+        // Books finished since Jan 1 of the caller's local year (lexicographic
+        // compare on finishedAt, matching getFinishedCountForUser's windowing).
+        yearStart
+          ? c.execute({
+              sql: `SELECT COUNT(*) AS n FROM mediaProgresses
+                    WHERE userId = ? AND isFinished = 1 AND mediaItemType = 'book'
+                      AND finishedAt >= ?`,
+              args: [userId, yearStart],
+            })
+          : Promise.resolve({ rows: [{ n: null }] }),
       ])
+      const secs = Number(listenRes.rows[0]?.secs) || 0
+      const days = Number(listenRes.rows[0]?.days) || 0
+      const yearN = yearRes.rows[0]?.n
       return {
         booksFinished: Number(finishedRes.rows[0]?.n) || 0,
-        secondsListened: Number(listenRes.rows[0]?.secs) || 0,
-        activeDays: Number(listenRes.rows[0]?.days) || 0,
+        secondsListened: secs,
+        activeDays: days,
+        avgPerActiveDaySec: days ? secs / days : 0,
+        booksThisYear: yearN == null ? null : Number(yearN) || 0,
       }
     } catch {
       return null
@@ -542,17 +667,18 @@ export async function getUserCompareStats(userId) {
 }
 
 // Server-wide per-user AVERAGES over eligible (non-guest, active) users: mean
-// books finished and mean seconds listened per user. No identity is leaked, so
-// this is available whenever the db is mounted. Averages are over the count of
-// users who have ANY book session or finish (the listening population), so a
-// library full of never-listened accounts doesn't drag the mean to zero.
-// activeDays is null for the aggregate (a per-user notion). Cached (server-wide).
-export async function getServerAggregateStats() {
+// books finished, seconds listened, avg-per-active-day, and (with `yearStart`)
+// books finished this year. No identity is leaked, so this is available whenever
+// the db is mounted. Averages are over the count of users who have ANY book
+// session or finish (the listening population), so a library full of
+// never-listened accounts doesn't drag the mean to zero. activeDays is null for
+// the aggregate (a per-user notion). Cached per yearStart.
+export async function getServerAggregateStats(yearStart = null) {
   const c = await ensureClient()
   if (!c) return null
-  return cached('compareServerAgg', async () => {
+  return cached(`compareServerAgg:${yearStart ?? ''}`, async () => {
     try {
-      const [finishedRes, listenRes] = await Promise.all([
+      const [finishedRes, listenRes, yearRes] = await Promise.all([
         // Per-user finished counts, eligible users only.
         c.execute(`
           SELECT mp.userId AS userId, COUNT(*) AS n
@@ -562,34 +688,71 @@ export async function getServerAggregateStats() {
             AND u.type != 'guest' AND u.isActive = 1
           GROUP BY mp.userId
         `),
+        // Per-user seconds + active days.
         c.execute(`
-          SELECT ps.userId AS userId, SUM(ps.timeListening) AS secs
+          SELECT ps.userId AS userId, SUM(ps.timeListening) AS secs,
+                 COUNT(DISTINCT ps.date) AS days
           FROM playbackSessions ps
           JOIN users u ON u.id = ps.userId
           WHERE ps.mediaItemType = 'book'
             AND u.type != 'guest' AND u.isActive = 1
           GROUP BY ps.userId
         `),
+        // Per-user finishes this year, when a year cutoff is given.
+        yearStart
+          ? c.execute({
+              sql: `SELECT mp.userId AS userId, COUNT(*) AS n
+                FROM mediaProgresses mp
+                JOIN users u ON u.id = mp.userId
+                WHERE mp.isFinished = 1 AND mp.mediaItemType = 'book'
+                  AND mp.finishedAt >= ?
+                  AND u.type != 'guest' AND u.isActive = 1
+                GROUP BY mp.userId`,
+              args: [yearStart],
+            })
+          : Promise.resolve({ rows: [] }),
       ])
       // Union the two populations so a user with listen time but no finish (or
       // vice versa) still counts once toward the mean denominator.
       const finishedByUser = new Map()
       for (const r of finishedRes.rows) finishedByUser.set(String(r.userId), Number(r.n) || 0)
       const secsByUser = new Map()
-      for (const r of listenRes.rows) secsByUser.set(String(r.userId), Number(r.secs) || 0)
+      const daysByUser = new Map()
+      for (const r of listenRes.rows) {
+        secsByUser.set(String(r.userId), Number(r.secs) || 0)
+        daysByUser.set(String(r.userId), Number(r.days) || 0)
+      }
+      const yearByUser = new Map()
+      for (const r of yearRes.rows) yearByUser.set(String(r.userId), Number(r.n) || 0)
       const users = new Set([...finishedByUser.keys(), ...secsByUser.keys()])
       const n = users.size
-      if (!n) return { booksFinished: 0, secondsListened: 0, activeDays: null }
+      if (!n) {
+        return {
+          booksFinished: 0,
+          secondsListened: 0,
+          activeDays: null,
+          avgPerActiveDaySec: 0,
+          booksThisYear: yearStart ? 0 : null,
+        }
+      }
       let totalFinished = 0
       let totalSecs = 0
+      let totalAvgPerDay = 0
+      let totalYear = 0
       for (const u of users) {
+        const secs = secsByUser.get(u) || 0
+        const days = daysByUser.get(u) || 0
         totalFinished += finishedByUser.get(u) || 0
-        totalSecs += secsByUser.get(u) || 0
+        totalSecs += secs
+        totalAvgPerDay += days ? secs / days : 0
+        totalYear += yearByUser.get(u) || 0
       }
       return {
         booksFinished: totalFinished / n,
         secondsListened: totalSecs / n,
         activeDays: null,
+        avgPerActiveDaySec: totalAvgPerDay / n,
+        booksThisYear: yearStart ? totalYear / n : null,
       }
     } catch {
       return null

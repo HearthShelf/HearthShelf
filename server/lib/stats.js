@@ -136,5 +136,6 @@ export function computeListeningStats(raw, now, extra = {}) {
     booksFinished: extra.booksFinished ?? null,
     booksThisYear: extra.booksThisYear ?? null,
     sessionCount: extra.sessionCount ?? null,
+    highlights: extra.highlights ?? null,
   }
 }
