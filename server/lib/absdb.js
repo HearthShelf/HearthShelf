@@ -447,9 +447,10 @@ export async function getFinishedExtremesForUser(userId) {
   return cached(`finishedExtremes:${userId}`, async () => {
     try {
       const res = await c.execute({
-        sql: `SELECT b.title AS title, b.duration AS dur
+        sql: `SELECT b.title AS title, b.duration AS dur, li.id AS libraryItemId
                 FROM mediaProgresses mp
                 JOIN books b ON b.id = mp.mediaItemId
+                LEFT JOIN libraryItems li ON li.mediaId = b.id
                WHERE mp.userId = ? AND mp.isFinished = 1
                  AND mp.mediaItemType = 'book' AND b.duration > 0
                ORDER BY b.duration`,
@@ -457,7 +458,11 @@ export async function getFinishedExtremesForUser(userId) {
       })
       const rows = res.rows
       if (!rows.length) return { longest: null, shortest: null }
-      const mk = (r) => ({ title: String(r.title ?? ''), durationSec: Number(r.dur) || 0 })
+      const mk = (r) => ({
+        title: String(r.title ?? ''),
+        durationSec: Number(r.dur) || 0,
+        libraryItemId: r.libraryItemId != null ? String(r.libraryItemId) : null,
+      })
       return { shortest: mk(rows[0]), longest: mk(rows[rows.length - 1]) }
     } catch {
       return { longest: null, shortest: null }
