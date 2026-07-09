@@ -67,6 +67,30 @@ function dayOfWeekTotals(dayOfWeek) {
   return out
 }
 
+// Average seconds per occurrence of each weekday, keyed 0..6 (Sun..Sat), derived
+// from byDay. Mirror of @hearthshelf/core's dayOfWeekAverages - keep in sync.
+// Unlike dayOfWeekTotals (a running sum), this divides each weekday's total by
+// how many dates of that weekday appear in byDay, so weekdays are comparable.
+function dayOfWeekAverages(byDay) {
+  const sums = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  const counts = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  for (const [date, val] of Object.entries(byDay ?? {})) {
+    const seconds = typeof val === 'number' ? val : 0
+    const parts = String(date).split('-')
+    if (parts.length !== 3) continue
+    const y = Number.parseInt(parts[0], 10)
+    const m = Number.parseInt(parts[1], 10)
+    const d = Number.parseInt(parts[2], 10)
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) continue
+    const idx = new Date(y, m - 1, d).getDay()
+    sums[idx] += seconds
+    counts[idx] += 1
+  }
+  const out = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  for (const idx of Object.keys(out)) out[idx] = counts[idx] ? sums[idx] / counts[idx] : 0
+  return out
+}
+
 function mostListened(items) {
   return Object.entries(items ?? {})
     .map(([key, raw]) => {
@@ -107,6 +131,7 @@ export function computeListeningStats(raw, now, extra = {}) {
     activeDays: activeDays(byDay),
     byDay,
     byDayOfWeek: dayOfWeekTotals(raw?.dayOfWeek),
+    byWeekdayAvg: dayOfWeekAverages(byDay),
     mostListened: mostListened(raw?.items),
     booksFinished: extra.booksFinished ?? null,
     booksThisYear: extra.booksThisYear ?? null,
