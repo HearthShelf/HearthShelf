@@ -19,8 +19,28 @@ import {
   getFinishedExtremesForUser,
   getTopFinishedAuthorForUser,
   getTopFinishedNarratorForUser,
+  getBookByMediaId,
 } from '../lib/absdb.js'
 import { getHistoryForUser, getMonthlyForUser } from '../lib/statsHistoryStore.js'
+import { getMostReReadForUser } from '../lib/bookCompletionsStore.js'
+
+// Resolve the caller's most re-read book (from HS's durable completion counter)
+// into the highlight-badge shape: { title, completions, libraryItemId }. The
+// counter stores only the media id, so we hop to ABS for the title/cover. Returns
+// null when the user has no re-read yet, or the book has left the library. Not
+// gated on absDbAvailable by the caller - if the db is down getBookByMediaId
+// returns null and so do we.
+async function resolveMostReRead(userId) {
+  const top = await getMostReReadForUser(userId)
+  if (!top) return null
+  const book = await getBookByMediaId(top.mediaItemId)
+  if (!book) return null
+  return {
+    title: book.title || 'Untitled',
+    completions: top.completions,
+    libraryItemId: book.libraryItemId,
+  }
+}
 
 // Map the ?range= param to a 'YYYY-MM-DD' cutoff, or null for all history.
 // 'year' = last 365 days, 'all' (default) = everything HS has snapshotted.
@@ -91,15 +111,25 @@ export async function handleStats(req, res, url, ctx) {
   const dbUp = await absDbAvailable()
   // Highlight badges (longest/shortest finished, most-read author/narrator) are
   // direct ABS-db reads, so they need the db mounted; degrade to null otherwise.
-  const [sessionCount, booksFinished, booksThisYear, extremes, topAuthor, topNarrator] =
-    await Promise.all([
-      fetchSessionCount(ctx),
-      dbUp ? getFinishedCountForUser(ctx.userId) : Promise.resolve(null),
-      dbUp ? getFinishedCountForUser(ctx.userId, yearStart) : Promise.resolve(null),
-      dbUp ? getFinishedExtremesForUser(ctx.userId) : Promise.resolve(null),
-      dbUp ? getTopFinishedAuthorForUser(ctx.userId) : Promise.resolve(null),
-      dbUp ? getTopFinishedNarratorForUser(ctx.userId) : Promise.resolve(null),
-    ])
+  const [
+    sessionCount,
+    booksFinished,
+    booksThisYear,
+    extremes,
+    topAuthor,
+    topNarrator,
+    mostReRead,
+  ] = await Promise.all([
+    fetchSessionCount(ctx),
+    dbUp ? getFinishedCountForUser(ctx.userId) : Promise.resolve(null),
+    dbUp ? getFinishedCountForUser(ctx.userId, yearStart) : Promise.resolve(null),
+    dbUp ? getFinishedExtremesForUser(ctx.userId) : Promise.resolve(null),
+    dbUp ? getTopFinishedAuthorForUser(ctx.userId) : Promise.resolve(null),
+    dbUp ? getTopFinishedNarratorForUser(ctx.userId) : Promise.resolve(null),
+    // Most re-read is HS-owned (book_completions), but resolving its title/cover
+    // needs the ABS db, so it's gated on dbUp like the others.
+    dbUp ? resolveMostReRead(ctx.userId) : Promise.resolve(null),
+  ])
 
   const highlights = dbUp
     ? {
@@ -107,6 +137,7 @@ export async function handleStats(req, res, url, ctx) {
         shortestBook: extremes?.shortest ?? null,
         topAuthor: topAuthor ?? null,
         topNarrator: topNarrator ?? null,
+        mostReRead: mostReRead ?? null,
       }
     : null
 

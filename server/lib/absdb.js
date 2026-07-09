@@ -539,6 +539,41 @@ export async function getTopFinishedNarratorForUser(userId) {
   })
 }
 
+// Resolve a book by its media id (books.id, = mediaProgresses.mediaItemId) to its
+// title + canonical length + owning library-item id, for the "most re-read"
+// highlight badge (bookCompletionsStore stores only the media id). libraryItemId
+// lets the client render a cover; it's the newest libraryItems row that points at
+// this book (a book is normally owned once). Returns null when the db isn't
+// mounted or the book no longer exists in the library. Cached per media id.
+export async function getBookByMediaId(mediaItemId) {
+  if (!mediaItemId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  return cached(`bookByMediaId:${mediaItemId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `SELECT b.title AS title, b.duration AS dur,
+                     (SELECT li.id FROM libraryItems li
+                       WHERE li.mediaId = b.id AND li.mediaType = 'book'
+                       LIMIT 1) AS libraryItemId
+                FROM books b
+               WHERE b.id = ?
+               LIMIT 1`,
+        args: [String(mediaItemId)],
+      })
+      const row = res.rows[0]
+      if (!row) return null
+      return {
+        title: String(row.title ?? ''),
+        durationSec: Number(row.dur) || 0,
+        libraryItemId: row.libraryItemId == null ? null : String(row.libraryItemId),
+      }
+    } catch {
+      return null
+    }
+  })
+}
+
 // --- Daily listening aggregates (for the stats-snapshot job) ---------------
 //
 // Per (user, day) listening totals for the snapshot job, over the recent window
@@ -607,6 +642,48 @@ export async function getDailyFinished(sinceDate) {
       date: String(r.date),
       finished: Number(r.finished) || 0,
     }))
+  } catch {
+    return []
+  }
+}
+
+// Current per-(user, book) finish state for every finished book on the server,
+// for the completion-tracking snapshot (jobs/statsSnapshot.js -> book_completions).
+// ABS overwrites mediaProgresses.finishedAt on a re-finish and keeps no completion
+// count, so re-reads aren't derivable from a single read - the snapshot compares
+// THIS current state against the durable state HS stored last night to detect a
+// new completion (a book that flipped unfinished->finished, or whose finishedAt
+// moved forward while finished). We therefore need the FULL finished set, not a
+// recent window: any book, finished long ago, can be re-finished today.
+//
+// finishedAt is returned as a ms epoch (Date.parse of ABS's DATE text), null when
+// unparseable - the job compares epochs, never the raw text. Books only;
+// guests/inactive excluded to match every other cross-user read. [] on any
+// failure / when the db isn't mounted. Not cached: the nightly job is the only
+// caller and wants a fresh read.
+export async function getFinishStates() {
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute(`
+      SELECT mp.userId AS userId, mp.mediaItemId AS mediaItemId,
+             mp.finishedAt AS finishedAt
+      FROM mediaProgresses mp
+      JOIN users u ON u.id = mp.userId
+      WHERE mp.isFinished = 1
+        AND mp.mediaItemType = 'book'
+        AND u.type != 'guest'
+        AND u.isActive = 1
+    `)
+    return res.rows.map((r) => {
+      const raw = r.finishedAt
+      const ms = raw != null ? Date.parse(String(raw)) : NaN
+      return {
+        userId: String(r.userId),
+        mediaItemId: String(r.mediaItemId),
+        finishedAt: Number.isNaN(ms) ? null : ms,
+      }
+    })
   } catch {
     return []
   }

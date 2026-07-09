@@ -518,6 +518,28 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_stats_daily_user
      ON stats_daily (server_id, user_id, date)`,
 
+  // Durable per-(user, book) completion counter. ABS keeps NO completion count -
+  // it overwrites mediaProgresses.finishedAt on a re-finish - so re-reads/re-listens
+  // are impossible to derive from ABS alone. The nightly stats-snapshot job compares
+  // ABS's current finish state against this stored state to detect a new completion
+  // (a book newly finished, or whose finishedAt moved forward while finished) and
+  // bumps completions. last_finished_at is the ms epoch of the finish we last
+  // counted (the re-read comparison baseline); last_seen_at is the last snapshot
+  // that observed the book finished (debug/telemetry). NOT re-derivable once counted
+  // (ABS has overwritten the intermediate values), so backed up in FULL. Keyed by
+  // (server_id, user_id, media_item_id). See lib/bookCompletionsStore.js.
+  `CREATE TABLE IF NOT EXISTS book_completions (
+     server_id        TEXT NOT NULL DEFAULT 'local',
+     user_id          TEXT NOT NULL,
+     media_item_id    TEXT NOT NULL,          -- ABS books.id (mediaProgresses.mediaItemId)
+     completions      INTEGER NOT NULL DEFAULT 0,
+     last_finished_at INTEGER,                -- ms epoch of the last counted finish
+     last_seen_at     INTEGER NOT NULL,       -- ms epoch this row was last observed
+     PRIMARY KEY (server_id, user_id, media_item_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_book_completions_user
+     ON book_completions (server_id, user_id, completions)`,
+
   // Durable per-user achievement unlocks. HS owns this - ABS has no concept of
   // achievements, and an unlock's timestamp is a fact only HS records. The
   // definitions live in code (lib/achievements/registry.js); these rows are just

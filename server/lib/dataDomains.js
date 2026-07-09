@@ -174,6 +174,26 @@ export const DATA_DOMAINS = [
     userRefs: ['stats_daily.user_id'],
   },
   {
+    // Per-(user, book) completion counter (the re-read/re-listen tracker). ABS
+    // overwrites finishedAt on a re-finish and keeps no count, so once HS has
+    // counted a completion it is NOT re-derivable from ABS (unlike the
+    // re-derivable stats_daily) - backed up in FULL. Not merged: ABS user AND
+    // media ids differ across installs, so a migrated box just starts counting
+    // afresh from the new server's finish state. Not exported yet (reveal
+    // deferred, like achievements). userRefs names the user_id column; media_item_id
+    // is an ABS item ref that would need re-map IF this were ever merged (it isn't).
+    key: 'book-completions',
+    tables: ['book_completions'],
+    files: null,
+    scope: 'server',
+    secretColumns: {},
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: ['book_completions.user_id'],
+  },
+  {
     // Achievement unlocks. HS owns these; an unlock's timestamp is not
     // re-derivable if history is trimmed, so it's backed up in FULL (unlike the
     // re-derivable stats_daily). Not merged - ABS user ids differ across installs,
