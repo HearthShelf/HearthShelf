@@ -130,11 +130,15 @@ const RULE_COPY: Record<AutoRuleId, { label: string; desc: string }> = {
   },
   'new-in-series': {
     label: 'New books in a series',
-    desc: "Suggest the first unread book in any series you've started.",
+    desc: 'Queue the next book from each series you have going.',
+  },
+  'new-in-series-all': {
+    label: 'Include every book in the series',
+    desc: 'Instead of just the next one, queue all the books left in each series you started.',
   },
   'book-club': {
     label: 'Book club picks',
-    desc: "Add what your book clubs are reading, current book first.",
+    desc: 'Add what your book clubs are reading, current book first.',
   },
   manual: {
     label: 'Books you queued by hand',
@@ -233,12 +237,24 @@ function QueuePanel({
           <div style={{ marginBottom: 12 }}>
             {autoRules.map((r) => {
               const copy = RULE_COPY[r.id]
+              // new-in-series-all is a sub-modifier of new-in-series: indent it
+              // and dim/disable it while the parent is off (does nothing alone).
+              const isSub = r.id === 'new-in-series-all'
+              const parentOff = isSub && !autoRules.find((x) => x.id === 'new-in-series')?.on
               return (
                 <div
                   key={r.id}
                   className="pop-row"
-                  onClick={() => toggleRule(r.id)}
-                  style={{ cursor: 'pointer', padding: '8px 4px', gap: 12 }}
+                  onClick={() => {
+                    if (!parentOff) toggleRule(r.id)
+                  }}
+                  style={{
+                    cursor: parentOff ? 'default' : 'pointer',
+                    padding: '8px 4px',
+                    paddingLeft: isSub ? 20 : 4,
+                    gap: 12,
+                    opacity: parentOff ? 0.45 : 1,
+                  }}
                 >
                   <div className="pr-t" style={{ flex: 1 }}>
                     {copy.label}
@@ -254,7 +270,7 @@ function QueuePanel({
         )}
         {queueMode === 'auto' && (
           <div style={{ marginBottom: 12 }}>
-            <ManualQueueEditor mode="auto" onPlay={onPlay} showAutoPicks={false} />
+            <ManualQueueEditor mode="auto" onPlay={onPlay} />
           </div>
         )}
       </div>
@@ -546,8 +562,7 @@ export function PlayerPage() {
     setPanel(null)
     setPop('notes')
   }
-  const teaseAhead = (timeSec: number) =>
-    setToast(`A note awaits at ${formatTimestamp(timeSec)}`)
+  const teaseAhead = (timeSec: number) => setToast(`A note awaits at ${formatTimestamp(timeSec)}`)
   const markersEl =
     notesData && notesData.enabled ? (
       <TimelineMarkers

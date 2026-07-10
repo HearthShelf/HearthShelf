@@ -3190,6 +3190,9 @@
 .rule-row.dragging {
   opacity: 0.5;
 }
+.rule-row.rule-sub {
+  margin-left: 24px;
+}
 .rule-handle {
   color: var(--text-faint);
   display: grid;

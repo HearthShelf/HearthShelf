@@ -6,6 +6,7 @@
   "description": "HearthShelf QuestGiver AI proxy — holds the model key server-side, enforces per-user rate limits.",
   "main": "index.js",
   "scripts": {
+    "prestart": "node scripts/ensure-core-dist.mjs",
     "start": "node index.js",
     "recover-admins": "node scripts/recover-admins.js"
   },

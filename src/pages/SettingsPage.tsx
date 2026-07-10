@@ -113,7 +113,11 @@ const RULE_LABELS: Record<AutoRuleId, { title: string; desc: string }> = {
   },
   'new-in-series': {
     title: 'New book in a started series',
-    desc: 'Queue unread books from any series you have begun but not completed.',
+    desc: 'Queue the next book from each series you have begun but not finished.',
+  },
+  'new-in-series-all': {
+    title: 'Include every book in the series',
+    desc: 'Instead of just the next one, queue all the books left in each series you started.',
   },
   'book-club': {
     title: 'Book club picks',
@@ -149,9 +153,13 @@ function RuleList({
     <div className="rule-list">
       {rules.map((r, i) => {
         const meta = RULE_LABELS[r.id]
+        // new-in-series-all is a sub-modifier of new-in-series: indent it and
+        // dim/disable it while the parent is off (it does nothing on its own).
+        const isSub = r.id === 'new-in-series-all'
+        const parentOff = isSub && !rules.find((x) => x.id === 'new-in-series')?.on
         return (
           <div
-            className={'rule-row' + (dragIdx === i ? ' dragging' : '')}
+            className={'rule-row' + (dragIdx === i ? ' dragging' : '') + (isSub ? ' rule-sub' : '')}
             key={r.id}
             draggable
             onDragStart={() => setDragIdx(i)}
@@ -161,6 +169,7 @@ function RuleList({
               setDragIdx(null)
             }}
             onDragEnd={() => setDragIdx(null)}
+            style={parentOff ? { opacity: 0.45 } : undefined}
           >
             <span className="rule-handle" title="Drag to reorder">
               <Icon name="drag_indicator" />
@@ -170,7 +179,7 @@ function RuleList({
               <div className="rule-t">{meta.title}</div>
               <div className="rule-d">{meta.desc}</div>
             </div>
-            <Toggle on={r.on} onClick={() => toggle(i)} />
+            <Toggle on={r.on} onClick={() => !parentOff && toggle(i)} />
           </div>
         )
       })}

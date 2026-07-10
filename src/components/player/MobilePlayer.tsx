@@ -54,11 +54,15 @@ const RULE_COPY: Record<AutoRuleId, { label: string; desc: string }> = {
   },
   'new-in-series': {
     label: 'New books in series you started',
-    desc: "Add fresh releases from a series you haven't finished yet.",
+    desc: 'Queue the next book from each series you have going.',
+  },
+  'new-in-series-all': {
+    label: 'Include every book in the series',
+    desc: 'Instead of just the next one, queue all the books left in each series you started.',
   },
   'book-club': {
     label: 'Book club picks',
-    desc: "Add what your book clubs are reading, current book first.",
+    desc: 'Add what your book clubs are reading, current book first.',
   },
   manual: {
     label: 'Books you queued by hand',
@@ -227,8 +231,13 @@ export function MobilePlayer({
   const queueItems = useQueueStore((s) => s.items)
   const manualItems = useQueueStore((s) => s.manual)
   const reorder = useQueueStore((s) => s.reorder)
+  const setManual = useQueueStore((s) => s.setManual)
   const removeFromQueue = useQueueStore((s) => s.remove)
   const setQueueStoreMode = useQueueStore((s) => s.setMode)
+
+  // Which merged-list rows are hand-added (inline drag + X in Auto mode); the
+  // rest are rule-generated (bolt marker, read-only).
+  const manualIds = new Set(manualItems.map((m) => m.libraryItemId))
 
   const sleep = useSleepTimer()
   const { bookmarks, addBookmark: addBookmarkApi } = useBookmarks(libraryItemId)
@@ -239,8 +248,6 @@ export function MobilePlayer({
   const [edit, setEdit] = useState(false)
   const [drag, setDrag] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
-  const [mDrag, setMDrag] = useState<number | null>(null)
-  const [mOver, setMOver] = useState<number | null>(null)
   const [aDrag, setADrag] = useState<number | null>(null)
   const [aOver, setAOver] = useState<number | null>(null)
   const [lists, setLists] = useState<Record<string, boolean>>({})
@@ -348,14 +355,20 @@ export function MobilePlayer({
   const toolbar = vis.slice(0, 4).map((k) => ({ key: k, ...ACT[k] }))
 
   const commitQ = () => {
-    if (drag != null && over != null && drag !== over) reorder(drag, over)
+    if (drag != null && over != null && drag !== over) {
+      if (queueMode === 'auto') {
+        // Merged Auto list: reorder only the hand-added rows among themselves.
+        // Apply the move to the merged order, then persist the manual subsequence.
+        const merged = queueItems.slice()
+        const [moved] = merged.splice(drag, 1)
+        merged.splice(over, 0, moved)
+        setManual(merged.filter((e) => manualIds.has(e.libraryItemId)))
+      } else {
+        reorder(drag, over)
+      }
+    }
     setDrag(null)
     setOver(null)
-  }
-  const commitM = () => {
-    if (mDrag != null && mOver != null && mDrag !== mOver) reorder(mDrag, mOver)
-    setMDrag(null)
-    setMOver(null)
   }
   const commitA = () => {
     if (aDrag == null || aOver == null || aDrag === aOver) {
@@ -920,115 +933,40 @@ export function MobilePlayer({
                   fontSize: 13,
                 }}
               >
-                Nothing queued yet.
+                {queueMode === 'auto'
+                  ? 'Nothing queued yet. Books you add by hand show up here too.'
+                  : 'Nothing queued yet.'}
               </div>
             ) : (
-              queueItems.map((b, i) => (
-                <div
-                  key={b.libraryItemId}
-                  className={
-                    'mp-row' +
-                    (drag === i ? ' drag' : '') +
-                    (over === i && drag !== null && drag !== i ? ' over' : '')
-                  }
-                  draggable={queueMode === 'manual'}
-                  onDragStart={() => setDrag(i)}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    if (over !== i) setOver(i)
-                  }}
-                  onDrop={commitQ}
-                  onDragEnd={commitQ}
-                >
-                  <Icon
-                    name="drag_indicator"
-                    style={{
-                      width: 22,
-                      textAlign: 'center',
-                      color: 'var(--text-muted)',
-                      fontSize: 20,
-                      cursor: 'grab',
-                    }}
-                  />
+              // ONE merged list. In Auto mode only hand-added rows are
+              // draggable/removable; rule-generated rows show a bolt and are
+              // read-only. In Manual mode every row is the editable hand list.
+              queueItems.map((b, i) => {
+                const isManual = manualIds.has(b.libraryItemId)
+                const editable = queueMode === 'manual' || (queueMode === 'auto' && isManual)
+                const showBolt = queueMode === 'auto' && !isManual
+                return (
                   <div
-                    style={{
-                      width: 46,
-                      height: 46,
-                      borderRadius: 9,
-                      overflow: 'hidden',
-                      flex: 'none',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => jumpTo(b.libraryItemId)}
+                    key={b.libraryItemId}
+                    className={
+                      'mp-row' +
+                      (editable && drag === i ? ' drag' : '') +
+                      (editable && over === i && drag !== null && drag !== i ? ' over' : '')
+                    }
+                    draggable={editable}
+                    onDragStart={editable ? () => setDrag(i) : undefined}
+                    onDragOver={
+                      editable
+                        ? (e) => {
+                            e.preventDefault()
+                            if (over !== i) setOver(i)
+                          }
+                        : undefined
+                    }
+                    onDrop={editable ? commitQ : undefined}
+                    onDragEnd={editable ? commitQ : undefined}
                   >
-                    <Cover
-                      itemId={b.libraryItemId}
-                      title={b.title}
-                      fs={4}
-                      style={{ width: '100%', height: '100%', borderRadius: 0 }}
-                    />
-                  </div>
-                  <div
-                    style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                    onClick={() => jumpTo(b.libraryItemId)}
-                  >
-                    <div className="mp-clamp1" style={{ fontSize: 13.5, fontWeight: 600 }}>
-                      {b.title}
-                    </div>
-                    <div
-                      className="mp-clamp1"
-                      style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}
-                    >
-                      {b.author}
-                    </div>
-                  </div>
-                  <button
-                    className="mp-ib"
-                    style={{ width: 40, height: 40 }}
-                    onClick={() => jumpTo(b.libraryItemId)}
-                    title="Play now"
-                  >
-                    <Icon name="play_arrow" style={{ fontSize: 22 }} />
-                  </button>
-                </div>
-              ))
-            )}
-            {queueMode === 'auto' && (
-              <>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: 0.4,
-                    textTransform: 'uppercase',
-                    color: 'var(--text-muted)',
-                    padding: '10px 4px 2px',
-                  }}
-                >
-                  Books you queued by hand
-                </div>
-                {manualItems.length === 0 ? (
-                  <div style={{ padding: '2px 4px 8px', color: 'var(--text-muted)', fontSize: 12 }}>
-                    Nothing queued by hand. Books you add play after your Auto picks.
-                  </div>
-                ) : (
-                  manualItems.map((b, i) => (
-                    <div
-                      key={b.libraryItemId}
-                      className={
-                        'mp-row' +
-                        (mDrag === i ? ' drag' : '') +
-                        (mOver === i && mDrag !== null && mDrag !== i ? ' over' : '')
-                      }
-                      draggable
-                      onDragStart={() => setMDrag(i)}
-                      onDragOver={(e) => {
-                        e.preventDefault()
-                        if (mOver !== i) setMOver(i)
-                      }}
-                      onDrop={commitM}
-                      onDragEnd={commitM}
-                    >
+                    {editable ? (
                       <Icon
                         name="drag_indicator"
                         style={{
@@ -1039,38 +977,42 @@ export function MobilePlayer({
                           cursor: 'grab',
                         }}
                       />
-                      <div
-                        style={{
-                          width: 46,
-                          height: 46,
-                          borderRadius: 9,
-                          overflow: 'hidden',
-                          flex: 'none',
-                          cursor: 'pointer',
-                        }}
-                        onClick={() => jumpTo(b.libraryItemId)}
-                      >
-                        <Cover
-                          itemId={b.libraryItemId}
-                          title={b.title}
-                          fs={4}
-                          style={{ width: '100%', height: '100%', borderRadius: 0 }}
-                        />
+                    ) : (
+                      <span style={{ width: 22, flex: 'none' }} />
+                    )}
+                    <div
+                      style={{
+                        width: 46,
+                        height: 46,
+                        borderRadius: 9,
+                        overflow: 'hidden',
+                        flex: 'none',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => jumpTo(b.libraryItemId)}
+                    >
+                      <Cover
+                        itemId={b.libraryItemId}
+                        title={b.title}
+                        fs={4}
+                        style={{ width: '100%', height: '100%', borderRadius: 0 }}
+                      />
+                    </div>
+                    <div
+                      style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                      onClick={() => jumpTo(b.libraryItemId)}
+                    >
+                      <div className="mp-clamp1" style={{ fontSize: 13.5, fontWeight: 600 }}>
+                        {b.title}
                       </div>
                       <div
-                        style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                        onClick={() => jumpTo(b.libraryItemId)}
+                        className="mp-clamp1"
+                        style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}
                       >
-                        <div className="mp-clamp1" style={{ fontSize: 13.5, fontWeight: 600 }}>
-                          {b.title}
-                        </div>
-                        <div
-                          className="mp-clamp1"
-                          style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}
-                        >
-                          {b.author}
-                        </div>
+                        {b.author}
                       </div>
+                    </div>
+                    {editable && queueMode !== 'manual' ? (
                       <button
                         className="mp-ib"
                         style={{ width: 40, height: 40 }}
@@ -1079,10 +1021,33 @@ export function MobilePlayer({
                       >
                         <Icon name="close" style={{ fontSize: 20 }} />
                       </button>
-                    </div>
-                  ))
-                )}
-              </>
+                    ) : showBolt ? (
+                      <span
+                        style={{
+                          width: 40,
+                          height: 40,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flex: 'none',
+                        }}
+                        title="Added automatically by your Auto rules"
+                      >
+                        <Icon name="bolt" style={{ fontSize: 18, color: 'var(--accent)' }} />
+                      </span>
+                    ) : (
+                      <button
+                        className="mp-ib"
+                        style={{ width: 40, height: 40 }}
+                        onClick={() => jumpTo(b.libraryItemId)}
+                        title="Play now"
+                      >
+                        <Icon name="play_arrow" style={{ fontSize: 22 }} />
+                      </button>
+                    )}
+                  </div>
+                )
+              })
             )}
           </div>
         </Sheet>
@@ -1099,17 +1064,25 @@ export function MobilePlayer({
           >
             {autoRules.map((r) => {
               const copy = RULE_COPY[r.id]
+              // new-in-series-all is a sub-modifier of new-in-series: indent it
+              // and dim/disable it while the parent is off (does nothing alone).
+              const isSub = r.id === 'new-in-series-all'
+              const parentOff = isSub && !autoRules.find((x) => x.id === 'new-in-series')?.on
               return (
                 <div
                   key={r.id}
-                  onClick={() => toggleRule(r.id)}
+                  onClick={() => {
+                    if (!parentOff) toggleRule(r.id)
+                  }}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 14,
                     padding: '14px 4px',
+                    paddingLeft: isSub ? 22 : 4,
                     borderBottom: '1px solid var(--hairline)',
-                    cursor: 'pointer',
+                    cursor: parentOff ? 'default' : 'pointer',
+                    opacity: parentOff ? 0.45 : 1,
                   }}
                 >
                   <div style={{ flex: 1 }}>

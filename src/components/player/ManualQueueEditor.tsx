@@ -3,114 +3,114 @@ import { useQueueStore } from '@/store/queueStore'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 
-// Shared editor for the durable hand-queued list, used by the player Up-next
-// panel and the Queue settings page. In Auto mode it also shows the current
-// Auto queue (read-only, grayed) above the editable manual list, so the user
-// sees what Auto picked plus the hand-queued fallback they can reorder/remove.
+// Shared editor for the up-next queue, used by the player Up-next panel and the
+// Queue settings page. In Manual mode it's the durable hand-queued list. In Auto
+// mode it's ONE merged list: rule-generated picks carry a lightning bolt (read-
+// only), hand-added books keep their drag handle + remove inline where they sit,
+// and dragging a hand-added book reorders the manual books among themselves.
 //
 // `onPlay` is optional: Settings has no player to jump to, so it omits it and
 // the rows aren't click-to-play there.
-//
-// `showAutoPicks` controls the read-only Auto-picks preview (Auto mode only).
-// Settings shows it (the point is to see what Auto queued); the player panel
-// already lists the merged queue below, so it passes false to avoid a
-// double-listing.
 export function ManualQueueEditor({
   mode,
   onPlay,
-  showAutoPicks = true,
 }: {
   mode: 'manual' | 'auto'
   onPlay?: (id: string) => void
-  showAutoPicks?: boolean
 }) {
   const items = useQueueStore((s) => s.items)
   const manual = useQueueStore((s) => s.manual)
   const remove = useQueueStore((s) => s.remove)
   const reorder = useQueueStore((s) => s.reorder)
+  const setManual = useQueueStore((s) => s.setManual)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
-  const sectionLabel = (text: string) => (
-    <div
-      style={{
-        fontSize: 11,
-        fontWeight: 700,
-        letterSpacing: 0.4,
-        textTransform: 'uppercase',
-        color: 'var(--text-muted)',
-        padding: '4px 4px 6px',
-      }}
-    >
-      {text}
-    </div>
-  )
+  // In Auto mode the list shown is the merged queue; in Manual mode the hand
+  // list. A row is hand-added iff its id is in `manual`.
+  const list = mode === 'auto' ? items : manual
+  const manualIds = new Set(manual.map((m) => m.libraryItemId))
+
+  // A drop in the merged Auto list reorders only the hand-added rows among
+  // themselves: apply the move to the merged order, then persist the manual
+  // subsequence in its new order. Manual mode: a plain reorder of the whole list.
+  const applyDrop = (from: number, to: number) => {
+    if (mode !== 'auto') {
+      reorder(from, to)
+      return
+    }
+    const merged = items.slice()
+    const [moved] = merged.splice(from, 1)
+    merged.splice(to, 0, moved)
+    setManual(merged.filter((e) => manualIds.has(e.libraryItemId)))
+  }
+
+  if (list.length === 0) {
+    return (
+      <div className="pop-empty" style={{ padding: '4px 4px 8px' }}>
+        {mode === 'auto'
+          ? 'Nothing queued yet. Books you add with "Add to list" show up here too.'
+          : 'Nothing queued. Add books with "Add to list".'}
+      </div>
+    )
+  }
 
   return (
     <div>
-      {mode === 'auto' && showAutoPicks && (
-        <div style={{ marginBottom: 12 }}>
-          {sectionLabel('Auto picks')}
-          {items.length === 0 ? (
-            <div className="pop-empty" style={{ padding: '4px 4px 8px' }}>
-              Auto hasn't picked anything yet.
-            </div>
-          ) : (
-            items.map((q) => (
-              <div className="queue-row" key={q.libraryItemId} style={{ opacity: 0.5 }}>
-                <span className="q-handle" style={{ opacity: 0.4, cursor: 'default' }}>
-                  <Icon name="auto_awesome" />
-                </span>
-                <Cover itemId={q.libraryItemId} title={q.title} fs={3} />
-                <div className="q-meta">
-                  <div className="q-t">{q.title}</div>
-                  <div className="q-s">{q.author}</div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-      <div>
-        {mode === 'auto' && sectionLabel('Books you queued by hand')}
-        {manual.length === 0 ? (
-          <div className="pop-empty" style={{ padding: '4px 4px 8px' }}>
-            {mode === 'auto'
-              ? 'Nothing queued by hand. Add books with "Add to list" - they play after your Auto picks.'
-              : 'Nothing queued. Add books with "Add to list".'}
-          </div>
-        ) : (
-          manual.map((q, i) => (
-            <div
-              className={'queue-row' + (dragIdx === i ? ' dragging' : '')}
-              key={q.libraryItemId}
-              draggable
-              onDragStart={() => setDragIdx(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                if (dragIdx !== null && dragIdx !== i) reorder(dragIdx, i)
-                setDragIdx(null)
-              }}
-              onDragEnd={() => setDragIdx(null)}
-            >
+      {list.map((q, i) => {
+        // In Auto mode only hand-added rows are draggable/removable; the rest are
+        // rule-generated (bolt marker). Manual mode: the whole list is editable.
+        const editable = mode === 'manual' || manualIds.has(q.libraryItemId)
+        return (
+          <div
+            className={'queue-row' + (editable && dragIdx === i ? ' dragging' : '')}
+            key={q.libraryItemId}
+            draggable={editable}
+            onDragStart={editable ? () => setDragIdx(i) : undefined}
+            onDragOver={editable ? (e) => e.preventDefault() : undefined}
+            onDrop={
+              editable
+                ? () => {
+                    if (dragIdx !== null && dragIdx !== i) applyDrop(dragIdx, i)
+                    setDragIdx(null)
+                  }
+                : undefined
+            }
+            onDragEnd={editable ? () => setDragIdx(null) : undefined}
+          >
+            {editable ? (
               <span className="q-handle" title="Drag to reorder">
                 <Icon name="drag_indicator" />
               </span>
-              <Cover itemId={q.libraryItemId} title={q.title} fs={3} />
-              <div
-                className="q-meta"
-                style={onPlay ? { cursor: 'pointer' } : undefined}
-                onClick={onPlay ? () => onPlay(q.libraryItemId) : undefined}
+            ) : (
+              <span
+                className="q-handle"
+                style={{ cursor: 'default', color: 'var(--accent)' }}
+                title="Added automatically by your Auto rules"
               >
-                <div className="q-t">{q.title}</div>
-                <div className="q-s">{q.author}</div>
-              </div>
+                <Icon name="bolt" />
+              </span>
+            )}
+            <Cover itemId={q.libraryItemId} title={q.title} fs={3} />
+            <div
+              className="q-meta"
+              style={onPlay ? { cursor: 'pointer' } : undefined}
+              onClick={onPlay ? () => onPlay(q.libraryItemId) : undefined}
+            >
+              <div className="q-t">{q.title}</div>
+              <div className="q-s">{q.author}</div>
+            </div>
+            {editable ? (
               <span className="bm-x" title="Remove" onClick={() => remove(q.libraryItemId)}>
                 <Icon name="close" />
               </span>
-            </div>
-          ))
-        )}
-      </div>
+            ) : (
+              <span className="q-handle" style={{ cursor: 'default', visibility: 'hidden' }}>
+                <Icon name="close" />
+              </span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

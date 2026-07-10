@@ -1,5 +1,11 @@
 node_modules
+**/node_modules
 dist
+# Nested build output (e.g. packages/core/dist) must be excluded too, or a stale
+# local artifact rides into the build context. The image rebuilds core's dist
+# from src, but keeping the context clean avoids any chance of shipping old JS.
+**/dist
+*.tsbuildinfo
 .git
 .github
 .env
