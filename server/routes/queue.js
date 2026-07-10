@@ -5,6 +5,7 @@
 import { json, readBody } from '../lib/http.js'
 import { getQueue, setQueue } from '../queue.js'
 import { resolveQueue } from '../lib/computeQueue.js'
+import { getUserSetting } from '../settings.js'
 
 export async function handleQueue(req, res, url, ctx) {
   if (url.pathname !== '/hs/queue') return false
@@ -35,8 +36,20 @@ export async function handleQueue(req, res, url, ctx) {
     if (manual !== undefined && !Array.isArray(manual)) {
       return (json(res, 400, { error: 'invalid_queue' }), true)
     }
+    // The server OWNS the active `items` list in every mode except Manual: Auto
+    // and Playlist compute it on GET (resolveQueue), and Off has none. Only
+    // Manual is a client-authored order. So in non-Manual modes we ignore the
+    // client's `items` (a client should never be able to write the computed
+    // list) and only accept the durable `manual` edit. Without this, a client
+    // that keeps a large Auto `items` list in its store re-PUTs it and the
+    // stored queue inflates across syncs - the exact drift where one device
+    // shows a 30-item queue while another (which never writes) shows none.
+    const mode = (await getUserSetting(ctx.serverId, ctx.userId, 'queueMode')) ?? 'off'
+    const acceptItems = mode === 'manual'
     const saved = await setQueue(ctx.serverId, ctx.userId, {
-      items,
+      // In non-Manual modes preserve the stored items (the last server compute);
+      // don't let the client's copy overwrite them.
+      items: acceptItems ? items : undefined,
       manual,
       playlistId: playlistId ?? null,
       updatedAt,

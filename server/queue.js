@@ -42,10 +42,13 @@ export async function getQueue(serverId, userId) {
 // device already advanced. Returns the row that ends up stored (the caller's
 // write on success, the current row on rejection) plus whether it applied.
 //
-// `manual` is the durable hand-queued list. Omit it (undefined) to preserve
-// whatever is stored - the Auto rebuild (resolveQueue) does this so recomputing
-// `items` never wipes the user's manual list. Pass an array to replace it (a
-// client editing the manual queue).
+// `items` and `manual` are each independently optional. Omit either (undefined)
+// to preserve whatever is stored:
+//   - The Auto rebuild (resolveQueue) omits `manual` so recomputing `items`
+//     never wipes the user's hand-queued list.
+//   - The queue route omits `items` in non-Manual modes so a client can never
+//     overwrite the server-computed active list (only Manual is client-authored).
+// Pass an array for either to replace it.
 export async function setQueue(serverId, userId, { items, manual, playlistId, updatedAt }) {
   await ensure()
   const current = await getQueue(serverId, userId)
@@ -58,6 +61,7 @@ export async function setQueue(serverId, userId, { items, manual, playlistId, up
       updatedAt: current.updatedAt,
     }
   }
+  const nextItems = items === undefined ? current.items : (items ?? [])
   const nextManual = manual === undefined ? current.manual : (manual ?? [])
   await db.execute({
     sql: `INSERT INTO listening_queue (server_id, user_id, items_json, manual_json, playlist_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -65,7 +69,7 @@ export async function setQueue(serverId, userId, { items, manual, playlistId, up
     args: [
       serverId,
       userId,
-      JSON.stringify(items ?? []),
+      JSON.stringify(nextItems),
       JSON.stringify(nextManual),
       playlistId ?? null,
       updatedAt,
@@ -73,7 +77,7 @@ export async function setQueue(serverId, userId, { items, manual, playlistId, up
   })
   return {
     applied: true,
-    items: items ?? [],
+    items: nextItems,
     manual: nextManual,
     playlistId: playlistId ?? null,
     updatedAt,
