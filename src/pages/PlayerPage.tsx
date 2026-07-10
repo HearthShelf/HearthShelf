@@ -268,11 +268,6 @@ function QueuePanel({
             })}
           </div>
         )}
-        {queueMode === 'auto' && (
-          <div style={{ marginBottom: 12 }}>
-            <ManualQueueEditor mode="auto" onPlay={onPlay} />
-          </div>
-        )}
       </div>
 
       <div className="pp-scroll">
@@ -306,6 +301,10 @@ function QueuePanel({
               Playback stops when this book ends. Switch to Manual or Auto to keep going.
             </div>
           </div>
+        ) : queueMode === 'auto' ? (
+          // Auto: the merged up-next list (rule picks + hand-added). Lives inside
+          // pp-scroll so a long queue scrolls.
+          <ManualQueueEditor mode="auto" onPlay={onPlay} />
         ) : items.length === 0 ? (
           <div className="pop-empty" style={{ marginTop: 12 }}>
             Nothing queued. Add books with "Add to list".

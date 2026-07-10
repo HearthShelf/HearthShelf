@@ -869,6 +869,8 @@ export function MobilePlayer({
           </div>
           <div
             style={{
+              flex: 1,
+              minHeight: 0,
               overflowY: 'auto',
               padding: '2px 14px calc(22px + env(safe-area-inset-bottom))',
               display: 'flex',
