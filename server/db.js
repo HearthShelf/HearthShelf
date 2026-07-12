@@ -233,6 +233,18 @@ const SCHEMA = [
      updated_at   INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
    )`,
+  // Per-user "not right now" dismissals: series/books the user hid from Auto
+  // sources (the queue + the Continue-* home shelves). One row per dismissed
+  // entity; `kind` is 'series' or 'item'. Reversible (DELETE the row). The Auto
+  // queue compute and the shelf builders filter against these. No ABS mutation.
+  `CREATE TABLE IF NOT EXISTS auto_dismissals (
+     server_id    TEXT NOT NULL DEFAULT 'local',
+     user_id      TEXT NOT NULL,
+     kind         TEXT NOT NULL,   -- 'series' | 'item'
+     entity_id    TEXT NOT NULL,
+     dismissed_at INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id, kind, entity_id)
+   )`,
   // Hosted-mode config: a single row holding how this instance trusts the
   // control plane (app.hearthshelf.com) and acts on ABS for federated users.
   // Only present/used when HS_MODE=hosted. Written by the pairing flow.

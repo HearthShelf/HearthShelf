@@ -73,6 +73,21 @@ export const DATA_DOMAINS = [
     userRefs: 'key',
   },
   {
+    // Per-user "not right now" dismissals of series/books from Auto sources.
+    // Like listening-queue: user-scoped preference data referencing ABS entity
+    // ids in a plain column (not re-keyed here, same as the queue's JSON ids).
+    key: 'auto-dismissals',
+    tables: ['auto_dismissals'],
+    files: null,
+    scope: 'user',
+    secretColumns: {},
+    backup: 'always',
+    userExport: true,
+    merge: 'union', // additive hide-list; unioning across merged installs is safe
+    itemRefs: [],
+    userRefs: 'key',
+  },
+  {
     key: 'avatars',
     tables: ['avatars'],
     files: { root: 'avatars', pattern: '<server_id>_<user_id>.<ext>' },

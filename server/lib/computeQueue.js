@@ -16,6 +16,7 @@ import { buildAutoQueue } from '@hearthshelf/core/lib/queue'
 import { normalizeAutoRules } from '@hearthshelf/core/lib/settings'
 import { getUserSetting } from '../settings.js'
 import { getQueue, setQueue } from '../queue.js'
+import { getDismissals } from '../dismissals.js'
 import { listMyClubs, currentBook } from '../clubs.js'
 
 async function absJson(ctx, path) {
@@ -77,10 +78,11 @@ export async function resolveQueue(ctx) {
 
   let items
   try {
-    const [libraries, me, clubBooks] = await Promise.all([
+    const [libraries, me, clubBooks, dismissals] = await Promise.all([
       fetchBookLibraries(ctx),
       absJson(ctx, '/api/me'),
       clubBooksFor(serverId, userId),
+      getDismissals(serverId, userId),
     ])
 
     const itemLists = await Promise.all(
@@ -111,6 +113,10 @@ export async function resolveQueue(ctx) {
       // The user's durable hand-queued list feeds the 'manual' rule so a
       // hand-picked queue survives this rebuild instead of being overwritten.
       manualBooks: stored.manual,
+      // "Not right now" dismissals: hidden series/books are filtered from every
+      // rule (see /hs/dismissals). No ABS mutation - purely a display choice.
+      dismissedSeriesIds: dismissals.seriesIds,
+      dismissedItemIds: dismissals.itemIds,
     })
   } catch {
     // ABS unreachable or a fetch failed: keep the last good queue rather than

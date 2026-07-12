@@ -44,6 +44,7 @@ import { handleQuestGiver } from './routes/questgiver.js'
 import { handleDiscover } from './routes/discover.js'
 import { handleSettings } from './routes/settings.js'
 import { handleQueue } from './routes/queue.js'
+import { handleDismissals } from './routes/dismissals.js'
 import { handleSocial } from './routes/social.js'
 import { handleNotes } from './routes/notes.js'
 import { handleClubs } from './routes/clubs.js'
@@ -114,6 +115,7 @@ const ROUTES = [
   handleDiscover,
   handleSettings,
   handleQueue,
+  handleDismissals,
   handleSocial,
   handleNotes,
   handleClubs,
