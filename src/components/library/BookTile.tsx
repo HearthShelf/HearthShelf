@@ -21,6 +21,12 @@ interface BookTileProps {
   // When the parent can resolve the author to an ID, the name becomes a link
   // to the author page. Falls back to plain text otherwise.
   authorId?: string
+  // Continue-* shelf context, forwarded to the context menu so it can offer the
+  // hide/reset actions. Pass `series` on a Continue-Series tile so "Hide this
+  // series" targets the right series id (the tile shows the next book).
+  source?: 'series' | 'listening' | 'browse'
+  seriesId?: string
+  seriesName?: string
   // Surface a confirmation toast (e.g. after adding to the queue).
   onToast?: (msg: string) => void
 }
@@ -38,6 +44,9 @@ export function BookTile({
   anySelected,
   onToggleSelect,
   authorId,
+  source,
+  seriesId,
+  seriesName,
   onToast,
 }: BookTileProps) {
   const navigate = useNavigate()
@@ -69,6 +78,9 @@ export function BookTile({
       progress={progress}
       finished={finished}
       authorId={authorId}
+      source={source}
+      seriesId={seriesId}
+      seriesName={seriesName}
       onToast={onToast}
     >
       <div

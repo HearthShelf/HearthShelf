@@ -9,11 +9,19 @@ import { usePlayer } from '@/hooks/usePlayer'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { useQueueStore } from '@/store/queueStore'
 import { useAuthStore } from '@/store/authStore'
+import { useDismissalsStore } from '@/store/dismissalsStore'
+import { updateProgress, meKeys } from '@/api/me'
+import { getServerQueue } from '@/api/queue'
 
 interface Pos {
   x: number
   y: number
 }
+
+// Where the tile lives, so the menu can offer the right "hide" action: a
+// Continue-Series tile hides the SERIES; a Continue-Listening tile hides just
+// the book and offers a true Reset progress. 'browse' (default) shows neither.
+export type BookMenuSource = 'series' | 'listening' | 'browse'
 
 interface BookContextMenuProps {
   item: ABSLibraryItem
@@ -22,6 +30,7 @@ interface BookContextMenuProps {
   authorId?: string
   seriesId?: string
   seriesName?: string
+  source?: BookMenuSource
   onToast?: (msg: string) => void
   children: ReactNode
 }
@@ -36,6 +45,7 @@ export function BookContextMenu({
   authorId,
   seriesId,
   seriesName,
+  source = 'browse',
   onToast,
   children,
 }: BookContextMenuProps) {
@@ -62,7 +72,60 @@ export function BookContextMenu({
   const { playItem } = usePlayer()
   const { markFinished } = useMarkFinished()
   const addToQueue = useQueueStore((s) => s.add)
+  const setItems = useQueueStore((s) => s.setItems)
+  const setManual = useQueueStore((s) => s.setManual)
+  const dismiss = useDismissalsStore((s) => s.dismiss)
   const user = useAuthStore((s) => s.user)
+
+  const { title: mTitle, seriesName: mSeriesName } = item.media.metadata
+
+  // Re-pull the server queue after a dismiss so it reflects the hide right away.
+  const repullQueue = () => {
+    void getServerQueue()
+      .then((q) => {
+        setItems(q.items, false)
+        setManual(q.manual)
+      })
+      .catch(() => {})
+  }
+
+  // Hide a series (Continue-Series) or this book (Continue-Listening) from Auto
+  // sources. Reversible via Settings > Queue > Hidden from shelves.
+  const hideFromShelves = async () => {
+    if (source === 'series') {
+      const sid = resolvedSeriesId
+      const sname = seriesName ?? mSeriesName ?? 'series'
+      if (!sid) return
+      try {
+        await dismiss('series', sid, sname)
+        onToast?.(`Hid "${sname}" - restore in Settings`)
+        repullQueue()
+      } catch {
+        onToast?.('Could not hide that')
+      }
+    } else {
+      try {
+        await dismiss('item', item.id, mTitle ?? 'book')
+        onToast?.(`Hid "${mTitle}" - restore in Settings`)
+        repullQueue()
+      } catch {
+        onToast?.('Could not hide that')
+      }
+    }
+  }
+
+  // Reset a Continue-Listening book to the start AND hide it from the shelf.
+  const resetProgress = async () => {
+    try {
+      await updateProgress(item.id, { currentTime: 0, isFinished: false })
+      await qc.invalidateQueries({ queryKey: meKeys.me })
+      await dismiss('item', item.id, mTitle ?? 'book')
+      onToast?.(`Reset "${mTitle}"`)
+      repullQueue()
+    } catch {
+      onToast?.('Could not reset progress')
+    }
+  }
 
   const { title, authorName } = item.media.metadata
   const hasEbook = !!item.media.ebookFormat
@@ -180,9 +243,23 @@ export function BookContextMenu({
         {finished ? 'Mark as unfinished' : 'Mark as finished'}
       </button>
 
-      {progress > 0 && !finished && (
-        <button className="mp-item" onClick={act(() => void markFinished([item.id], false))}>
+      {source === 'listening' ? (
+        <button className="mp-item" onClick={act(() => void resetProgress())}>
           <Icon name="replay" /> Reset progress
+        </button>
+      ) : (
+        progress > 0 &&
+        !finished && (
+          <button className="mp-item" onClick={act(() => void markFinished([item.id], false))}>
+            <Icon name="replay" /> Reset progress
+          </button>
+        )
+      )}
+
+      {((source === 'series' && resolvedSeriesId) || source === 'listening') && (
+        <button className="mp-item" onClick={act(() => void hideFromShelves())}>
+          <Icon name="visibility_off" />
+          {source === 'series' ? 'Hide this series' : 'Not right now'}
         </button>
       )}
 

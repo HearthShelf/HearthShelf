@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { getPersonalized, getAllLibraryItems, libraryKeys } from '@/api/libraries'
+import { continueSeriesShelf } from '@hearthshelf/core'
+import { getPersonalized, getAllLibraryItems, getSeries, libraryKeys } from '@/api/libraries'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { getItemsInProgress, meKeys } from '@/api/me'
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -227,6 +229,35 @@ export function HomePage() {
   })
 
   const progressById = useMediaProgress()
+
+  // Dismissals hide series/books from the Continue-* shelves (and the queue).
+  const hydrateDismissals = useDismissalsStore((s) => s.hydrate)
+  const dismissedSeries = useDismissalsStore((s) => s.seriesIds)
+  const dismissedItems = useDismissalsStore((s) => s.itemIds)
+  useEffect(() => {
+    void hydrateDismissals()
+  }, [hydrateDismissals])
+  const dismissedSeriesSet = useMemo(() => new Set(dismissedSeries), [dismissedSeries])
+  const dismissedItemSet = useMemo(() => new Set(dismissedItems), [dismissedItems])
+
+  // Continue-Series is built from @hearthshelf/core (real series ids per tile,
+  // which the "Hide this series" action needs), off the /series endpoint - not
+  // ABS's own continue-series row (whose minified items carry only a name).
+  const { data: seriesData } = useQuery({
+    queryKey: ['home-series', activeId ?? ''],
+    queryFn: () => getSeries(activeId as string, 0, 1000),
+    enabled: activeId !== null,
+    staleTime: 2 * 60 * 1000,
+  })
+  const continueSeries = useMemo(() => {
+    const all = seriesData?.results ?? []
+    if (!all.length) return []
+    return continueSeriesShelf(all, progressById, {
+      seriesIds: dismissedSeries,
+      itemIds: dismissedItems,
+    })
+  }, [seriesData, progressById, dismissedSeries, dismissedItems])
+
   const inProgress = progress?.libraryItems ?? []
   const hero = inProgress[0]
   const heroProgress = hero ? progressById.get(hero.id) : undefined
@@ -371,45 +402,83 @@ export function HomePage() {
       {isLoading && <LoadingSpinner className="py-12" label="Loading shelves..." />}
       {isError && <ErrorState message="Could not load your shelves." onRetry={refetch} />}
 
+      {/* Continue Series (built from core, real series ids for dismissal). */}
+      {continueSeries.length > 0 && (
+        <div className="section">
+          <SectionHead
+            icon={SHELF_ICONS['continue-series'] ?? 'auto_stories'}
+            title="Continue Series"
+          />
+          <div className="shelf-row">
+            {continueSeries.map(({ series, nextBook }) => {
+              const p = progressById.get(nextBook.id)
+              return (
+                <BookTile
+                  key={nextBook.id}
+                  item={nextBook}
+                  progress={p?.progress ?? 0}
+                  finished={p?.isFinished}
+                  fs={compact ? 12 : 15}
+                  compact={compact}
+                  source="series"
+                  seriesId={series.id}
+                  seriesName={series.name}
+                />
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {shelves
         ?.filter(
           (sh) =>
             (sh.type === 'book' || sh.type === 'series') &&
-            // Drop ABS's own recommendation + finished-again rows: our taste
-            // engine handles recommendations (above), and "discover" mixes in
-            // other users' books. "continue-series" is folded into the hero flow.
-            !TAINTED_ABS_SHELVES.has(sh.id),
+            // Drop ABS's recommendation/finished-again rows (our taste engine
+            // replaces them) and ABS's own continue-series (we build our own,
+            // above, with real series ids).
+            !TAINTED_ABS_SHELVES.has(sh.id) &&
+            sh.id !== 'continue-series',
         )
         .sort((a: ABSShelf, b: ABSShelf) => shelfRank(a.id) - shelfRank(b.id))
-        .map((sh) => (
-          <div className="section" key={sh.id}>
-            <SectionHead icon={SHELF_ICONS[sh.id] ?? 'library_books'} title={sh.label} />
-            {sh.type === 'book' && (
-              <div className="shelf-row">
-                {sh.entities.map((item) => {
-                  const p = progressById.get(item.id)
-                  return (
-                    <BookTile
-                      key={item.id}
-                      item={item}
-                      progress={p?.progress ?? 0}
-                      finished={p?.isFinished}
-                      fs={compact ? 12 : 15}
-                      compact={compact}
-                    />
-                  )
-                })}
-              </div>
-            )}
-            {sh.type === 'series' && (
-              <div className="series-grid">
-                {sh.entities.map((s) => (
-                  <SeriesCard key={s.id} series={s} />
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+        .map((sh) => {
+          const isContinueListening = sh.id === 'continue-listening'
+          return (
+            <div className="section" key={sh.id}>
+              <SectionHead icon={SHELF_ICONS[sh.id] ?? 'library_books'} title={sh.label} />
+              {sh.type === 'book' && (
+                <div className="shelf-row">
+                  {sh.entities
+                    // Hide books the user dismissed from Continue-Listening.
+                    .filter((item) => !(isContinueListening && dismissedItemSet.has(item.id)))
+                    .map((item) => {
+                      const p = progressById.get(item.id)
+                      return (
+                        <BookTile
+                          key={item.id}
+                          item={item}
+                          progress={p?.progress ?? 0}
+                          finished={p?.isFinished}
+                          fs={compact ? 12 : 15}
+                          compact={compact}
+                          source={isContinueListening ? 'listening' : 'browse'}
+                        />
+                      )
+                    })}
+                </div>
+              )}
+              {sh.type === 'series' && (
+                <div className="series-grid">
+                  {sh.entities
+                    .filter((s) => !dismissedSeriesSet.has(s.id))
+                    .map((s) => (
+                      <SeriesCard key={s.id} series={s} />
+                    ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
     </div>
   )
 }

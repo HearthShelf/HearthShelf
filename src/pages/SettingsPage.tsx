@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   useSettingsStore,
@@ -32,6 +32,7 @@ import {
 } from '@/store/readerPrefsStore'
 import { Icon } from '@/components/common/Icon'
 import { ManualQueueEditor } from '@/components/player/ManualQueueEditor'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { AvatarUpload } from '@/components/common/AvatarUpload'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CoverStyleDemo } from '@/components/common/CoverStyleDemo'
@@ -183,6 +184,53 @@ function RuleList({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// The user's "not right now" dismissals, each with a Restore button. Restoring
+// brings a series/book back to the Auto queue + Continue-* shelves.
+function HiddenFromShelves() {
+  const seriesIds = useDismissalsStore((s) => s.seriesIds)
+  const itemIds = useDismissalsStore((s) => s.itemIds)
+  const labels = useDismissalsStore((s) => s.labels)
+  const hydrate = useDismissalsStore((s) => s.hydrate)
+  const restore = useDismissalsStore((s) => s.restore)
+
+  useEffect(() => {
+    void hydrate()
+  }, [hydrate])
+
+  const rows: { kind: 'series' | 'item'; id: string }[] = [
+    ...seriesIds.map((id) => ({ kind: 'series' as const, id })),
+    ...itemIds.map((id) => ({ kind: 'item' as const, id })),
+  ]
+  if (rows.length === 0) return null
+
+  return (
+    <div className="set-row set-row-stack">
+      <div className="sr-meta">
+        <div className="sr-t">Hidden from shelves</div>
+        <div className="sr-d">
+          Series and books you hid from your Auto queue and Continue shelves. Restore to bring them
+          back.
+        </div>
+      </div>
+      <div className="rule-list">
+        {rows.map((r) => (
+          <div className="rule-row" key={`${r.kind}:${r.id}`} style={{ cursor: 'default' }}>
+            <Icon name={r.kind === 'series' ? 'collections_bookmark' : 'menu_book'} />
+            <div className="rule-meta" style={{ flex: 1 }}>
+              <div className="rule-t">
+                {labels[r.id] ?? (r.kind === 'series' ? 'Hidden series' : 'Hidden book')}
+              </div>
+            </div>
+            <button className="btn-ghost" onClick={() => void restore(r.kind, r.id)}>
+              Restore
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -584,6 +632,7 @@ export function SettingsPage() {
                     control={<PlaylistPicker />}
                   />
                 )}
+                <HiddenFromShelves />
               </div>
             </>
           )}
