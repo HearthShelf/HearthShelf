@@ -74,6 +74,26 @@ import { startJobs } from './jobs/runner.js'
 
 const PORT = process.env.QG_PORT || 8080
 
+// Never let a stray background rejection take the whole backend down. Most of our
+// ABS-db reads and jobs are best-effort and already catch their own errors, but a
+// missed one (e.g. a SQLITE_BUSY from ABS's db while it writes progress from
+// another device) would otherwise become an unhandledRejection and, on modern
+// Node, exit the process - which on the all-in-one image trips the supervisor and
+// recycles the entire container. Log and keep serving instead; a recoverable DB
+// timeout is not a reason to drop everyone's session.
+process.on('unhandledRejection', (reason) => {
+  // eslint-disable-next-line no-console
+  console.error('[hearthshelf] unhandled rejection (ignored, still serving):', reason)
+})
+// An uncaught EXCEPTION leaves the process in an undefined state, so we do NOT
+// swallow it - we log it clearly and let it crash so the supervisor restarts
+// cleanly. This just guarantees the reason is visible in the logs first.
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[hearthshelf] uncaught exception (fatal):', err)
+  process.exit(1)
+})
+
 // In hosted mode the SPA at app.hearthshelf.com calls this server cross-origin
 // (it holds an ABS/grant bearer, not a cookie), so /hs/* must allow that one
 // origin. Scoped to the configured origin, never '*', and credentials stay off

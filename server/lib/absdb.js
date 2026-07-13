@@ -46,6 +46,12 @@ async function ensureClient() {
   clientReady = (async () => {
     const c = createClient({ url: pathToFileURL(ABS_DB_PATH).toString() })
     await c.execute('PRAGMA query_only = ON')
+    // Wait-and-retry for a lock instead of failing instantly with SQLITE_BUSY.
+    // ABS is the sole writer of this db and syncs progress from every device; our
+    // read scans (leaderboard, presence, member progress) must not fail-fast and
+    // thrash when they land during an ABS write. 5s matches our own hearthshelf.db
+    // busy_timeout. query_only stays ON so we still can never write.
+    await c.execute('PRAGMA busy_timeout = 5000')
     client = c
     return c
   })()
@@ -86,6 +92,7 @@ export async function absDbAvailable() {
 export async function openAbsDbReadonly(dbPath) {
   const c = createClient({ url: pathToFileURL(dbPath).toString() })
   await c.execute('PRAGMA query_only = ON')
+  await c.execute('PRAGMA busy_timeout = 5000')
   return c
 }
 
