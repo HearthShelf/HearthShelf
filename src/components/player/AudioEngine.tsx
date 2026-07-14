@@ -5,6 +5,7 @@ import { useProgress } from '@/hooks/useProgress'
 import { useQueueAdvance, consumeAdvancedByEnd } from '@/hooks/useQueueAdvance'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useQueueStore } from '@/store/queueStore'
+import { recomputeServerQueue } from '@/api/queue'
 import { setAudioElement } from '@/lib/audioRef'
 
 // Real playback seconds a newly-started book must accrue before its Auto queue
@@ -33,7 +34,7 @@ export function AudioEngine() {
   const defaultSpeed = useSettingsStore((s) => s.defaultSpeed)
   const libraryItemId = usePlayerStore((s) => s.libraryItemId)
   const currentTime = usePlayerStore((s) => s.currentTime)
-  const { advance, refresh } = useQueueAdvance()
+  const { advance } = useQueueAdvance()
 
   useProgress()
 
@@ -52,16 +53,24 @@ export function AudioEngine() {
     useQueueStore.getState().setMode(queueMode)
   }, [queueMode])
 
-  // On app load, and whenever the queue mode OR the Auto rules change (via
-  // settings sync), rebuild the up-next list for Auto/Playlist once a session is
-  // active. Watching queueAutoRules here is the settings-change recompute
-  // trigger - a rules toggle takes effect immediately, not on the next advance.
+  // When the queue mode OR the Auto rules change (via settings sync), ask the
+  // server to rebuild the queue and adopt it - a rules toggle takes effect
+  // immediately. On app load useQueueSync already pulls, so we only recompute
+  // here when the settings actually changed (skip the initial mount).
+  const settingsHydratedRef = useRef(false)
   useEffect(() => {
-    if (sessionId) void refresh()
-  }, [sessionId, queueMode, queueAutoRules, refresh])
+    if (!sessionId) return
+    if (!settingsHydratedRef.current) {
+      settingsHydratedRef.current = true
+      return
+    }
+    void recomputeServerQueue()
+      .then((q) => useQueueStore.setState({ items: q.items, manual: q.manual, playlistId: q.playlistId, updatedAt: q.updatedAt }))
+      .catch(() => {})
+  }, [sessionId, queueMode, queueAutoRules])
 
   // Play-cooldown, part 1: a new book loaded. Reset accrual and arm the cooldown
-  // unless this book arrived via a book-end auto-advance (which must not rebuild).
+  // unless this book arrived via a book-end auto-advance (which must not recompute).
   useEffect(() => {
     cooldownArmedRef.current = !consumeAdvancedByEnd()
     cooldownAccruedRef.current = 0
@@ -70,11 +79,13 @@ export function AudioEngine() {
   }, [libraryItemId])
 
   // Play-cooldown, part 2: accrue real playback seconds each tick; once past the
-  // threshold, rebuild the Auto queue once. buildAuto reads the now-current book
-  // from the player store, so by the time this fires the current book is correct.
+  // threshold, ask the server to recompute the Auto queue once (stamping this
+  // book as current) and adopt it. Deferring the recompute is what keeps a
+  // book-end / accidental tap from reshuffling up-next in the just-started window.
   useEffect(() => {
     if (!cooldownArmedRef.current || cooldownFiredRef.current) return
     if (useQueueStore.getState().mode !== 'auto') return
+    const armedItem = libraryItemId
     if (isPlaying) {
       const delta = currentTime - cooldownLastTimeRef.current
       if (delta > 0 && delta < 5) cooldownAccruedRef.current += delta
@@ -82,9 +93,15 @@ export function AudioEngine() {
     cooldownLastTimeRef.current = currentTime
     if (cooldownAccruedRef.current >= QUEUE_RECOMPUTE_COOLDOWN_SEC) {
       cooldownFiredRef.current = true
-      void refresh()
+      void recomputeServerQueue(armedItem)
+        .then((q) => {
+          if (usePlayerStore.getState().sessionId && useQueueStore.getState().mode !== 'manual') {
+            useQueueStore.setState({ items: q.items, manual: q.manual, playlistId: q.playlistId, updatedAt: q.updatedAt })
+          }
+        })
+        .catch(() => {})
     }
-  }, [currentTime, isPlaying, refresh])
+  }, [currentTime, isPlaying, libraryItemId])
 
   // Publish the element so the sleep-timer fade can reach its volume.
   useEffect(() => {

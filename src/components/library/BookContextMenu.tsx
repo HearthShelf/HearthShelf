@@ -11,7 +11,7 @@ import { useQueueStore } from '@/store/queueStore'
 import { useAuthStore } from '@/store/authStore'
 import { useDismissalsStore } from '@/store/dismissalsStore'
 import { updateProgress, meKeys } from '@/api/me'
-import { getServerQueue } from '@/api/queue'
+import { recomputeServerQueue } from '@/api/queue'
 
 interface Pos {
   x: number
@@ -79,9 +79,10 @@ export function BookContextMenu({
 
   const { title: mTitle, seriesName: mSeriesName } = item.media.metadata
 
-  // Re-pull the server queue after a dismiss so it reflects the hide right away.
+  // Recompute the server queue after a dismiss/reset so it reflects the hide
+  // right away (a dismissal filters the series/book out of every Auto rule).
   const repullQueue = () => {
-    void getServerQueue()
+    void recomputeServerQueue()
       .then((q) => {
         setItems(q.items, false)
         setManual(q.manual)

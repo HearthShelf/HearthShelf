@@ -13,9 +13,9 @@ export interface ServerQueue extends QueueState {
   applied?: boolean
 }
 
-async function queueFetch<T>(options: RequestInit = {}): Promise<T> {
+async function queueFetch<T>(path = '/hs/queue', options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
-  const res = await fetch('/hs/queue', {
+  const res = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -31,13 +31,25 @@ export function getServerQueue(): Promise<ServerQueue> {
   return queueFetch<ServerQueue>()
 }
 
+// Ask the server to rebuild the Auto queue now (POST /hs/queue/recompute) and
+// return it. A plain GET no longer recomputes - recompute is trigger-based
+// (play-cooldown, settings/manual/dismissal edits, nightly job). `currentItemId`
+// is the book now playing; the server seeds finish-series from it and stores it
+// for the nightly rebuild. Omit for a plain recompute using the stored current.
+export function recomputeServerQueue(currentItemId?: string | null): Promise<ServerQueue> {
+  return queueFetch<ServerQueue>('/hs/queue/recompute', {
+    method: 'POST',
+    body: JSON.stringify(currentItemId === undefined ? {} : { currentItemId }),
+  })
+}
+
 export function putServerQueue(
   items: QueueEntry[],
   manual: QueueEntry[],
   playlistId: string | null,
   updatedAt: number,
 ): Promise<ServerQueue> {
-  return queueFetch<ServerQueue>({
+  return queueFetch<ServerQueue>('/hs/queue', {
     method: 'PUT',
     body: JSON.stringify({ items, manual, playlistId, updatedAt }),
   })
