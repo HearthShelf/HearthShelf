@@ -2,10 +2,15 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { streamUrl } from '@/api/playback'
 import { useProgress } from '@/hooks/useProgress'
-import { useQueueAdvance } from '@/hooks/useQueueAdvance'
+import { useQueueAdvance, consumeAdvancedByEnd } from '@/hooks/useQueueAdvance'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useQueueStore } from '@/store/queueStore'
 import { setAudioElement } from '@/lib/audioRef'
+
+// Real playback seconds a newly-started book must accrue before its Auto queue
+// rebuilds. Long enough to ignore an accidental tap; short enough that up-next
+// isn't stale for long after a legit book change.
+const QUEUE_RECOMPUTE_COOLDOWN_SEC = 120
 
 // The single, persistent <audio> element. Mounted once by AppShell and never
 // unmounted, so playback survives route changes. It bridges the DOM media
@@ -24,10 +29,22 @@ export function AudioEngine() {
   const setPlaying = usePlayerStore((s) => s.setPlaying)
   const sessionId = usePlayerStore((s) => s.sessionId)
   const queueMode = useSettingsStore((s) => s.queueMode)
+  const queueAutoRules = useSettingsStore((s) => s.queueAutoRules)
   const defaultSpeed = useSettingsStore((s) => s.defaultSpeed)
+  const libraryItemId = usePlayerStore((s) => s.libraryItemId)
+  const currentTime = usePlayerStore((s) => s.currentTime)
   const { advance, refresh } = useQueueAdvance()
 
   useProgress()
+
+  // Play-cooldown refs. A newly-loaded book arms a cooldown (unless it came from
+  // a book-end auto-advance); once it accrues enough real playback, the Auto
+  // queue rebuilds. Deferring the rebuild is what keeps a book-end (or an
+  // accidental tap) from reshuffling up-next in the ambiguous just-started window.
+  const cooldownArmedRef = useRef(false)
+  const cooldownAccruedRef = useRef(0)
+  const cooldownLastTimeRef = useRef(0)
+  const cooldownFiredRef = useRef(false)
 
   // Settings (synced, durable) is the source of truth for the queue mode; mirror
   // it into the session-scoped queue store the player reads from.
@@ -35,11 +52,39 @@ export function AudioEngine() {
     useQueueStore.getState().setMode(queueMode)
   }, [queueMode])
 
-  // On app load (and whenever the mode could have changed via settings sync),
-  // populate the up-next list for Auto/Playlist modes once a session is active.
+  // On app load, and whenever the queue mode OR the Auto rules change (via
+  // settings sync), rebuild the up-next list for Auto/Playlist once a session is
+  // active. Watching queueAutoRules here is the settings-change recompute
+  // trigger - a rules toggle takes effect immediately, not on the next advance.
   useEffect(() => {
     if (sessionId) void refresh()
-  }, [sessionId, queueMode, refresh])
+  }, [sessionId, queueMode, queueAutoRules, refresh])
+
+  // Play-cooldown, part 1: a new book loaded. Reset accrual and arm the cooldown
+  // unless this book arrived via a book-end auto-advance (which must not rebuild).
+  useEffect(() => {
+    cooldownArmedRef.current = !consumeAdvancedByEnd()
+    cooldownAccruedRef.current = 0
+    cooldownLastTimeRef.current = usePlayerStore.getState().currentTime
+    cooldownFiredRef.current = false
+  }, [libraryItemId])
+
+  // Play-cooldown, part 2: accrue real playback seconds each tick; once past the
+  // threshold, rebuild the Auto queue once. buildAuto reads the now-current book
+  // from the player store, so by the time this fires the current book is correct.
+  useEffect(() => {
+    if (!cooldownArmedRef.current || cooldownFiredRef.current) return
+    if (useQueueStore.getState().mode !== 'auto') return
+    if (isPlaying) {
+      const delta = currentTime - cooldownLastTimeRef.current
+      if (delta > 0 && delta < 5) cooldownAccruedRef.current += delta
+    }
+    cooldownLastTimeRef.current = currentTime
+    if (cooldownAccruedRef.current >= QUEUE_RECOMPUTE_COOLDOWN_SEC) {
+      cooldownFiredRef.current = true
+      void refresh()
+    }
+  }, [currentTime, isPlaying, refresh])
 
   // Publish the element so the sleep-timer fade can reach its volume.
   useEffect(() => {

@@ -17,6 +17,19 @@ import type {
   QueueEntry,
 } from '@/api/types'
 
+// Set true for the one book-change that a book-end auto-advance causes, so the
+// AudioEngine's play-cooldown does NOT rebuild the queue for it (only explicit
+// plays should). Read-and-cleared by the cooldown when the new book loads.
+let advancedByEnd = false
+export function markAdvancedByEnd(): void {
+  advancedByEnd = true
+}
+export function consumeAdvancedByEnd(): boolean {
+  const v = advancedByEnd
+  advancedByEnd = false
+  return v
+}
+
 // Encapsulates "what plays next when a book ends", honoring the queue mode.
 // Returns a single advance() the AudioEngine calls from onEnded.
 export function useQueueAdvance() {
@@ -98,17 +111,23 @@ export function useQueueAdvance() {
       return
     }
 
-    if (mode === 'auto') {
-      // Rebuild after marking finished so the just-ended book drops out.
-      useQueueStore.getState().setItems(await buildAuto())
-    } else if (mode === 'playlist' && useQueueStore.getState().items.length === 0) {
+    // Play the head of the queue we ALREADY hold - no rebuild here. Rebuilding
+    // right after marking the book finished would re-seed 'finish-series' from
+    // the just-ended book (now finished) and, with progress mid-invalidation,
+    // jump past the next book in the series - the "book ended and it jumped
+    // away" bug. The next book's play triggers a rebuild once it's playing.
+    // Playlist mode only needs a build if the queue is empty (nothing to pop).
+    if (mode === 'playlist' && useQueueStore.getState().items.length === 0) {
       useQueueStore.getState().setItems(await buildPlaylist())
     }
 
     const head = useQueueStore.getState().next()
-    if (head) void playItem(head.libraryItemId)
-    else usePlayerStore.getState().setPlaying(false)
-  }, [markFinished, buildAuto, buildPlaylist, playItem])
+    if (head) {
+      // This play is a book-end advance: suppress the cooldown's rebuild for it.
+      markAdvancedByEnd()
+      void playItem(head.libraryItemId)
+    } else usePlayerStore.getState().setPlaying(false)
+  }, [markFinished, buildPlaylist, playItem])
 
   return { advance, refresh }
 }
