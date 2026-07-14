@@ -6,6 +6,7 @@ import { runSeriesRoster } from './seriesRoster.js'
 import { runReleaseNotify } from './releaseNotify.js'
 import { runStatsSnapshot } from './statsSnapshot.js'
 import { runAbsFinishBackfill } from './absFinishBackfill.js'
+import { runQueueRecompute } from './queueRecompute.js'
 import { runBackupJob } from '../lib/backup.js'
 import { getBackupConfig } from '../backupConfig.js'
 
@@ -44,6 +45,14 @@ export const JOBS = [
       "Marks books from your imported reading history as finished in your library once they're added, using the date you read them - so your Stats page reflects books you finished before you owned them here.",
     defaultIntervalMs: DAY_MS, // nightly
     run: runAbsFinishBackfill,
+  },
+  {
+    id: 'queue-recompute',
+    name: 'Up-next queue refresh',
+    description:
+      'Rebuilds your Auto up-next list overnight so new books in series you are reading show up on their own, without you having to open the app.',
+    defaultIntervalMs: DAY_MS, // nightly
+    run: runQueueRecompute,
   },
   {
     id: 'hs-backup',

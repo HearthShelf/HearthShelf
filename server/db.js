@@ -666,6 +666,13 @@ const MIGRATIONS = [
   // ms epoch here. NULL = not yet backfilled to ABS. Instance-local sync state,
   // like hardcover_synced_at - deliberately NOT exported/merged across servers.
   `ALTER TABLE finished_books ADD COLUMN abs_synced_at INTEGER`,
+  // The book the user last started playing, stamped by the client on every
+  // recompute (POST /hs/queue/recompute). The Auto rebuild seeds 'finish-series'
+  // from this instead of guessing "current" from progress recency, so a book the
+  // user started but barely played (2s in) still continues its series - including
+  // in the nightly job, which runs with no client and reads this stored value.
+  // NULL = fall back to the progress-recency heuristic (currentItemIdFromProgress).
+  `ALTER TABLE listening_queue ADD COLUMN current_item_id TEXT`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

@@ -36,7 +36,10 @@ async function fetchBookLibraries(ctx) {
 
 // The user's current listening item: the most recently touched, not-finished
 // progress row. buildAutoQueue drops this from the queue and uses it to seed the
-// "finish current series" rule.
+// "finish current series" rule. This is a FALLBACK: the stored current_item_id
+// (stamped by the client on play) is preferred, because a just-started book (2s
+// in) may have no progress row yet, which would make this heuristic jump to a
+// stale in-progress book and break series continuation.
 function currentItemIdFromProgress(mediaProgress) {
   let best = null
   for (const p of mediaProgress) {
@@ -44,6 +47,19 @@ function currentItemIdFromProgress(mediaProgress) {
     if (!best || Number(p.lastUpdate ?? 0) > Number(best.lastUpdate ?? 0)) best = p
   }
   return best?.libraryItemId ?? null
+}
+
+// Resolve which book "finish current series" seeds from. Prefer the stored
+// current_item_id (the book the client last stamped on play) so a barely-played
+// book still continues its series - critically, the nightly job has no client
+// and relies entirely on this stored value. Fall back to the progress-recency
+// heuristic when there's no stored id, or when the stored book is already
+// finished (the user moved on; the queue's own advance stamps the new book, but
+// if that stamp was missed we don't want to seed off a finished book).
+function resolveCurrentItemId(stored, progressById, mediaProgress) {
+  const storedId = stored.currentItemId
+  if (storedId && !progressById.get(storedId)?.isFinished) return storedId
+  return currentItemIdFromProgress(mediaProgress)
 }
 
 // Each club the user is in contributes its current book (the book-club rule
@@ -69,14 +85,38 @@ export async function resolveQueue(ctx) {
   const { serverId, userId } = ctx
   const stored = await getQueue(serverId, userId)
 
+  // A client that just started a book passes its now-playing id here so the
+  // rebuild seeds 'finish-series' from the book actually playing (and persists
+  // it for the next client-less rebuild). Absent (nightly job, plain recompute)
+  // = keep whatever the client last stamped. `null` explicitly clears it.
+  const clientCurrentItemId = ctx.currentItemId
+
   const mode = (await getUserSetting(serverId, userId, 'queueMode')) ?? 'off'
-  if (mode !== 'auto') return stored
+  if (mode !== 'auto') {
+    // Even outside Auto, persist a client-supplied current item so a later
+    // switch back to Auto (or the nightly job) has it. Only writes when given.
+    if (clientCurrentItemId !== undefined) {
+      const saved = await setQueue(serverId, userId, {
+        currentItemId: clientCurrentItemId,
+        updatedAt: Date.now(),
+      })
+      return {
+        items: saved.items,
+        manual: saved.manual,
+        playlistId: saved.playlistId,
+        currentItemId: saved.currentItemId,
+        updatedAt: saved.updatedAt,
+      }
+    }
+    return stored
+  }
 
   // normalizeAutoRules backfills rules added since the user last saved (e.g.
   // book-club), so their queue includes new sources without a settings migration.
   const rules = normalizeAutoRules(await getUserSetting(serverId, userId, 'queueAutoRules'))
 
   let items
+  let currentItemId = null
   try {
     const [libraries, me, clubBooks, dismissals] = await Promise.all([
       fetchBookLibraries(ctx),
@@ -103,11 +143,20 @@ export async function resolveQueue(ctx) {
     const mediaProgress = me?.mediaProgress ?? []
     const progressById = new Map(mediaProgress.map((p) => [p.libraryItemId, p]))
 
+    // The book to continue from. A client that just started a book wins (it
+    // knows its now-playing item even before progress syncs); otherwise use the
+    // stored stamp, falling back to progress recency. This same resolved id is
+    // persisted below so the next client-less rebuild (nightly) reuses it.
+    currentItemId =
+      clientCurrentItemId !== undefined && clientCurrentItemId !== null
+        ? clientCurrentItemId
+        : resolveCurrentItemId(stored, progressById, mediaProgress)
+
     items = buildAutoQueue({
       items: allItems,
       series: allSeries,
       progressById,
-      currentItemId: currentItemIdFromProgress(mediaProgress),
+      currentItemId,
       rules,
       clubBooks,
       // The user's durable hand-queued list feeds the 'manual' rule so a
@@ -127,15 +176,19 @@ export async function resolveQueue(ctx) {
   // Server-stamped write always applies (updatedAt >= any client's), so the
   // freshly computed auto queue becomes the shared truth across devices.
   // `manual` is omitted so the stored hand-queued list is preserved.
+  // `currentItemId` persists the resolved current book so the next client-less
+  // rebuild (nightly job) continues the series from the same place.
   const saved = await setQueue(serverId, userId, {
     items,
     playlistId: null,
+    currentItemId,
     updatedAt: Date.now(),
   })
   return {
     items: saved.items,
     manual: saved.manual,
     playlistId: saved.playlistId,
+    currentItemId: saved.currentItemId,
     updatedAt: saved.updatedAt,
   }
 }
