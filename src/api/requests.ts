@@ -98,6 +98,24 @@ export interface RmabSearchResult {
 
 export type RmabConfig = HSRmabConfig
 
+export class RmabRequestError extends Error {
+  readonly status: number
+  readonly code: string
+  readonly detail?: string
+
+  constructor(
+    status: number,
+    code: string,
+    detail?: string,
+  ) {
+    super(detail || code || `ReadMeABook returned HTTP ${status}`)
+    this.name = 'RmabRequestError'
+    this.status = status
+    this.code = code
+    this.detail = detail
+  }
+}
+
 async function rmabFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
   const res = await fetch(`/hs/rmab${path}`, {
@@ -108,8 +126,18 @@ async function rmabFetch<T>(path: string, options: RequestInit = {}): Promise<T>
       ...options.headers,
     },
   })
-  if (!res.ok) throw new Error(`RMAB ${res.status}`)
-  return res.json() as Promise<T>
+  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null
+  if (!res.ok) {
+    const code = typeof body?.error === 'string' ? body.error : `http_${res.status}`
+    const detail =
+      typeof body?.detail === 'string'
+        ? body.detail
+        : typeof body?.message === 'string'
+          ? body.message
+          : undefined
+    throw new RmabRequestError(res.status, code, detail)
+  }
+  return body as T
 }
 
 export const requestKeys = {

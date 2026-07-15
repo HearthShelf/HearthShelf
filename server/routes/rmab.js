@@ -5,6 +5,7 @@
 
 import { json, readBody } from '../lib/http.js'
 import { isRmabConfigured, rmabFetch } from '../rmab.js'
+import { appLog } from '../lib/appLog.js'
 
 export async function handleRmab(req, res, url, ctx) {
   const p = url.pathname
@@ -39,6 +40,13 @@ export async function handleRmab(req, res, url, ctx) {
         return (json(res, 400, { error: 'invalid_body' }), true)
       }
       const r = await rmabFetch('POST', '/api/requests', payload)
+      const asin = payload?.audiobook?.asin || 'unknown'
+      if (r.status >= 200 && r.status < 300 && r.body?.success !== false) {
+        appLog.info('readmeabook', `Request submitted (asin=${asin}, status=${r.status})`)
+      } else {
+        const reason = r.body?.error || r.body?.message || `HTTP ${r.status}`
+        appLog.warn('readmeabook', `Request rejected (asin=${asin}, status=${r.status}): ${reason}`)
+      }
       return (json(res, r.status, r.body ?? {}), true)
     }
 
@@ -146,6 +154,7 @@ export async function handleRmab(req, res, url, ctx) {
       return (json(res, r.status, r.body ?? {}), true)
     }
   } catch (err) {
+    appLog.error('readmeabook', `Proxy request failed (${req.method} ${p}): ${String(err).slice(0, 300)}`)
     return (json(res, 502, { error: 'rmab_error', detail: String(err).slice(0, 200) }), true)
   }
 

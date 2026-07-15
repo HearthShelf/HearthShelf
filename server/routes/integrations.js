@@ -7,6 +7,7 @@ import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { publicIntegrations, setIntegrations } from '../integrations.js'
 import { resetRmabSession } from '../rmab.js'
+import { appLog } from '../lib/appLog.js'
 
 export async function handleIntegrations(req, res, url, ctx) {
   const p = url.pathname
@@ -27,7 +28,12 @@ export async function handleIntegrations(req, res, url, ctx) {
     // The cached RMAB JWT was minted for the old url/token; drop it so the next
     // request re-authenticates against whatever was just saved.
     resetRmabSession()
-    return (json(res, 200, await publicIntegrations()), true)
+    const next = await publicIntegrations()
+    appLog.info(
+      'integrations',
+      `ReadMeABook configuration saved (configured=${next.rmabConfigured}, url=${next.rmabUrl || 'unset'})`,
+    )
+    return (json(res, 200, next), true)
   }
 
   return (json(res, 405, { error: 'method_not_allowed' }), true)

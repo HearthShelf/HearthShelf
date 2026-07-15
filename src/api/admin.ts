@@ -224,6 +224,11 @@ export interface ABSLogEntry {
 export function getLoggerData(): Promise<{ currentDailyLogs: ABSLogEntry[] }> {
   return absRequest<{ currentDailyLogs: ABSLogEntry[] }>('/api/logger-data')
 }
+export async function getHearthShelfLogs(): Promise<{ logs: ABSLogEntry[] }> {
+  const res = await fetch('/hs/logs', { headers: authHeader() })
+  if (!res.ok) throw new Error(`HearthShelf logs failed (${res.status})`)
+  return res.json() as Promise<{ logs: ABSLogEntry[] }>
+}
 
 // --- Genres / tags (metadata utils) ---
 export function getAllTags(): Promise<{ tags: string[] }> {

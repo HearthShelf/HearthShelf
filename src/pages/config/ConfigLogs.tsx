@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getLoggerData, type ABSLogEntry } from '@/api/admin'
+import { getHearthShelfLogs, getLoggerData, type ABSLogEntry } from '@/api/admin'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 
@@ -22,6 +22,7 @@ function LogView({ logs, className }: { logs: ABSLogEntry[]; className?: string 
           {l.level != null && (
             <span style={{ color: 'var(--text-muted)' }}>[{LEVEL_LABEL[l.level] ?? l.level}]</span>
           )}{' '}
+          {l.source && <span style={{ color: 'var(--text-muted)' }}>[{l.source}]</span>}{' '}
           {l.message}
         </div>
       ))}
@@ -34,7 +35,8 @@ function downloadLogs(logs: ABSLogEntry[]) {
   const text = logs
     .map((l) => {
       const lvl = l.level != null ? ` [${LEVEL_LABEL[l.level] ?? l.level}]` : ''
-      return `${l.timestamp}${lvl} ${l.message}`
+      const source = l.source ? ` [${l.source}]` : ''
+      return `${l.timestamp}${lvl}${source} ${l.message}`
     })
     .join('\n')
   const date = new Date().toISOString().slice(0, 10)
@@ -55,16 +57,23 @@ export function ConfigLogs() {
     queryFn: getLoggerData,
     staleTime: 10 * 1000,
   })
+  const { data: hearthShelfData } = useQuery({
+    queryKey: ['admin', 'hearthshelf-logs'],
+    queryFn: getHearthShelfLogs,
+    refetchInterval: 10 * 1000,
+  })
   const [enlarged, setEnlarged] = useState(false)
 
-  const logs = data?.currentDailyLogs ?? []
+  const logs = [...(data?.currentDailyLogs ?? []), ...(hearthShelfData?.logs ?? [])].sort(
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
+  )
 
   return (
     <>
       <div className="page-head">
         <div className="eyebrow">Admin</div>
         <h1 className="title-xl">Logs</h1>
-        {data && <p className="page-sub">Today's server log · {logs.length} lines</p>}
+        {data && <p className="page-sub">AudiobookShelf + HearthShelf logs · {logs.length} lines</p>}
       </div>
 
       {!data ? (

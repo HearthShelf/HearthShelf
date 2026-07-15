@@ -725,6 +725,18 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
         <p className="sr-d" style={{ marginBottom: 'var(--s4)' }}>
           The audiobook request backend. When connected, requesting is available across HearthShelf.
         </p>
+        <div
+          className="cfg-line"
+          style={{ alignItems: 'flex-start', gap: 10, marginBottom: 'var(--s4)' }}
+        >
+          <Icon name="info" style={{ color: '#d9a45a', marginTop: 2 }} />
+          <div className="sr-d">
+            <strong>Use a Login Token, not an API Token.</strong> In ReadMeABook, open Admin
+            {' > '}Users, choose a dedicated admin service account, and enable Login Token. Copy
+            only the <code>rmab_...</code> value after <code>?token=</code> from the generated URL.
+            The account must be an admin so every HearthShelf request action is available.
+          </div>
+        </div>
         <EnvField label="Server URL" locked={cfg.env.rmabUrl}>
           <input
             className="fld"
@@ -734,7 +746,7 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
             onChange={(e) => setUrl(e.target.value)}
           />
         </EnvField>
-        <EnvField label="Login token" locked={cfg.env.rmabLoginToken}>
+        <EnvField label="Login token (not API token)" locked={cfg.env.rmabLoginToken}>
           <input
             className="fld"
             type="password"

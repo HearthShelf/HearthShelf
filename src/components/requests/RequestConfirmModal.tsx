@@ -4,7 +4,7 @@ import { Modal } from '@/components/common/Modal'
 import { Icon } from '@/components/common/Icon'
 import { useSubmitRequest, useRmabEnabled } from '@/hooks/useRmab'
 import { audibleStoreUrl } from '@/api/audible'
-import type { RmabRequest } from '@/api/requests'
+import { RmabRequestError, type RmabRequest } from '@/api/requests'
 import type { CatalogResult } from '@/components/requests/RequestTile'
 
 interface RequestConfirmModalProps {
@@ -65,11 +65,15 @@ export function RequestConfirmModal({
           else setError(ERROR_COPY[res.error ?? ''] ?? 'Request failed. Please try again.')
         },
         onError: (e) => {
-          // rmabFetch throws "RMAB <status>"; surface a mapped message when we can.
-          const code = String(e)
-            .replace(/^Error:\s*/, '')
-            .replace('RMAB ', '')
-          setError(ERROR_COPY[code] ?? "Couldn't reach ReadMeABook. Please try again.")
+          if (e instanceof RmabRequestError) {
+            setError(
+              ERROR_COPY[e.code] ??
+                (e.detail && !e.detail.startsWith('rmab_') ? e.detail : undefined) ??
+                `ReadMeABook request failed (${e.status}). Check Admin > Logs for details.`,
+            )
+            return
+          }
+          setError("Couldn't reach ReadMeABook. Check Admin > Logs for details.")
         },
       },
     )
