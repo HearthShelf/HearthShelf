@@ -20,6 +20,31 @@ function stripSlash(v) {
   return (v || '').replace(/\/$/, '')
 }
 
+function loginUrlParts(value) {
+  if (typeof value !== 'string' || !/^https?:\/\//i.test(value.trim())) return null
+  try {
+    const parsed = new URL(value.trim())
+    const marker = '/auth/token/login'
+    const markerAt = parsed.pathname.indexOf(marker)
+    const token = parsed.searchParams.get('token')?.trim()
+    if (markerAt < 0 || !token) return null
+    const basePath = parsed.pathname.slice(0, markerAt)
+    return { token, baseUrl: stripSlash(`${parsed.origin}${basePath}`) }
+  } catch {
+    return null
+  }
+}
+
+export function normalizeIntegrationsPatch(input) {
+  const patch = { ...input }
+  const parts = loginUrlParts(patch.rmabLoginToken)
+  if (parts) {
+    patch.rmabLoginToken = parts.token
+    if (!patch.rmabUrl) patch.rmabUrl = parts.baseUrl
+  }
+  return patch
+}
+
 // An env var counts as "set" only when present and non-empty - an empty string
 // in the environment is treated as unset so it doesn't accidentally lock a field
 // to a blank value.
@@ -91,14 +116,8 @@ export async function getIntegrations() {
   return { ...stored, ...envOverrides() }
 }
 
-// Apply a partial admin update to the DATABASE layer. Fields currently pinned by
-// env are ignored (they can't be edited from the UI). Secret fields are only
-// overwritten when a non-empty string is supplied (so a masked placeholder keeps
-// the stored secret); an explicit null clears the stored secret.
-export async function setIntegrations(patch) {
-  await ensureRow()
-  const env = envOverrides()
-  const next = await getStored()
+function applyStoredPatch(stored, patch, env) {
+  const next = { ...stored }
   const editable = (field) => field in patch && !(field in env)
 
   if (editable('rmabUrl')) next.rmabUrl = stripSlash(patch.rmabUrl || '') || null
@@ -119,6 +138,26 @@ export async function setIntegrations(patch) {
       next.audplexusKey = patch.audplexusKey
     }
   }
+  return next
+}
+
+// Preview the effective configuration without writing it. Used to validate a
+// ReadMeABook URL/token pair before an invalid value replaces the working one.
+export async function previewIntegrations(patch) {
+  await ensureRow()
+  const env = envOverrides()
+  const next = applyStoredPatch(await getStored(), patch, env)
+  return { ...next, ...env }
+}
+
+// Apply a partial admin update to the DATABASE layer. Fields currently pinned by
+// env are ignored (they can't be edited from the UI). Secret fields are only
+// overwritten when a non-empty string is supplied (so a masked placeholder keeps
+// the stored secret); an explicit null clears the stored secret.
+export async function setIntegrations(patch) {
+  await ensureRow()
+  const env = envOverrides()
+  const next = applyStoredPatch(await getStored(), patch, env)
   await db.execute({
     sql: `UPDATE integrations_config
           SET rmab_url = ?, rmab_login_token = ?, audplexus_url = ?, audplexus_key = ?,

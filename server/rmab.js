@@ -58,11 +58,11 @@ export function resetRmabSession() {
   session.pending = null
 }
 
-async function rawFetch(method, path, { token, body } = {}) {
+async function rawFetch(method, path, { token, body, baseUrl } = {}) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
   try {
-    const base = await rmabUrl()
+    const base = baseUrl ?? (await rmabUrl())
     const res = await fetch(`${base}${path}`, {
       method,
       signal: ctrl.signal,
@@ -81,6 +81,44 @@ async function rawFetch(method, path, { token, body } = {}) {
     return { status: res.status, body: parsed }
   } finally {
     clearTimeout(t)
+  }
+}
+
+// Validate a candidate connection before saving it. A ReadMeABook API token and
+// Login Token share the same rmab_ prefix, so a failed login exchange is followed
+// by /api/auth/me with Bearer auth to identify the limited API-token case.
+export async function validateRmabCredentials(baseUrl, token) {
+  try {
+    const login = await rawFetch('POST', '/api/auth/token/login', {
+      baseUrl,
+      body: { token },
+    })
+    if (login.status === 200 && login.body?.accessToken) return { ok: true }
+
+    const apiTokenCheck = await rawFetch('GET', '/api/auth/me', { baseUrl, token })
+    if (apiTokenCheck.status === 200) {
+      return {
+        ok: false,
+        code: 'rmab_limited_api_token',
+        message:
+          'This is a ReadMeABook API Token. HearthShelf needs the Login Token from Admin > Users so cancel, retry, watch, ignore, and ebook actions work.',
+      }
+    }
+
+    const reason = login.body?.error || login.body?.message
+    return {
+      ok: false,
+      code: 'rmab_invalid_login_token',
+      message: reason
+        ? `ReadMeABook rejected the Login Token: ${reason}`
+        : `ReadMeABook rejected the Login Token (HTTP ${login.status}).`,
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      code: 'rmab_connection_failed',
+      message: `Could not reach ReadMeABook at that URL: ${String(err).slice(0, 160)}`,
+    }
   }
 }
 

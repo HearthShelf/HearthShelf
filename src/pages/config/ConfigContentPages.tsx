@@ -16,8 +16,9 @@ import {
 } from '@/api/admin'
 import {
   getIntegrationsConfig,
-  saveIntegrationsConfig,
   integrationsKeys,
+  parseRmabLoginTokenInput,
+  saveIntegrationsConfig,
   type IntegrationsConfig,
   type IntegrationsConfigPatch,
 } from '@/api/integrations'
@@ -36,6 +37,13 @@ const REGION_LABELS: Record<string, string> = {
   de: 'Germany (.de)',
   es: 'Spain (.es)',
   fr: 'France (.fr)',
+}
+
+function rmabUrlMismatch(baseUrl: string | null, currentUrl: string): string | null {
+  if (!baseUrl || !currentUrl.trim()) return null
+  const normalizedCurrent = currentUrl.trim().replace(/\/$/, '').toLowerCase()
+  if (normalizedCurrent === baseUrl.toLowerCase()) return null
+  return `The login URL is for ${baseUrl}, but Server URL is ${currentUrl.trim()}. Verify that both addresses reach the same ReadMeABook server.`
 }
 
 function Row({ icon, label, value }: { icon: string; label: string; value: string }) {
@@ -693,6 +701,9 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
   const [url, setUrl] = useState(cfg.rmabUrl ?? '')
   const [token, setToken] = useState('')
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [urlWarning, setUrlWarning] = useState<string | null>(null)
+  const [pastedBaseUrl, setPastedBaseUrl] = useState<string | null>(null)
 
   const save = useMutation({
     mutationFn: (patch: IntegrationsConfigPatch) => saveIntegrationsConfig(patch),
@@ -700,18 +711,39 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
       qc.setQueryData(integrationsKeys.config, next)
       qc.invalidateQueries({ queryKey: requestKeys.config }) // Requests nav gate
       setToken('')
+      setError(null)
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2000)
     },
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : 'Could not validate ReadMeABook.'),
   })
 
   const allLocked = cfg.env.rmabUrl && cfg.env.rmabLoginToken
 
   const onSave = () => {
+    setError(null)
     const patch: IntegrationsConfigPatch = {}
     if (!cfg.env.rmabUrl) patch.rmabUrl = url.trim() || null
     if (!cfg.env.rmabLoginToken && token.trim()) patch.rmabLoginToken = token.trim()
     save.mutate(patch)
+  }
+
+  const onTokenChange = (value: string) => {
+    const parsed = parseRmabLoginTokenInput(value)
+    setToken(parsed.token)
+    setPastedBaseUrl(parsed.baseUrl)
+    if (!parsed.baseUrl) {
+      setUrlWarning(null)
+      return
+    }
+    const currentUrl = cfg.env.rmabUrl ? (cfg.rmabUrl ?? '') : url.trim()
+    if (!currentUrl && !cfg.env.rmabUrl) {
+      setUrl(parsed.baseUrl)
+      setUrlWarning(null)
+      return
+    }
+    setUrlWarning(rmabUrlMismatch(parsed.baseUrl, currentUrl))
   }
 
   return (
@@ -732,9 +764,9 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
           <Icon name="info" style={{ color: '#d9a45a', marginTop: 2 }} />
           <div className="sr-d">
             <strong>Use a Login Token, not an API Token.</strong> In ReadMeABook, open Admin
-            {' > '}Users, choose a dedicated admin service account, and enable Login Token. Copy
-            only the <code>rmab_...</code> value after <code>?token=</code> from the generated URL.
-            The account must be an admin so every HearthShelf request action is available.
+            {' > '}Users, choose a dedicated admin service account, and enable Login Token. Copy and
+            paste the generated URL, or just its <code>rmab_...</code> token. The account must be an
+            admin so every HearthShelf request action is available.
           </div>
         </div>
         <EnvField label="Server URL" locked={cfg.env.rmabUrl}>
@@ -743,7 +775,10 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
             placeholder="https://audiobooks.example.com"
             value={cfg.env.rmabUrl ? (cfg.rmabUrl ?? '') : url}
             disabled={cfg.env.rmabUrl}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              setUrlWarning(rmabUrlMismatch(pastedBaseUrl, e.target.value))
+            }}
           />
         </EnvField>
         <EnvField label="Login token (not API token)" locked={cfg.env.rmabLoginToken}>
@@ -756,13 +791,23 @@ function RmabIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
                 ? '•••••••• (from environment)'
                 : cfg.rmabHasToken
                   ? '•••••••• (leave blank to keep)'
-                  : 'rmab_...'
+                  : 'Paste rmab_... token or full login URL'
             }
             value={token}
             disabled={cfg.env.rmabLoginToken}
-            onChange={(e) => setToken(e.target.value)}
+            onChange={(e) => onTokenChange(e.target.value)}
           />
         </EnvField>
+        {urlWarning && (
+          <div className="rr-err" style={{ marginBottom: 'var(--s4)', color: '#d9a45a' }}>
+            <Icon name="warning" fill /> {urlWarning}
+          </div>
+        )}
+        {error && (
+          <div className="rr-err" style={{ marginBottom: 'var(--s4)' }}>
+            <Icon name="error" fill /> {error}
+          </div>
+        )}
         {!allLocked && (
           <div className="cfg-line" style={{ gap: 8, justifyContent: 'flex-end' }}>
             <button className="btn-sm btn-green" disabled={save.isPending} onClick={onSave}>

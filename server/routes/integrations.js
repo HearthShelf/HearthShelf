@@ -5,8 +5,13 @@
 
 import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
-import { publicIntegrations, setIntegrations } from '../integrations.js'
-import { resetRmabSession } from '../rmab.js'
+import {
+  normalizeIntegrationsPatch,
+  previewIntegrations,
+  publicIntegrations,
+  setIntegrations,
+} from '../integrations.js'
+import { resetRmabSession, validateRmabCredentials } from '../rmab.js'
 import { appLog } from '../lib/appLog.js'
 
 export async function handleIntegrations(req, res, url, ctx) {
@@ -24,7 +29,21 @@ export async function handleIntegrations(req, res, url, ctx) {
     } catch {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
-    await setIntegrations(body ?? {})
+    const patch = normalizeIntegrationsPatch(body ?? {})
+    if ('rmabUrl' in patch || 'rmabLoginToken' in patch) {
+      const candidate = await previewIntegrations(patch)
+      if (candidate.rmabUrl && candidate.rmabLoginToken) {
+        const validation = await validateRmabCredentials(
+          candidate.rmabUrl,
+          candidate.rmabLoginToken,
+        )
+        if (!validation.ok) {
+          appLog.warn('integrations', `ReadMeABook validation failed (${validation.code})`)
+          return (json(res, 422, { error: validation.code, message: validation.message }), true)
+        }
+      }
+    }
+    await setIntegrations(patch)
     // The cached RMAB JWT was minted for the old url/token; drop it so the next
     // request re-authenticates against whatever was just saved.
     resetRmabSession()
