@@ -23,6 +23,9 @@ export function AppShell() {
   const isReaderRoute = pathname.startsWith('/reader/')
   const immersive = isPlayerRoute || isReaderRoute
   const coverStyle = useSettingsStore((s) => s.coverStyle)
+  // User can hide the docked player bar; the full player stays reachable from
+  // the player nav / a book's Play button.
+  const hideMiniPlayer = useSettingsStore((s) => s.hideMiniPlayer)
   const isMobile = useIsMobile()
 
   useApplySettings()
@@ -48,7 +51,7 @@ export function AppShell() {
         </div>
         {isMobile && !immersive && <MobileNav />}
       </div>
-      <PlayerBar />
+      {!hideMiniPlayer && <PlayerBar />}
       <AudioEngine />
       <NotePopWatcher />
     </div>

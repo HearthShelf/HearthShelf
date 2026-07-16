@@ -573,6 +573,16 @@ export function SettingsPage() {
                     />
                   }
                 />
+                <SetRow
+                  title="Hide player bar"
+                  desc="Turn off the docked bar that shows what's playing. Open the full player from the nav or a book's Play button."
+                  control={
+                    <Toggle
+                      on={s.hideMiniPlayer}
+                      onClick={() => put('hideMiniPlayer', !s.hideMiniPlayer)}
+                    />
+                  }
+                />
               </div>
 
               {/* Queue */}

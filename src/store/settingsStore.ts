@@ -83,6 +83,9 @@ export interface SettingsState {
   skipBack: number
   skipBackCustom: number
   chapterBarrier: boolean
+  // Hide the docked player bar. Off (default) keeps it; on hides it and the full
+  // player is reached from the player nav / a book's Play button.
+  hideMiniPlayer: boolean
 
   // Queue
   queueMode: QueueMode
@@ -184,6 +187,7 @@ export const useSettingsStore = create<SettingsState>()(
       skipBack: 15,
       skipBackCustom: 20,
       chapterBarrier: true,
+      hideMiniPlayer: false,
 
       // Queue
       queueMode: 'manual',
