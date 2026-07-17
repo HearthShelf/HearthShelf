@@ -982,6 +982,52 @@ export async function getFinishedUsers(libraryItemId) {
   })
 }
 
+// Bulk variant for shelves: { libraryItemId: [{ userId, username, finishedAt }] }
+// for the ids asked for. Items with no finishers are omitted (callers default
+// missing to []). Same joins/filters as getFinishedUsers, one grouped query over
+// the whole set, each item's finishers ordered newest finish first. Returns {}
+// on any failure.
+export async function getFinishedUsersBulk(libraryItemIds = []) {
+  const ids = [...new Set(libraryItemIds.filter(Boolean))]
+  if (!ids.length) return {}
+  const c = await ensureClient()
+  if (!c) return {}
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const res = await c.execute({
+      sql: `
+        SELECT li.id AS libraryItemId, u.id AS userId, u.username AS username,
+               mp.finishedAt AS finishedAt
+        FROM libraryItems li
+        JOIN mediaProgresses mp
+          ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
+        JOIN users u ON u.id = mp.userId
+        WHERE li.id IN (${placeholders})
+          AND li.mediaType = 'book'
+          AND mp.isFinished = 1
+          AND u.type != 'guest'
+          AND u.isActive = 1
+        ORDER BY mp.finishedAt DESC
+      `,
+      args: ids,
+    })
+    const out = {}
+    for (const row of res.rows) {
+      const key = String(row.libraryItemId)
+      const raw = row.finishedAt
+      const ms = raw != null ? Date.parse(String(raw)) : NaN
+      ;(out[key] = out[key] || []).push({
+        userId: String(row.userId),
+        username: String(row.username ?? ''),
+        finishedAt: Number.isNaN(ms) ? null : ms,
+      })
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
 // --- Listening-now presence ------------------------------------------------
 //
 // Who is actively listening to a book right now-ish, derived ONLY from

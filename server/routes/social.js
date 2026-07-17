@@ -17,6 +17,7 @@ import {
   getFinishedCount,
   getFinishedCountsBulk,
   getFinishedUsers,
+  getFinishedUsersBulk,
   getActiveListeners,
   getUserCompareStats,
   getServerAggregateStats,
@@ -236,25 +237,58 @@ export async function handleSocial(req, res, url, ctx) {
     )
   }
 
-  // Who finished a book (privacy-filtered), for the detail-page avatar chips.
-  // /hs/social/finished-by?libraryItemId=...
-  if (req.method === 'GET' && p === '/hs/social/finished-by') {
-    if (!(await absDbAvailable())) {
-      return (json(res, 200, { available: false, users: [] }), true)
+  // Who finished a book (privacy-filtered). GET ?libraryItemId=... for the
+  // detail-page avatar chips; POST { libraryItemIds } -> { byItem } for the
+  // reader-avatar stacks on library/browse cards (capped 100).
+  if (p === '/hs/social/finished-by') {
+    if (req.method === 'GET') {
+      if (!(await absDbAvailable())) {
+        return (json(res, 200, { available: false, users: [] }), true)
+      }
+      const id = url.searchParams.get('libraryItemId') || ''
+      if (!id) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+      const [users, explicit, community] = await Promise.all([
+        getFinishedUsers(id),
+        getExplicitSharePrefs(ctx.serverId),
+        getCommunityConfig(),
+      ])
+      // Same privacy pipeline as the leaderboard: explicit choice wins, else the
+      // admin default; the caller always sees themselves.
+      const visible = users.filter((u) =>
+        shares(u.userId, explicit, community.defaultShare, ctx.userId),
+      )
+      return (json(res, 200, { available: true, users: visible }), true)
     }
-    const id = url.searchParams.get('libraryItemId') || ''
-    if (!id) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
-    const [users, explicit, community] = await Promise.all([
-      getFinishedUsers(id),
-      getExplicitSharePrefs(ctx.serverId),
-      getCommunityConfig(),
-    ])
-    // Same privacy pipeline as the leaderboard: explicit choice wins, else the
-    // admin default; the caller always sees themselves.
-    const visible = users.filter((u) =>
-      shares(u.userId, explicit, community.defaultShare, ctx.userId),
-    )
-    return (json(res, 200, { available: true, users: visible }), true)
+    if (req.method === 'POST') {
+      if (!(await absDbAvailable())) {
+        return (json(res, 200, { available: false, byItem: {} }), true)
+      }
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return (json(res, 400, { error: 'invalid_body' }), true)
+      }
+      const ids = Array.isArray(body?.libraryItemIds) ? body.libraryItemIds : null
+      if (!ids) return (json(res, 400, { error: 'missing_libraryItemIds' }), true)
+      if (ids.length > MAX_BULK_IDS) return (json(res, 400, { error: 'too_many_ids' }), true)
+      const [grouped, explicit, community] = await Promise.all([
+        getFinishedUsersBulk(ids),
+        getExplicitSharePrefs(ctx.serverId),
+        getCommunityConfig(),
+      ])
+      // Filter each item's finishers by the same privacy resolution as the
+      // single-item route; drop items left with no visible finishers.
+      const byItem = {}
+      for (const [id, users] of Object.entries(grouped)) {
+        const visible = users.filter((u) =>
+          shares(u.userId, explicit, community.defaultShare, ctx.userId),
+        )
+        if (visible.length) byItem[id] = visible
+      }
+      return (json(res, 200, { available: true, byItem }), true)
+    }
+    return (json(res, 405, { error: 'method_not_allowed' }), true)
   }
 
   // Single item: how many people finished it. /hs/social/finished-count?libraryItemId=...
