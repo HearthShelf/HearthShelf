@@ -272,17 +272,22 @@ export async function handleSocial(req, res, url, ctx) {
       const ids = Array.isArray(body?.libraryItemIds) ? body.libraryItemIds : null
       if (!ids) return (json(res, 400, { error: 'missing_libraryItemIds' }), true)
       if (ids.length > MAX_BULK_IDS) return (json(res, 400, { error: 'too_many_ids' }), true)
-      const [grouped, explicit, community] = await Promise.all([
+      const [grouped, explicitRead, explicitListening, community] = await Promise.all([
         getFinishedUsersBulk(ids),
-        getExplicitSharePrefs(ctx.serverId),
+        getExplicitSharePrefs(ctx.serverId, 'shareReadBooks'),
+        getExplicitSharePrefs(ctx.serverId, 'shareCurrentlyListening'),
         getCommunityConfig(),
       ])
-      // Filter each item's finishers by the same privacy resolution as the
-      // single-item route; drop items left with no visible finishers.
+      // Two privacy surfaces in one list: finishers are gated by shareReadBooks
+      // (community defaultShare), in-progress readers by shareCurrentlyListening
+      // (community defaultShareListening, default OFF). The caller always sees
+      // themselves either way. Drop items left with no visible readers.
       const byItem = {}
       for (const [id, users] of Object.entries(grouped)) {
         const visible = users.filter((u) =>
-          shares(u.userId, explicit, community.defaultShare, ctx.userId),
+          u.status === 'reading'
+            ? shares(u.userId, explicitListening, community.defaultShareListening, ctx.userId)
+            : shares(u.userId, explicitRead, community.defaultShare, ctx.userId),
         )
         if (visible.length) byItem[id] = visible
       }

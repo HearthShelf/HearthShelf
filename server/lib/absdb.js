@@ -982,11 +982,14 @@ export async function getFinishedUsers(libraryItemId) {
   })
 }
 
-// Bulk variant for shelves: { libraryItemId: [{ userId, username, finishedAt }] }
-// for the ids asked for. Items with no finishers are omitted (callers default
-// missing to []). Same joins/filters as getFinishedUsers, one grouped query over
-// the whole set, each item's finishers ordered newest finish first. Returns {}
-// on any failure.
+// Bulk variant for shelves:
+// { libraryItemId: [{ userId, username, finishedAt, status }] } for the ids
+// asked for. Includes both finishers (status 'finished') and in-progress
+// readers (started but not finished; status 'reading', finishedAt null). Items
+// with no readers are omitted (callers default missing to []). Same user filter
+// as getFinishedUsers. Finishers are listed first (newest finish first), then
+// in-progress readers; a user who is both for one item appears once as
+// 'finished'. Returns {} on any failure.
 export async function getFinishedUsersBulk(libraryItemIds = []) {
   const ids = [...new Set(libraryItemIds.filter(Boolean))]
   if (!ids.length) return {}
@@ -997,29 +1000,36 @@ export async function getFinishedUsersBulk(libraryItemIds = []) {
     const res = await c.execute({
       sql: `
         SELECT li.id AS libraryItemId, u.id AS userId, u.username AS username,
-               mp.finishedAt AS finishedAt
+               mp.finishedAt AS finishedAt, mp.isFinished AS isFinished
         FROM libraryItems li
         JOIN mediaProgresses mp
           ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
         JOIN users u ON u.id = mp.userId
         WHERE li.id IN (${placeholders})
           AND li.mediaType = 'book'
-          AND mp.isFinished = 1
+          AND (mp.isFinished = 1 OR mp.progress > 0)
           AND u.type != 'guest'
           AND u.isActive = 1
-        ORDER BY mp.finishedAt DESC
+        ORDER BY mp.isFinished DESC, mp.finishedAt DESC
       `,
       args: ids,
     })
     const out = {}
+    const seen = new Set() // itemId|userId - finished row wins (ordered first)
     for (const row of res.rows) {
       const key = String(row.libraryItemId)
+      const userId = String(row.userId)
+      const dedupeKey = `${key}|${userId}`
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      const finished = Number(row.isFinished) === 1
       const raw = row.finishedAt
       const ms = raw != null ? Date.parse(String(raw)) : NaN
       ;(out[key] = out[key] || []).push({
-        userId: String(row.userId),
+        userId,
         username: String(row.username ?? ''),
-        finishedAt: Number.isNaN(ms) ? null : ms,
+        finishedAt: finished && !Number.isNaN(ms) ? ms : null,
+        status: finished ? 'finished' : 'reading',
       })
     }
     return out
