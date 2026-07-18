@@ -23,7 +23,7 @@
 import { json, readBody } from '../lib/http.js'
 import { getServerId, getServerName } from '../db.js'
 import { getMode } from '../lib/context.js'
-import { getProvisioning } from '../lib/provisioning.js'
+import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import {
   getHostedConfig,
   setHostedConfig,
@@ -32,10 +32,18 @@ import {
   verifyGrant,
   getLinkedAbsUserIds,
 } from '../lib/hosted.js'
+import {
+  getCredentialHealth,
+  remintServiceKey,
+  whoAmI,
+  getServiceToken,
+} from '../lib/serviceCredential.js'
+import { appLog } from '../lib/appLog.js'
 import { acquireCert, getHsDirectState } from '../lib/hsdirect.js'
 import { emailRelayEndpoint, emailRelayOptedOut, emailRelayOnStartup } from '../lib/emailRelay.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
+const SERVICE_USERNAME = process.env.AIO_SERVICE_USERNAME || 'hearthshelf-service'
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '')
 // The control plane has two hosts: the browser-facing app (where the admin
 // redeems a pairing code, app.hearthshelf.com) and the server-to-server API
@@ -156,23 +164,28 @@ export async function handleHosted(req, res, url, _ctx) {
     if (!cfg?.issuer || !cfg?.jwksUrl) {
       return (json(res, 409, { error: 'not_paired' }), true)
     }
-    if (!cfg?.absAdminToken || !ABS_URL) {
-      // No service token to act with - recovery isn't possible from here.
+    if (!ABS_URL) {
       return (json(res, 409, { error: 'no_service_token' }), true)
     }
+    // Use the self-healing service token: if the stored credential is stale this
+    // re-mints a durable one from the service account, so admin recovery still
+    // works even after the credential died (the very situation this endpoint is
+    // for). Null means it's broken beyond auto-repair.
+    const svcToken = await getServiceToken()
+    if (!svcToken) return (json(res, 409, { error: 'no_service_token' }), true)
 
     const claims = await verifyGrant(grant)
     if (!claims) return (json(res, 401, { error: 'invalid_grant' }), true)
     // Only a server admin may break the glass. A regular user's grant is rejected.
     if (claims.role !== 'admin') return (json(res, 403, { error: 'forbidden' }), true)
 
-    // List users with the service-root token and re-enable every disabled
-    // admin/root account. We don't touch regular users - this restores admin
-    // access only, the minimum to get back in.
+    // List users with the service token and re-enable every disabled admin/root
+    // account. We don't touch regular users - this restores admin access only,
+    // the minimum to get back in.
     let users
     try {
       const r = await fetch(`${ABS_URL}/api/users`, {
-        headers: { Authorization: `Bearer ${cfg.absAdminToken}` },
+        headers: { Authorization: `Bearer ${svcToken}` },
       })
       if (!r.ok) return (json(res, 502, { error: 'abs_list_failed', status: r.status }), true)
       const data = await r.json()
@@ -190,7 +203,7 @@ export async function handleHosted(req, res, url, _ctx) {
         const r = await fetch(`${ABS_URL}/api/users/${u.id}`, {
           method: 'PATCH',
           headers: {
-            Authorization: `Bearer ${cfg.absAdminToken}`,
+            Authorization: `Bearer ${svcToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ isActive: true, isLocked: false }),
@@ -210,15 +223,103 @@ export async function handleHosted(req, res, url, _ctx) {
     const adminToken = await requireAbsAdmin(req)
     if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
     const cfg = await getHostedConfig()
+    // Live credential health so the Connect UI can show valid/stale/broken and
+    // whether auto-recovery is possible - not just token PRESENCE (a present but
+    // dead token is exactly the failure that hid this outage).
+    const health = await getCredentialHealth().catch(() => null)
     return (
       json(res, 200, {
         mode: getMode(),
         paired: Boolean(cfg?.issuer && cfg?.jwksUrl),
         hasAbsAdminToken: Boolean(cfg?.absAdminToken),
         issuer: cfg?.issuer ?? null,
+        adminCredStatus: health?.state ?? cfg?.adminCredStatus ?? null,
+        canSelfHeal: health?.canSelfHeal ?? false,
       }),
       true
     )
+  }
+
+  // Live credential health probe for the Connect UI's service-account panel.
+  // Read-only: validates the stored credential against ABS and reports whether
+  // self-heal (re-mint from the service account) is possible. Does not re-mint.
+  if (p === '/hs/hosted/service-health' && req.method === 'GET') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    const health = await getCredentialHealth().catch(() => null)
+    if (!health) return (json(res, 200, { state: 'broken', canSelfHeal: false }), true)
+    return (json(res, 200, health), true)
+  }
+
+  // Reset the service credential: mint a fresh DURABLE ABS API key using the
+  // caller's own (already-validated) admin session token, and store it as the
+  // admin credential. This is the primary Fix-UI action - it recovers a broken
+  // credential without the operator needing to know the service password.
+  if (p === '/hs/hosted/service-credential/reset' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    const key = await remintServiceKey(adminToken)
+    if (!key) return (json(res, 502, { error: 'mint_failed' }), true)
+    appLog.info('hosted', 'admin credential reset from the Connect UI (new durable API key minted)')
+    return (json(res, 200, { ok: true, status: 'valid' }), true)
+  }
+
+  // Manual override for when self-heal and reset can't recover automatically
+  // (e.g. the stored service password has desynced from ABS). Accepts EITHER a
+  // new service password (which we validate by logging in, re-sync into
+  // provisioning, then re-mint a durable key from) OR a known-good admin API key
+  // / token pasted directly (validated against ABS, then stored as-is).
+  if (p === '/hs/hosted/service-credential/override' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    let body = {}
+    try {
+      const raw = await readBody(req)
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const pastedToken = typeof body.absAdminToken === 'string' ? body.absAdminToken.trim() : ''
+    const servicePassword =
+      typeof body.servicePassword === 'string' ? body.servicePassword : ''
+
+    // Path A: paste a known-good admin token/key. Validate it authenticates as an
+    // admin/root before storing, so a typo can't replace a working key with junk.
+    if (pastedToken) {
+      const me = await whoAmI(pastedToken)
+      if (!(me?.type === 'admin' || me?.type === 'root')) {
+        return (json(res, 422, { error: 'token_not_admin' }), true)
+      }
+      await setHostedConfig({ absAdminToken: pastedToken, adminCredStatus: 'valid' })
+      appLog.info('hosted', 'admin credential overridden with a pasted admin token')
+      return (json(res, 200, { ok: true, status: 'valid' }), true)
+    }
+
+    // Path B: supply a new service-account password. Log in with it to confirm it
+    // works, persist it (re-syncing provisioning so boot self-heal works again),
+    // then mint a durable key from that session.
+    if (servicePassword) {
+      const svcUsername = (await getProvisioning().catch(() => null))?.rootUsername || SERVICE_USERNAME
+      let sessionToken = null
+      try {
+        const r = await fetch(`${ABS_URL}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: svcUsername, password: servicePassword }),
+        })
+        if (r.ok) sessionToken = (await r.json())?.user?.token || null
+      } catch {
+        return (json(res, 502, { error: 'abs_unreachable' }), true)
+      }
+      if (!sessionToken) return (json(res, 422, { error: 'bad_service_password' }), true)
+      await setProvisioning({ servicePassword })
+      const key = await remintServiceKey(sessionToken)
+      if (!key) return (json(res, 502, { error: 'mint_failed' }), true)
+      appLog.info('hosted', 'service password re-synced and a durable admin key re-minted')
+      return (json(res, 200, { ok: true, status: 'valid' }), true)
+    }
+
+    return (json(res, 400, { error: 'missing_input' }), true)
   }
 
   // Email relay status. Tells the SPA whether this box can offer "use
@@ -307,8 +408,12 @@ export async function handleHosted(req, res, url, _ctx) {
     return (json(res, 200, { ok: true, host, port }), true)
   }
 
-  // Set the ABS admin token (and optionally issuer/jwks directly). The admin
-  // token lets HS mint per-user ABS API keys for federated users.
+  // Set the ABS admin credential (and optionally issuer/jwks directly). The admin
+  // credential lets HS mint per-user ABS API keys for federated users. We store a
+  // DURABLE API key, never the caller's perishable session token: mint one from
+  // the caller's session (or an explicitly pasted token) via remintServiceKey. A
+  // pasted token that is already a durable key round-trips fine (we re-mint from
+  // it). Storing the raw session token is exactly what caused the silent outage.
   if (p === '/hs/hosted/config' && req.method === 'PUT') {
     const adminToken = await requireAbsAdmin(req)
     if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
@@ -318,15 +423,23 @@ export async function handleHosted(req, res, url, _ctx) {
     } catch {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
-    // Default the ABS admin token to the caller's own token unless one is given.
-    const saved = await setHostedConfig({
-      absAdminToken:
-        typeof body.absAdminToken === 'string' && body.absAdminToken
-          ? body.absAdminToken
-          : adminToken,
-      issuer: typeof body.issuer === 'string' ? body.issuer : undefined,
-      jwksUrl: typeof body.jwksUrl === 'string' ? body.jwksUrl : undefined,
-    })
+    if (typeof body.issuer === 'string' || typeof body.jwksUrl === 'string') {
+      await setHostedConfig({
+        issuer: typeof body.issuer === 'string' ? body.issuer : undefined,
+        jwksUrl: typeof body.jwksUrl === 'string' ? body.jwksUrl : undefined,
+      })
+    }
+    // Mint a durable key from the supplied (or caller's) admin token.
+    const seedToken =
+      typeof body.absAdminToken === 'string' && body.absAdminToken
+        ? body.absAdminToken
+        : adminToken
+    const key = await remintServiceKey(seedToken)
+    if (!key) {
+      await setHostedConfig({ adminCredStatus: 'broken' }).catch(() => {})
+      return (json(res, 502, { error: 'mint_failed' }), true)
+    }
+    const saved = await getHostedConfig()
     return (
       json(res, 200, {
         paired: Boolean(saved.issuer && saved.jwksUrl),
@@ -630,16 +743,24 @@ export async function handleHosted(req, res, url, _ctx) {
     }
     const data = await startRes.json()
 
-    // Persist the trust details. The ABS admin token defaults to the caller's
-    // token so a single setup call leaves HS ready to federate users. The
-    // control plane issues a fresh server_secret on every /pairing/start (and
-    // rotates the servers-row hash to match), so we always store the new one.
+    // Persist the trust details. The control plane issues a fresh server_secret
+    // on every /pairing/start (and rotates the servers-row hash to match), so we
+    // always store the new one.
     await setHostedConfig({
       issuer: data.issuer,
       jwksUrl: data.jwks_url,
       serverSecret: data.server_secret,
-      absAdminToken: adminToken,
     })
+    // Mint a DURABLE admin API key from the caller's session token rather than
+    // storing the session token itself - a session token dies with its user, and
+    // re-pairing must never clobber a healthy stored key with a perishable one.
+    // Best-effort: if the mint fails we leave any existing key in place and flag
+    // the state, rather than failing the whole pair.
+    const paired_key = await remintServiceKey(adminToken).catch(() => null)
+    if (!paired_key) {
+      await setHostedConfig({ adminCredStatus: 'broken' }).catch(() => {})
+      appLog.warn('hosted', 'pairing completed but could not mint a durable admin key; reset it under Connect')
+    }
 
     // With the server_secret in hand, provision the secure connect-domain cert
     // NOW (awaited) so we can hand the control plane the real, RESOLVABLE address

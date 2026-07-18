@@ -25,6 +25,7 @@ import crypto from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { db, initDb, getServerId } from '../db.js'
 import { appLog } from './appLog.js'
+import { getServiceToken } from './serviceCredential.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
@@ -46,6 +47,7 @@ export async function getHostedConfig() {
     jwksUrl: row.jwks_url ?? null,
     serverSecret: row.server_secret ?? null,
     absAdminToken: row.abs_admin_token ?? null,
+    adminCredStatus: row.admin_cred_status ?? null,
   }
 }
 
@@ -57,17 +59,30 @@ export async function setHostedConfig(patch) {
     jwksUrl: patch.jwksUrl ?? cur.jwksUrl ?? null,
     serverSecret: patch.serverSecret ?? cur.serverSecret ?? null,
     absAdminToken: patch.absAdminToken ?? cur.absAdminToken ?? null,
+    // Unlike the other fields, adminCredStatus is allowed to be set back to null
+    // (meaning "unknown, re-check"), so honour an explicit patch value including
+    // null; only fall back to the current value when the key is absent entirely.
+    adminCredStatus:
+      patch.adminCredStatus !== undefined ? patch.adminCredStatus : cur.adminCredStatus ?? null,
   }
   await db.execute({
-    sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, updated_at)
-          VALUES (1, ?, ?, ?, ?, ?)
+    sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, admin_cred_status, updated_at)
+          VALUES (1, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (id) DO UPDATE SET
             issuer = excluded.issuer,
             jwks_url = excluded.jwks_url,
             server_secret = excluded.server_secret,
             abs_admin_token = excluded.abs_admin_token,
+            admin_cred_status = excluded.admin_cred_status,
             updated_at = excluded.updated_at`,
-    args: [next.issuer, next.jwksUrl, next.serverSecret, next.absAdminToken, Date.now()],
+    args: [
+      next.issuer,
+      next.jwksUrl,
+      next.serverSecret,
+      next.absAdminToken,
+      next.adminCredStatus,
+      Date.now(),
+    ],
   })
   return next
 }
@@ -79,11 +94,11 @@ export async function setHostedConfig(patch) {
 export async function clearHostedConfig() {
   await ensure()
   await db.execute({
-    sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, updated_at)
-          VALUES (1, NULL, NULL, NULL, NULL, ?)
+    sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, admin_cred_status, updated_at)
+          VALUES (1, NULL, NULL, NULL, NULL, NULL, ?)
           ON CONFLICT (id) DO UPDATE SET
             issuer = NULL, jwks_url = NULL, server_secret = NULL,
-            abs_admin_token = NULL, updated_at = excluded.updated_at`,
+            abs_admin_token = NULL, admin_cred_status = NULL, updated_at = excluded.updated_at`,
     args: [Date.now()],
   })
 }
@@ -313,24 +328,26 @@ export async function resolveHostedContext(token) {
   if (!claims) return null
   if (!ABS_URL) return null
 
-  const cfg = await getHostedConfig()
-  if (!cfg?.absAdminToken) return null
   const serverId = await getServerId()
 
   // Fast path: cached per-user key. Reconcile the username only when the grant's
   // Clerk username differs from what we last pushed (avoids an ABS write per
-  // request); on success record the new value.
+  // request); on success record the new value. Username sync is best-effort, so
+  // we only resolve an admin token for it lazily and skip silently if none.
   const cached = await getCachedKey(serverId, claims.subject)
   if (cached) {
     if (claims.username && claims.username !== cached.syncedUsername) {
-      const now = await syncUsername(
-        cfg.absAdminToken,
-        cached.absUserId,
-        claims.username,
-        cached.syncedUsername,
-      )
-      if (now === claims.username)
-        await updateSyncedUsername(serverId, claims.subject, claims.username)
+      const adminToken = await getServiceToken()
+      if (adminToken) {
+        const now = await syncUsername(
+          adminToken,
+          cached.absUserId,
+          claims.username,
+          cached.syncedUsername,
+        )
+        if (now === claims.username)
+          await updateSyncedUsername(serverId, claims.subject, claims.username)
+      }
     }
     return {
       absUrl: ABS_URL,
@@ -342,23 +359,30 @@ export async function resolveHostedContext(token) {
     }
   }
 
-  // Cold path: match the ABS user by verified email; if none exists yet (an
-  // invited account onboarding for the first time), pre-provision one. Then mint
-  // + cache a key and bring the ABS username in line with Clerk's.
-  let absUser = await findAbsUserByEmail(cfg.absAdminToken, claims.email)
+  // Cold path: this is where a new invitee is provisioned, so it MUST have a
+  // working admin credential. getServiceToken self-heals a stale one (re-mints a
+  // durable API key from the service account); if it returns null the credential
+  // is broken and needs an operator reset - fail cleanly rather than 401-looping.
+  const adminToken = await getServiceToken()
+  if (!adminToken) return null
+
+  // Match the ABS user by verified email; if none exists yet (an invited account
+  // onboarding for the first time), pre-provision one. Then mint + cache a key
+  // and bring the ABS username in line with Clerk's.
+  let absUser = await findAbsUserByEmail(adminToken, claims.email)
   let provisioned = false
   if (!absUser?.id) {
-    absUser = await provisionAbsUser(cfg.absAdminToken, claims.email, claims.username)
+    absUser = await provisionAbsUser(adminToken, claims.email, claims.username)
     provisioned = true
   }
   if (!absUser?.id) return null
-  const apiKey = await mintAbsApiKey(cfg.absAdminToken, absUser.id)
+  const apiKey = await mintAbsApiKey(adminToken, absUser.id)
   if (!apiKey) return null
   // A freshly provisioned user already carries the Clerk username; an existing
   // matched user may need reconciling.
   const effectiveUsername = provisioned
     ? absUser.username || claims.username || ''
-    : await syncUsername(cfg.absAdminToken, absUser.id, claims.username, absUser.username || '')
+    : await syncUsername(adminToken, absUser.id, claims.username, absUser.username || '')
   await cacheKey(
     serverId,
     claims.subject,

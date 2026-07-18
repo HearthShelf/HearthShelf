@@ -673,6 +673,12 @@ const MIGRATIONS = [
   // in the nightly job, which runs with no client and reads this stored value.
   // NULL = fall back to the progress-recency heuristic (currentItemIdFromProgress).
   `ALTER TABLE listening_queue ADD COLUMN current_item_id TEXT`,
+  // Last-known health of the stored ABS admin credential ('valid'|'stale'|
+  // 'broken'; NULL = never checked, treated as valid for back-compat). Lets the
+  // Connect UI show credential health instantly without a live ABS probe, and
+  // records when self-heal has flagged the credential as needing an operator
+  // reset. See server/lib/serviceCredential.js.
+  `ALTER TABLE hosted_config ADD COLUMN admin_cred_status TEXT`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

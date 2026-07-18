@@ -73,6 +73,7 @@ import { handleExport } from './routes/export.js'
 import { handleLogs } from './routes/logs.js'
 import { startJobs } from './jobs/runner.js'
 import { installConsoleCapture } from './lib/appLog.js'
+import { healAdminCredentialOnStartup } from './lib/serviceCredential.js'
 
 const PORT = process.env.QG_PORT || 8080
 
@@ -213,6 +214,11 @@ initDb()
     // test mail through HearthShelf's shared Resend without its own SMTP. No-op
     // when unpaired or opted out. Background; never delays serving.
     void emailRelayOnStartup()
+    // If paired, validate + self-heal the ABS admin credential (re-mint a durable
+    // API key from the service account if the stored one is stale). Recovers boxes
+    // carrying an old perishable session token without waiting for the next
+    // invitee to fail. Background; never delays serving.
+    void healAdminCredentialOnStartup()
     // If paired, tell the control plane which version this box runs (startup +
     // weekly) so the hosted app can prompt the admin to update when it's behind.
     // Runs for every paired box regardless of mode. Background; never delays serving.

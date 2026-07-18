@@ -21,6 +21,8 @@ import { json, readBody, readBodyBuffer } from '../lib/http.js'
 import { getMode, isAdmin } from '../lib/context.js'
 import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import { getHostedConfig, setHostedConfig } from '../lib/hosted.js'
+import { remintServiceKey } from '../lib/serviceCredential.js'
+import { appLog } from '../lib/appLog.js'
 import { detectPublicIp } from '../lib/hsdirect.js'
 import { getServerId, getServerName, setServerName } from '../db.js'
 import { restoreFromUpload, restoreOnboardingAvailable } from '../lib/restoreOnboarding.js'
@@ -255,10 +257,23 @@ export async function handleRuntime(req, res, url, ctx) {
     const userData = userLogin && userLogin.ok ? await userLogin.json() : null
     const token = userData?.user?.token || null
 
-    // Persist: ABS is set up, the service username (so the UI can hide it), and
-    // the service token as the backend's admin token for federation/admin ops.
+    // Persist: ABS is set up and the service username (so the UI can hide it).
     await setProvisioning({ absInitialized: true, rootUsername: SERVICE_USERNAME })
-    await setHostedConfig({ absAdminToken: serviceToken })
+    // Store a DURABLE admin API key for federation/admin ops, minted from the
+    // service-root session - NOT the session token itself. A session token dies
+    // with its user or on expiry, which is what silently broke new-user
+    // provisioning. remintServiceKey mints + validates + persists the key.
+    const key = await remintServiceKey(serviceToken).catch(() => null)
+    if (!key) {
+      // Onboarding still succeeds (the user's account exists and they're signed
+      // in); the admin credential just needs a reset from Connect. Flag it so the
+      // UI surfaces that rather than failing silently later.
+      await setHostedConfig({ adminCredStatus: 'broken' }).catch(() => {})
+      appLog.warn(
+        'aio-provision',
+        'onboarding finished but could not mint a durable admin key; reset it under Connect',
+      )
+    }
 
     return (json(res, 200, { token, username }), true)
   }
