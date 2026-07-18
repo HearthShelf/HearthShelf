@@ -131,7 +131,7 @@ export function ConfigHosted() {
       if (source === 'manual') {
         show(
           brokerDown
-            ? 'The reachability service is offline right now - this does not affect your server.'
+            ? "Couldn't reach the reachability service just now - try again in a moment. This doesn't affect your server."
             : 'Could not run the connection check',
         )
       }
@@ -392,8 +392,8 @@ export function ConfigHosted() {
                 )}
                 {!portResult && checkUnavailable && (
                   <span className="sr-d" style={{ color: 'var(--text-muted)' }}>
-                    Can't run this check right now - the reachability service is offline. Your server
-                    is still connected, so this is just the test being unavailable.
+                    Couldn't run this check just now - the reachability service didn't respond. Your
+                    server is still connected; try the check again in a moment.
                   </span>
                 )}
                 {portResult && !portResult.open && (
