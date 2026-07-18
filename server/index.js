@@ -72,8 +72,16 @@ import { handleImport } from './routes/import.js'
 import { handleExport } from './routes/export.js'
 import { handleLogs } from './routes/logs.js'
 import { startJobs } from './jobs/runner.js'
+import { installConsoleCapture } from './lib/appLog.js'
 
 const PORT = process.env.QG_PORT || 8080
+
+// Mirror console.warn/console.error into the Admin > Logs ring from the very
+// first line, so container stdout and the Web UI log view never diverge (a raw
+// console.warn would otherwise be visible in docker logs but invisible in the
+// UI - which is how hosted provisioning failures went unnoticed). Install before
+// any route or startup task runs.
+installConsoleCapture()
 
 // Never let a stray background rejection take the whole backend down. Most of our
 // ABS-db reads and jobs are best-effort and already catch their own errors, but a

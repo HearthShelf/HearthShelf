@@ -24,6 +24,7 @@
 import crypto from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { db, initDb, getServerId } from '../db.js'
+import { appLog } from './appLog.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
@@ -177,11 +178,18 @@ async function provisionAbsUser(adminToken, email, desiredUsername) {
     }
     // 500/409-style "username taken" -> retry with a suffix; other errors -> bail.
     if (res.status !== 500 && res.status !== 409 && res.status !== 400) {
-      console.warn(`[hosted] provision failed for ${email}: ABS ${res.status}`)
+      // A 401 here means the stored admin credential is dead (stale/deleted) -
+      // call it out explicitly so the admin can re-mint it, rather than reading
+      // it as "this one user failed".
+      const hint =
+        res.status === 401
+          ? ' - the saved admin credential is invalid; reset it under Connect'
+          : ''
+      appLog.warn('hosted', `provision failed for ${email}: ABS ${res.status}${hint}`)
       return null
     }
   }
-  console.warn(`[hosted] provision gave up for ${email}: username collisions`)
+  appLog.warn('hosted', `provision gave up for ${email}: username collisions`)
   return null
 }
 
@@ -272,12 +280,12 @@ async function syncUsername(adminToken, absUserId, desired, current) {
       body: JSON.stringify({ username: desired }),
     })
     if (!res.ok) {
-      console.warn(`[hosted] username sync skipped for ${absUserId}: ABS returned ${res.status}`)
+      appLog.warn('hosted', `username sync skipped for ${absUserId}: ABS returned ${res.status}`)
       return current
     }
     return desired
   } catch (err) {
-    console.warn(`[hosted] username sync failed for ${absUserId}: ${String(err).slice(0, 120)}`)
+    appLog.warn('hosted', `username sync failed for ${absUserId}: ${String(err).slice(0, 120)}`)
     return current
   }
 }
