@@ -183,7 +183,6 @@ export interface InviteResult {
   ok: boolean
   email: string
   role: 'admin' | 'user'
-  emailed: boolean
 }
 
 /** Invite someone by email to this server (forwarded to the control plane). */
