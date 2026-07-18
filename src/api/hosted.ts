@@ -8,6 +8,8 @@ import type {
   HSHostedPairResponse,
   HSHostedPortCheckResult,
   HSHostedEmailRelayStatus,
+  HSServiceHealth,
+  HSServiceCredentialOverrideRequest,
 } from '@hearthshelf/core'
 
 // Carries the backend's machine-readable error code + HTTP status so callers can
@@ -64,6 +66,28 @@ export type HostedStatus = HSHostedConfigStatus
 
 export function getHostedStatus(): Promise<HostedStatus> {
   return hostedFetch<HostedStatus>('/config', { method: 'GET' })
+}
+
+// Live health of the ABS admin credential used to provision invited users.
+export function getServiceHealth(): Promise<HSServiceHealth> {
+  return hostedFetch<HSServiceHealth>('/service-health', { method: 'GET' })
+}
+
+// Reset the credential by minting a fresh durable key from the current admin
+// session. The primary one-click fix when the credential has gone stale/broken.
+export function resetServiceCredential(): Promise<{ ok: true; status: string }> {
+  return hostedFetch('/service-credential/reset', { method: 'POST' })
+}
+
+// Manual recovery when auto-repair can't help: supply a new service-account
+// password, or paste a known-good admin token/key directly.
+export function overrideServiceCredential(
+  body: HSServiceCredentialOverrideRequest,
+): Promise<{ ok: true; status: string }> {
+  return hostedFetch('/service-credential/override', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 // hs.direct provisioning state, polled by the onboarding Verify step after
