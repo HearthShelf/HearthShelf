@@ -65,25 +65,49 @@ export async function setHostedConfig(patch) {
     adminCredStatus:
       patch.adminCredStatus !== undefined ? patch.adminCredStatus : cur.adminCredStatus ?? null,
   }
-  await db.execute({
-    sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, admin_cred_status, updated_at)
-          VALUES (1, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (id) DO UPDATE SET
-            issuer = excluded.issuer,
-            jwks_url = excluded.jwks_url,
-            server_secret = excluded.server_secret,
-            abs_admin_token = excluded.abs_admin_token,
-            admin_cred_status = excluded.admin_cred_status,
-            updated_at = excluded.updated_at`,
-    args: [
-      next.issuer,
-      next.jwksUrl,
-      next.serverSecret,
-      next.absAdminToken,
-      next.adminCredStatus,
-      Date.now(),
-    ],
-  })
+  try {
+    await db.execute({
+      sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, admin_cred_status, updated_at)
+            VALUES (1, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+              issuer = excluded.issuer,
+              jwks_url = excluded.jwks_url,
+              server_secret = excluded.server_secret,
+              abs_admin_token = excluded.abs_admin_token,
+              admin_cred_status = excluded.admin_cred_status,
+              updated_at = excluded.updated_at`,
+      args: [
+        next.issuer,
+        next.jwksUrl,
+        next.serverSecret,
+        next.absAdminToken,
+        next.adminCredStatus,
+        Date.now(),
+      ],
+    })
+  } catch (err) {
+    // The admin_cred_status column is added by a migration; on a box where that
+    // migration hasn't landed yet (partial deploy, older image), writing it
+    // throws "no such column". The status marker is cosmetic - the credential
+    // itself (abs_admin_token) is what matters - so fall back to a write WITHOUT
+    // that column rather than lose a freshly minted key. This keeps the Reset /
+    // recovery flow working even before the migration runs.
+    if (String(err?.message || err).includes('admin_cred_status')) {
+      await db.execute({
+        sql: `INSERT INTO hosted_config (id, issuer, jwks_url, server_secret, abs_admin_token, updated_at)
+              VALUES (1, ?, ?, ?, ?, ?)
+              ON CONFLICT (id) DO UPDATE SET
+                issuer = excluded.issuer,
+                jwks_url = excluded.jwks_url,
+                server_secret = excluded.server_secret,
+                abs_admin_token = excluded.abs_admin_token,
+                updated_at = excluded.updated_at`,
+        args: [next.issuer, next.jwksUrl, next.serverSecret, next.absAdminToken, Date.now()],
+      })
+    } else {
+      throw err
+    }
+  }
   return next
 }
 
