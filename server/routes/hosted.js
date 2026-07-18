@@ -19,6 +19,50 @@
 // Env: ABS_SERVER_URL (to validate the admin), PUBLIC_URL (this instance's
 // public origin, used as the URL the control plane and browsers reach),
 // HS_CONTROL_PLANE_URL (default control-plane base, overridable per request).
+//
+// Error codes: failures answer with { error: '<code>' } (plus an optional
+// `detail` for logs) and an HTTP status. The `error` is a STABLE machine code,
+// never user-facing copy - app.hearthshelf.com maps it to a friendly message in
+// src/lib/errorMessages.ts. When you add a new code here, add a matching line
+// there so users see plain language instead of the raw token.
+//
+//   Auth / permission
+//     unauthorized (401) ....... presented bearer isn't a valid ABS admin/root.
+//     forbidden (403) .......... valid identity, but not allowed for this action.
+//     invalid_grant (401) ...... a control-plane grant failed verification.
+//     grant_required (400) ..... a grant-authenticated call arrived without one.
+//   Pairing / connection state
+//     not_paired (409) ......... action needs the box connected to HearthShelf first.
+//     connect_failed (401) ..... the box couldn't complete connecting to the CP.
+//     pairing_start_failed ..... the CP rejected/failed the pairing-start call.
+//     code_required (400) ...... a pairing/status call arrived without a code.
+//     server_secret_required ... recover-secret call missing the secret.
+//     bad_server_secret (400) .. the pasted connection secret didn't verify.
+//   Reachability (these say nothing about whether the box itself is up)
+//     broker_unreachable (502) . the hs.direct broker that runs the port check is down.
+//     probe_failed (502) ....... the broker ran but couldn't reach the box's port.
+//     reachability_check_failed  the CP's reachability endpoint errored.
+//     status_check_failed ...... the CP's pair-status endpoint errored.
+//     verify_failed ............ the CP's secret-verify endpoint errored.
+//     control_plane_unreachable  the box couldn't reach the control plane at all.
+//   Public address / hs.direct
+//     public_url_required (400)  an address action ran with no public URL set.
+//     address_setup_failed ..... provisioning the hs.direct address/cert failed.
+//     address_update_failed .... updating the stored public address failed.
+//   Service-account credential (invited-user provisioning)
+//     no_service_token (409) ... no service credential is set up on this box yet.
+//     mint_failed (502) ........ minting a durable service key from ABS failed.
+//     bad_service_password ..... the supplied service-account password didn't work.
+//     token_not_admin (422) .... the pasted token isn't an admin/root token.
+//     missing_input (400) ...... a credential-override call missing every option.
+//   Talking to the local ABS
+//     abs_unreachable (502) .... couldn't reach this box's own ABS API.
+//     abs_list_failed (502) .... ABS returned an error listing users.
+//     abs_rejected (502) ....... ABS rejected the requested change.
+//   Invites / misc
+//     invalid_email (400) ...... invite recipient address is malformed.
+//     invalid_body (400) ....... request body failed validation.
+//     not_found (404) .......... unknown route under /hs/hosted/*.
 
 import { json, readBody } from '../lib/http.js'
 import { getServerId, getServerName } from '../db.js'
