@@ -963,5 +963,52 @@ export async function handleHosted(req, res, url, _ctx) {
     return (json(res, cpRes.status, data), true)
   }
 
+  // Cancel a pending invite. Forwards to the control plane the same way the
+  // invite POST does; the invite's code stops working immediately.
+  if (p === '/hs/hosted/invites/revoke' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+
+    const cfg = await getHostedConfig()
+    if (!cfg?.issuer || !cfg?.serverSecret) {
+      return (
+        json(res, 409, { error: 'not_paired', detail: 'pair with app.hearthshelf.com first' }),
+        true
+      )
+    }
+
+    let body = {}
+    try {
+      body = JSON.parse(await readBody(req))
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const inviteId = typeof body.invite_id === 'string' ? body.invite_id.trim() : ''
+    if (!inviteId) return (json(res, 400, { error: 'invite_id required' }), true)
+
+    const serverId = await getServerId()
+    const cpBase = cfg.issuer.replace(/\/$/, '')
+
+    let cpRes
+    try {
+      cpRes = await fetch(`${cpBase}/servers/revoke-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_id: serverId,
+          server_secret: cfg.serverSecret,
+          invite_id: inviteId,
+        }),
+      })
+    } catch (err) {
+      return (
+        json(res, 502, { error: 'control_plane_unreachable', detail: String(err).slice(0, 160) }),
+        true
+      )
+    }
+    const data = await cpRes.json().catch(() => ({}))
+    return (json(res, cpRes.status, data), true)
+  }
+
   return (json(res, 404, { error: 'not_found' }), true)
 }
