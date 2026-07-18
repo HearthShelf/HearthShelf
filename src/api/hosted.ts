@@ -183,6 +183,11 @@ export interface InviteResult {
   ok: boolean
   email: string
   role: 'admin' | 'user'
+  /** The freshly minted XXXX-XXXX invite code, shown so an admin can share it
+   *  by hand. This screen has no pending-invites list, so it's the only view. */
+  code: string
+  /** False if the invite email couldn't be sent - share the code yourself. */
+  emailed: boolean
 }
 
 /** Invite someone by email to this server (forwarded to the control plane). */

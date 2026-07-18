@@ -20,6 +20,7 @@ import {
   HostedError,
   type PairResult,
   type PortCheckResult,
+  type InviteResult,
 } from '@/api/hosted'
 import { ServiceAccountHealth } from '@/components/hosted/ServiceAccountHealth'
 
@@ -185,10 +186,39 @@ export function ConfigHosted() {
 
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'admin' | 'user'>('user')
+  // This screen has no pending-invites list, so the code the response carries is
+  // the only chance to see it. Keep it on screen (rather than only in a toast)
+  // so it can be copied and sent by hand if the email never lands.
+  const [lastInvite, setLastInvite] = useState<InviteResult | null>(null)
+
+  /** A ready-to-paste invite: link for whoever has the app, code for whoever
+   *  doesn't. Mirrors the message on the hosted admin's users screen. */
+  async function copyInviteMessage(inv: InviteResult) {
+    const url = `https://app.hearthshelf.com/invite?token=${encodeURIComponent(inv.code)}`
+    const text = [
+      `You're invited to my HearthShelf library.`,
+      '',
+      '1. Install HearthShelf on your phone (App Store or Google Play).',
+      '2. Sign in, then enter this invite code:',
+      '',
+      `   ${inv.code}`,
+      '',
+      `Already have the app open? Just tap: ${url}`,
+      '',
+      'The code expires in 14 days.',
+    ].join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      show('Invite message copied - paste it anywhere')
+    } catch {
+      show('Could not copy - select the code and copy it manually')
+    }
+  }
   const invite = useMutation({
     mutationFn: () => inviteFromServer(email.trim(), role),
     onSuccess: (r) => {
-      show(`Invited ${r.email} - email sent`)
+      show(r.emailed ? `Invited ${r.email} - email sent` : `Invited ${r.email} - email didn't send`)
+      setLastInvite(r)
       setEmail('')
     },
     onError: (e: Error) => show(e.message || 'Invite failed'),
@@ -449,6 +479,39 @@ export function ConfigHosted() {
             >
               <Icon name="send" /> {invite.isPending ? 'Sending…' : 'Send invite'}
             </button>
+
+            {lastInvite?.code && (
+              <div className="banner info" style={{ marginTop: 'var(--s4)' }}>
+                <Icon name="mail" />
+                <div style={{ minWidth: 0 }}>
+                  <div>
+                    Invite code for <strong>{lastInvite.email}</strong>
+                    {lastInvite.emailed ? '' : " - the email didn't send, so share this yourself"}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                      fontSize: 20,
+                      letterSpacing: 2,
+                      margin: '6px 0 4px',
+                    }}
+                  >
+                    {lastInvite.code}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.85, wordBreak: 'break-all' }}>
+                    They enter this in the HearthShelf app, or open{' '}
+                    {`https://app.hearthshelf.com/invite?token=${encodeURIComponent(lastInvite.code)}`}
+                  </div>
+                  <button
+                    className="btn-sm btn-ghost"
+                    style={{ marginTop: 'var(--s2)' }}
+                    onClick={() => void copyInviteMessage(lastInvite)}
+                  >
+                    <Icon name="content_copy" /> Copy invite
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
