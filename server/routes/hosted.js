@@ -35,6 +35,7 @@ import {
 import {
   getCredentialHealth,
   remintServiceKey,
+  selfHeal,
   whoAmI,
   getServiceToken,
 } from '../lib/serviceCredential.js'
@@ -251,14 +252,18 @@ export async function handleHosted(req, res, url, _ctx) {
     return (json(res, 200, health), true)
   }
 
-  // Reset the service credential: mint a fresh DURABLE ABS API key using the
-  // caller's own (already-validated) admin session token, and store it as the
-  // admin credential. This is the primary Fix-UI action - it recovers a broken
-  // credential without the operator needing to know the service password.
+  // Reset the service credential: mint a fresh DURABLE ABS API key and store it.
+  // Prefer minting AS the service root (selfHeal, using the stored service
+  // password) over minting from the caller's admin token - ABS forbids a non-root
+  // admin from creating an API key for the root service account (403), so the
+  // caller path fails for any operator who isn't root (i.e. almost everyone). We
+  // fall back to the caller's token only if self-heal can't run (no/invalid
+  // service password), which still works when the caller IS root.
   if (p === '/hs/hosted/service-credential/reset' && req.method === 'POST') {
     const adminToken = await requireAbsAdmin(req)
     if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
-    const key = await remintServiceKey(adminToken)
+    let key = await selfHeal()
+    if (!key) key = await remintServiceKey(adminToken)
     if (!key) return (json(res, 502, { error: 'mint_failed' }), true)
     appLog.info('hosted', 'admin credential reset from the Connect UI (new durable API key minted)')
     return (json(res, 200, { ok: true, status: 'valid' }), true)

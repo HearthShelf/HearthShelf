@@ -145,7 +145,12 @@ export async function remintServiceKey(adminToken) {
 // Try to automatically recover a working credential from the stored service
 // password: log in as the service root, mint a durable API key, persist it.
 // Returns the new key or null. This is the "stale -> valid" transition.
-async function selfHeal() {
+//
+// Prefer this over minting from an operator's admin token: ABS forbids a non-root
+// admin from creating an API key on behalf of the root service account (403), so
+// minting as the caller fails for any admin who isn't root. Minting AS the
+// service root (here) always works when the service login is valid.
+export async function selfHeal() {
   const prov = await getProvisioning().catch(() => null)
   const sessionToken = await serviceLogin(prov?.servicePassword)
   if (!sessionToken || !isAdminUser(await whoAmI(sessionToken))) return null
