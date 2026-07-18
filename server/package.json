@@ -13,7 +13,7 @@
   "dependencies": {
     "@hearthshelf/core": "file:../packages/core",
     "@libsql/client": "^0.17.4",
-    "adm-zip": "^0.5.18",
+    "adm-zip": "^0.6.0",
     "jose": "^5.9.6",
     "mailparser": "^3.7.1",
     "smtp-server": "^3.13.6"
