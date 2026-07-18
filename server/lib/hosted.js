@@ -341,6 +341,17 @@ export async function getLinkedAbsUserIds(serverId) {
   return r.rows.map((row) => ({ absUserId: String(row.abs_user_id), email: String(row.email) }))
 }
 
+// Drop the cached per-user key for a removed ABS user. Without this the stale
+// key survives their deletion, and a re-invite would reuse a row pointing at an
+// ABS user id that no longer exists.
+export async function forgetHostedUserByAbsId(serverId, absUserId) {
+  await ensure()
+  await db.execute({
+    sql: `DELETE FROM hosted_user_keys WHERE server_id = ? AND abs_user_id = ?`,
+    args: [serverId, String(absUserId)],
+  })
+}
+
 // Resolve a verified grant into the standard ctx the rest of the backend uses:
 //   { absUrl, absToken, serverId, userId, username, role }
 // absToken is a per-user ABS API key (minted once, cached). username is the

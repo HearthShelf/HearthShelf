@@ -75,6 +75,7 @@ import {
   resolveHostedContext,
   verifyGrant,
   getLinkedAbsUserIds,
+  forgetHostedUserByAbsId,
 } from '../lib/hosted.js'
 import {
   getCredentialHealth,
@@ -1008,6 +1009,104 @@ export async function handleHosted(req, res, url, _ctx) {
     }
     const data = await cpRes.json().catch(() => ({}))
     return (json(res, cpRes.status, data), true)
+  }
+
+  // Remove a user from this server, both locally and hosted-side. ABS deletion
+  // alone leaves the control plane's link row intact, which keeps the server in
+  // the removed user's picker and - since links match on email - silently
+  // re-admits anyone who later recreates an ABS account with that address.
+  //
+  // Order matters: read the email BEFORE deleting (ABS is the only place that
+  // holds it), then delete, then unlink. If the control plane is unreachable the
+  // ABS user is still gone; we report unlinked:false so the UI can say the
+  // hosted link is still pending removal rather than claiming a clean sweep.
+  if (p === '/hs/hosted/remove-user' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+
+    let body = {}
+    try {
+      body = JSON.parse(await readBody(req))
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const absUserId = typeof body.abs_user_id === 'string' ? body.abs_user_id.trim() : ''
+    if (!absUserId) return (json(res, 400, { error: 'abs_user_id required' }), true)
+
+    // Look up the address before the row disappears. The caller already has it
+    // on screen, so accept it as a fallback for the case where ABS wraps the
+    // single-user response in a shape we don't recognize.
+    let email = typeof body.email === 'string' ? body.email.trim() : ''
+    try {
+      const uRes = await fetch(`${ABS_URL}/api/users/${absUserId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      })
+      if (uRes.ok) {
+        const data = await uRes.json()
+        const raw = data?.user?.email ?? data?.email
+        if (typeof raw === 'string' && raw.trim()) email = raw.trim()
+      }
+    } catch (err) {
+      appLog.warn('hosted', `remove-user: email lookup failed: ${String(err).slice(0, 120)}`)
+    }
+
+    let delRes
+    try {
+      delRes = await fetch(`${ABS_URL}/api/users/${absUserId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${adminToken}` },
+      })
+    } catch (err) {
+      return (
+        json(res, 502, { error: 'abs_unreachable', detail: String(err).slice(0, 160) }),
+        true
+      )
+    }
+    if (!delRes.ok) {
+      const detail = await delRes.text().catch(() => '')
+      return (json(res, delRes.status, { error: 'abs_delete_failed', detail: detail.slice(0, 160) }), true)
+    }
+
+    // Drop the cached per-user key so a re-invite mints a fresh one.
+    await forgetHostedUserByAbsId(await getServerId(), absUserId)
+
+    const cfg = await getHostedConfig()
+    if (!cfg?.issuer || !cfg?.serverSecret || !email) {
+      // Not paired (or no address on file): nothing to unlink hosted-side.
+      return (json(res, 200, { ok: true, deleted: true, unlinked: false, email: email || null }), true)
+    }
+
+    const serverId = await getServerId()
+    const cpBase = cfg.issuer.replace(/\/$/, '')
+    try {
+      const cpRes = await fetch(`${cpBase}/servers/unlink-from-server`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_id: serverId,
+          server_secret: cfg.serverSecret,
+          email,
+        }),
+      })
+      const data = await cpRes.json().catch(() => ({}))
+      if (!cpRes.ok) {
+        appLog.warn('hosted', `remove-user: control plane returned ${cpRes.status} for ${email}`)
+        return (json(res, 200, { ok: true, deleted: true, unlinked: false, email }), true)
+      }
+      return (
+        json(res, 200, {
+          ok: true,
+          deleted: true,
+          unlinked: true,
+          email,
+          invites_revoked: data.invites_revoked ?? 0,
+        }),
+        true
+      )
+    } catch (err) {
+      appLog.warn('hosted', `remove-user: control plane unreachable: ${String(err).slice(0, 120)}`)
+      return (json(res, 200, { ok: true, deleted: true, unlinked: false, email }), true)
+    }
   }
 
   return (json(res, 404, { error: 'not_found' }), true)
