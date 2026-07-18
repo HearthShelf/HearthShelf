@@ -33,6 +33,7 @@ import { ConfigHosted } from '@/pages/config/ConfigHosted'
 import { StatsPage } from '@/pages/StatsPage'
 import { ConfigStub } from '@/pages/config/ConfigStub'
 import { AdvancedModeProvider, AdvancedToggle } from '@/pages/config/AdvancedMode'
+import { AdminDataSourceProvider } from '@/admin/adminDataSource'
 
 interface NavEntry {
   id: string
@@ -204,6 +205,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
 
   return (
     <AdvancedModeProvider>
+     <AdminDataSourceProvider>
       <div className={'page config-wrap fade-in' + wrapMode}>
         <nav className="config-nav">
           {groups.map((g) => (
@@ -243,6 +245,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
           </div>
         )}
       </div>
+     </AdminDataSourceProvider>
     </AdvancedModeProvider>
   )
 }

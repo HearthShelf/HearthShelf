@@ -1,8 +1,18 @@
+// UNIFIED admin page (POC for the admin-surface unification).
+//
+// This file is byte-identical in the self-hosted SPA and the hosted WebApp. It
+// reaches its server ONLY through useAdminDataSource(), so it carries no
+// app-specific fetch layer: the self-hosted app binds the hook to a same-origin
+// request, the hosted app binds it to the active linked server. To share this
+// page, the two apps keep an identical copy (a future @hearthshelf/admin-ui
+// package would host the single copy); the seam that makes that possible is the
+// data-source hook, not the page.
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getHearthShelfLogs, getLoggerData, type ABSLogEntry } from '@/api/admin'
+import type { ABSLogEntry, ABSLoggerData, HSAppLogResponse } from '@hearthshelf/core'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
+import { useAdminDataSource } from '@/admin/adminDataSource'
 
 const LEVEL_LABEL: Record<number, string> = {
   0: 'TRACE',
@@ -52,14 +62,18 @@ function downloadLogs(logs: ABSLogEntry[]) {
 }
 
 export function ConfigLogs() {
+  const { request } = useAdminDataSource()
   const { data } = useQuery({
     queryKey: ['admin', 'logs'],
-    queryFn: getLoggerData,
+    queryFn: () => request<ABSLoggerData>('/api/logger-data'),
     staleTime: 10 * 1000,
   })
+  // HearthShelf's own app-log ring (backend warnings/errors surfaced in the UI).
+  // Kept in a separate query so an older server without /hs/logs still shows the
+  // ABS logs. Best-effort: a failure yields no HS lines rather than an error.
   const { data: hearthShelfData } = useQuery({
     queryKey: ['admin', 'hearthshelf-logs'],
-    queryFn: getHearthShelfLogs,
+    queryFn: () => request<HSAppLogResponse>('/hs/logs').catch(() => ({ logs: [] })),
     refetchInterval: 10 * 1000,
   })
   const [enlarged, setEnlarged] = useState(false)

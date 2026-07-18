@@ -215,20 +215,9 @@ export function getLibraryStats(libraryId: string): Promise<ABSLibraryStats> {
 }
 
 // --- Logs ---
-export interface ABSLogEntry {
-  timestamp: string
-  source: string
-  message: string
-  level?: number
-}
-export function getLoggerData(): Promise<{ currentDailyLogs: ABSLogEntry[] }> {
-  return absRequest<{ currentDailyLogs: ABSLogEntry[] }>('/api/logger-data')
-}
-export async function getHearthShelfLogs(): Promise<{ logs: ABSLogEntry[] }> {
-  const res = await fetch('/hs/logs', { headers: authHeader() })
-  if (!res.ok) throw new Error(`HearthShelf logs failed (${res.status})`)
-  return res.json() as Promise<{ logs: ABSLogEntry[] }>
-}
+// The log types + fetching now live in core + the unified ConfigLogs page
+// (via useAdminDataSource). Re-export the shared type for any remaining importer.
+export type { ABSLogEntry } from '@hearthshelf/core'
 
 // --- Genres / tags (metadata utils) ---
 export function getAllTags(): Promise<{ tags: string[] }> {
