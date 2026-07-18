@@ -467,10 +467,15 @@ export async function handleHosted(req, res, url, _ctx) {
     const hsd = await getHsDirectState().catch(() => null)
     const port = portFromUrl(hsd?.publicUrl) ?? portFromUrl(PUBLIC_URL) ?? PUBLIC_PORT
     try {
+      // Time-boxed so a down/unresponsive broker fails fast (a bare fetch would
+      // hang on the OS TCP timeout, ~minutes, holding the request open). 8s is
+      // plenty for a live probe; past that we report broker_unreachable and the
+      // UI shows "check unavailable" without blocking.
       const probeRes = await fetch(`${BROKER_URL}/probe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ port }),
+        signal: AbortSignal.timeout(8000),
       })
       const data = await probeRes.json().catch(() => ({}))
       if (!probeRes.ok)

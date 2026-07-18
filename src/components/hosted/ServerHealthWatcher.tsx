@@ -31,18 +31,12 @@ export function ServerHealthWatcher() {
     staleTime: 30 * 1000,
   })
 
-  // __DEV_FORCE__ (temporary): visualize the broken alert without a live backend.
-  const DEV_FORCE = true
-  const effective = DEV_FORCE
-    ? ({ state: 'broken', paired: true, hasCredential: true, canSelfHeal: false } as const)
-    : health
-  if (!DEV_FORCE && (!isAdmin || !health || health.state !== 'broken' || snoozed)) return null
-  if (snoozed) return null
+  if (!isAdmin || !health || health.state !== 'broken' || snoozed) return null
 
   return (
     <ServerHealthAlert
-      health={effective as typeof health & object}
-      serverName={runtime?.serverName || 'Jeremy’s Library'}
+      health={health}
+      serverName={runtime?.serverName}
       onReset={resetServiceCredential}
       onGoToConnect={() => {
         setSnoozed(true)

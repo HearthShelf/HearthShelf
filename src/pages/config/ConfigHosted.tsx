@@ -17,6 +17,7 @@ import {
   getServiceHealth,
   resetServiceCredential,
   overrideServiceCredential,
+  HostedError,
   type PairResult,
   type PortCheckResult,
 } from '@/api/hosted'
@@ -108,13 +109,33 @@ export function ConfigHosted() {
   })
 
   // Port reachability via the hs.direct VPS - it connects back to this box's
-  // public IP on the port we're exposed on. Works even before the cert is ready
-  // (no hostname needed), unlike the old control-plane hostname probe. Advisory.
+  // public IP on the port we're exposed on. Advisory. Two failure modes must not
+  // be conflated: an unreachable box (open:false -> forward a port) versus the
+  // BROKER being down (broker_unreachable/probe_failed -> the check can't run and
+  // says nothing about the box, which is provably connected). We only toast for a
+  // check the user explicitly clicked; the auto-run stays silent, and a broker
+  // outage is reported as "check unavailable", never as "unreachable".
   const [portResult, setPortResult] = useState<PortCheckResult | null>(null)
+  const [checkUnavailable, setCheckUnavailable] = useState(false)
   const testPort = useMutation({
-    mutationFn: () => checkPort(),
-    onSuccess: (r) => setPortResult(r),
-    onError: () => show('Could not run the connection check'),
+    mutationFn: (_source: 'auto' | 'manual') => checkPort(),
+    onSuccess: (r) => {
+      setPortResult(r)
+      setCheckUnavailable(false)
+    },
+    onError: (err, source) => {
+      const code = err instanceof HostedError ? err.code : ''
+      const brokerDown =
+        code === 'broker_unreachable' || code === 'probe_failed' || code === 'network'
+      if (brokerDown) setCheckUnavailable(true)
+      if (source === 'manual') {
+        show(
+          brokerDown
+            ? 'The reachability service is offline right now - this does not affect your server.'
+            : 'Could not run the connection check',
+        )
+      }
+    },
   })
 
   // Auto-run the connection check on page load once the server is paired, so the
@@ -126,7 +147,7 @@ export function ConfigHosted() {
   useEffect(() => {
     if (!status?.paired) return
     if (portChecked || testPort.isPending) return
-    testPort.mutate()
+    testPort.mutate('auto')
     // testPort is a stable mutation object; intentionally not a dep.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.paired, portChecked])
@@ -359,7 +380,7 @@ export function ConfigHosted() {
                 <button
                   className="btn-sm btn-ghost"
                   disabled={testPort.isPending}
-                  onClick={() => testPort.mutate()}
+                  onClick={() => testPort.mutate('manual')}
                 >
                   <Icon name="travel_explore" />
                   {testPort.isPending ? 'Checking…' : 'Check connection'}
@@ -367,6 +388,12 @@ export function ConfigHosted() {
                 {portResult?.open && (
                   <span className="sr-d" style={{ color: 'var(--primary)' }}>
                     Reachable on port {portResult.port}.
+                  </span>
+                )}
+                {!portResult && checkUnavailable && (
+                  <span className="sr-d" style={{ color: 'var(--text-muted)' }}>
+                    Can't run this check right now - the reachability service is offline. Your server
+                    is still connected, so this is just the test being unavailable.
                   </span>
                 )}
                 {portResult && !portResult.open && (
