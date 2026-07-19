@@ -36,7 +36,7 @@ export function AudioEngine() {
   const currentTime = usePlayerStore((s) => s.currentTime)
   const { advance } = useQueueAdvance()
 
-  useProgress()
+  const { syncEnded } = useProgress()
 
   // Play-cooldown refs. A newly-loaded book arms a cooldown (unless it came from
   // a book-end auto-advance); once it accrues enough real playback, the Auto
@@ -169,7 +169,9 @@ export function AudioEngine() {
       }}
       onPlay={() => setPlaying(true)}
       onPause={() => setPlaying(false)}
-      onEnded={() => void advance()}
+      // Pin the final position at the book's full duration before advancing, so
+      // the book we're leaving can't be left a few seconds short of finished.
+      onEnded={() => void syncEnded().then(() => advance())}
     />
   )
 }

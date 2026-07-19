@@ -83,6 +83,11 @@ export interface SettingsState {
   skipBack: number
   skipBackCustom: number
   chapterBarrier: boolean
+  // When a book counts as finished. See @hearthshelf/core lib/completion.ts for
+  // how these combine; 0 disables the credits + percent rules.
+  creditsChapterMaxSec: number
+  chapterEndGraceSec: number
+  finishedPercent: number
   // Hide the docked player bar. Off (default) keeps it; on hides it and the full
   // player is reached from the player nav / a book's Play button.
   hideMiniPlayer: boolean
@@ -187,6 +192,9 @@ export const useSettingsStore = create<SettingsState>()(
       skipBack: 15,
       skipBackCustom: 20,
       chapterBarrier: true,
+      creditsChapterMaxSec: 60,
+      chapterEndGraceSec: 15,
+      finishedPercent: 0,
       hideMiniPlayer: false,
 
       // Queue

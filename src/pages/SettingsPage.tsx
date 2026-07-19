@@ -574,6 +574,46 @@ export function SettingsPage() {
                   }
                 />
                 <SetRow
+                  title="Count end credits as done"
+                  desc="If the last chapter is this short, reaching it finishes the book. Stops end credits and outros from leaving a book stuck at 100%. Set 0 to turn off."
+                  control={
+                    <NumPick
+                      value={s.creditsChapterMaxSec}
+                      onChange={(v) => put('creditsChapterMaxSec', v)}
+                      presets={[30, 60, 120]}
+                      min={0}
+                      max={600}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Finish grace"
+                  desc="Stopping this close to the end of the last real chapter still counts as finishing the book."
+                  control={
+                    <NumPick
+                      value={s.chapterEndGraceSec}
+                      onChange={(v) => put('chapterEndGraceSec', v)}
+                      presets={[5, 15, 30]}
+                      min={0}
+                      max={300}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Finished at percent"
+                  desc="Backup rule for books with no chapter list: mark them done past this much. The chapter rules above are more accurate, so this stays off unless you set it."
+                  control={
+                    <NumPick
+                      value={s.finishedPercent}
+                      onChange={(v) => put('finishedPercent', v)}
+                      presets={[0, 90, 95]}
+                      min={0}
+                      max={100}
+                      unit="%"
+                    />
+                  }
+                />
+                <SetRow
                   title="Hide player bar"
                   desc="Turn off the docked bar that shows what's playing. Open the full player from the nav or a book's Play button."
                   control={
