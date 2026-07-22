@@ -145,6 +145,14 @@ export async function buildPayload(telemetryId) {
 
   return {
     telemetry_id: telemetryId,
+    // Unified install fields, shared with the mobile app so both appear on the
+    // public stats dashboard. A self-hosted server is Docker today; the future
+    // native Windows build will send platform:'windows-service'. app_version is
+    // the same string as hs_version so the cross-platform version chart includes
+    // servers. See @hearthshelf/core HSInstallReport.
+    platform: 'docker',
+    device_type: 'server',
+    app_version: HS_VERSION,
     hs_version: HS_VERSION,
     abs_version: abs.absVersion,
     mode: getMode(),
