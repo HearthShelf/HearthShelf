@@ -77,10 +77,32 @@ jobs:
         with:
           fetch-depth: 0 # full history so the changelog can diff against the prior tag
 
-      - name: Generate changelog
-        id: changelog
+      # Normalize the tag into the version string the website stores, using the
+      # same rules as the other HearthShelf products so pre-release labels land
+      # in the right channel: v1.2.3-beta.1 -> 1.2.3-Beta1.
+      - name: Resolve release version
+        id: resolve
         run: |
-          node scripts/changelog.mjs > RELEASE_NOTES.md
+          RAW="${GITHUB_REF_NAME#v}"
+          VER=$(printf '%s' "$RAW" \
+            | sed -E 's/-(beta|b)\.?([0-9]+)/-Beta\2/I' \
+            | sed -E 's/-(alpha|a)\.?([0-9]+)/-Alpha\2/I' \
+            | sed -E 's/-rc\.?([0-9]+)/-RC\1/I')
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $VER"
+
+      # Release notes come from the SAME structured generator that feeds the
+      # website, so the GitHub Release and hearthshelf.com never disagree. The
+      # Docker pull blocks are appended after the generated sections.
+      - name: Generate changelog
+        env:
+          PRODUCT: HearthShelf-Server
+          RELEASE_VERSION: ${{ steps.resolve.outputs.version }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ github.repository }}
+        run: |
+          chmod +x .github/scripts/changelog-items.sh .github/scripts/render-changelog.sh
+          .github/scripts/render-changelog.sh RELEASE_NOTES.md
           {
             echo "## 🐳 Docker images"
             echo ""
@@ -94,9 +116,6 @@ jobs:
             echo "docker pull ${REGISTRY}/${IMAGE_NAME}-aio:${GITHUB_REF_NAME#v}"
             echo '```'
           } >> RELEASE_NOTES.md
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-          IMAGE_NAME: ${{ github.repository }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -104,3 +123,18 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Publish the structured changelog to hearthshelf.com. Runs after the
+      # Release so a website/API outage can't block shipping the release itself.
+      # The upload is an idempotent upsert keyed on (product, version), so a
+      # re-run of this job is safe.
+      - name: Publish changelog to hearthshelf.com
+        env:
+          CHANGELOG_API_KEY: ${{ secrets.CHANGELOG_API_KEY }}
+          CHANGELOG_API_URL: https://hearthshelf.com/api/v1/changelogs
+          PRODUCT: HearthShelf-Server
+          RELEASE_VERSION: ${{ steps.resolve.outputs.version }}
+          DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+        run: |
+          chmod +x .github/scripts/changelog-items.sh .github/scripts/upload-changelog.sh .github/scripts/render-changelog.sh
+          .github/scripts/upload-changelog.sh

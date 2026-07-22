@@ -1,0 +1,4 @@
+# CI shell scripts must stay LF: they run on ubuntu-latest, and a CRLF shebang
+# fails there with "bad interpreter: /usr/bin/env bash^M". Windows clones have
+# core.autocrlf=true, which would otherwise rewrite them on checkout.
+*.sh text eol=lf
