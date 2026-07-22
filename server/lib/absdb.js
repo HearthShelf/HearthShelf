@@ -398,9 +398,12 @@ export async function getLeaderboard({ window = 'all' } = {}) {
         e.secondsListened = Number(row.secondsListened) || 0
       }
 
+      // Rank by time listened in the window, with books finished as the
+      // tiebreak. Time is what the row's headline number shows, so ranking on
+      // anything else reads as broken (a 16h user sitting below a 52m one).
       const entries = [...byUser.values()]
       entries.sort(
-        (a, b) => b.booksFinished - a.booksFinished || b.secondsListened - a.secondsListened,
+        (a, b) => b.secondsListened - a.secondsListened || b.booksFinished - a.booksFinished,
       )
       return entries.slice(0, LEADERBOARD_INTERNAL_CAP)
     } catch {

@@ -206,7 +206,7 @@ export async function handleSocial(req, res, url, ctx) {
     // Privacy-filter BEFORE truncating: keep users who share (explicit choice,
     // else the admin default). getLeaderboard returns the full ranked set, so
     // opted-out users don't consume top-N slots. Ranks are assigned over this
-    // filtered ordering (rows already sorted by books then hours). The caller
+    // filtered ordering (rows already sorted by hours then books). The caller
     // always sees their own row (even if hidden from others), flagged isMe.
     const ranked = rows
       .filter((r) => shares(r.userId, explicit, community.defaultShare, ctx.userId))
