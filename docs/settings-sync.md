@@ -5,14 +5,16 @@
 > defining the DB struct and sync contract so web, hosted, and mobile all
 > read/write one thing.
 >
-> **Status.** Backend + shared definition are built: the `@hearthshelf/core`
-> settings catalog (`src/lib/settings.ts`), the `user_settings` + `connections`
-> tables with the one-time blob fan-out (`server/db.js`), and the per-key
-> `/hs/settings` handler with server-side validation (`server/routes/settings.js`,
-> `server/settings.js`, `server/connections.js`, `server/lib/settingsCatalog.js`).
-> **Not yet built:** wiring the web and WebApp clients onto the catalog + the
-> per-key sync (they still use the whole-blob store), and the per-device
-> "Use shared settings" UI.
+> **Status.** Built and wired end to end. Backend + shared definition: the
+> `@hearthshelf/core` settings catalog (`src/lib/settings.ts`), the
+> `user_settings` + `connections` tables with the one-time blob fan-out
+> (`server/db.js`), and the per-key `/hs/settings` handler with server-side
+> validation (`server/routes/settings.js`, `server/settings.js`,
+> `server/connections.js`, `server/lib/settingsCatalog.js`). All three clients -
+> the self-hosted SPA (`src/store/settingsStore.ts` + `useSettingsSync.ts`), the
+> WebApp, and mobile (`src/store/settings.ts` + `src/player/queueSync.ts`) - read
+> and write the catalog through the per-key sync. **Not yet built:** the
+> per-device "Use shared settings" UI on web (mobile has it under More).
 
 ## Why this exists
 
@@ -160,6 +162,25 @@ CREATE TABLE IF NOT EXISTS connections (
 - Keyed one-per-user for now; if multi-bookshelf-per-user is ever needed, add a
   `conn_id` to the primary key - the table is shaped to grow into that.
 
+### A new install inherits the last device's device-scoped settings
+
+`device_id` is minted per install (a random uuid in the client's local storage),
+so reinstalling an app - or moving to a new phone - arrives with an id the server
+has never seen, and every device-scoped row the user ever saved is orphaned under
+the old one. Left alone, haptics, the player button layout, reader typography and
+the rest silently come back at their defaults even though the server still holds
+them, which reads as "my settings reset."
+
+So a `GET /hs/settings?deviceId=X` where `X` has **no rows of its own** seeds
+itself from the user's most recently updated device: those rows are copied under
+`X` (keeping the source `updated_at`, so per-key LWW still resolves correctly
+against a device that pushes later) and returned. It can only ever run once per
+device, because the copy gives that device rows. `useSharedSettings` is
+deliberately **not** inherited - a fresh install adopting a `false` from some
+other device would ignore the account settings it just signed in to pull, which
+is the very failure the seeding exists to prevent. See `seedNewDevice` in
+`server/settings.js`.
+
 ### Where the per-device opt-out lives
 
 The **"Use shared settings"** toggle is itself a device-scoped setting
@@ -183,6 +204,18 @@ granularity.
   row only when the incoming `updatedAt` is `>=` the stored one, and returns the
   authoritative post-merge values for anything it rejected (so a stale device
   adopts the newer value instead of retrying).
+- **A change is pending until the server confirms it.** Each client keeps two
+  per-key timestamp maps: `meta` (when the key was edited here) and `pushed`
+  (what the server has acknowledged storing). Their difference *is* the outgoing
+  queue - a key is retired only by an `applied` in a PUT response, or by adopting
+  a server value for it. Both maps are persisted next to the values, so an edit
+  made while the backend was unreachable still pushes on a later launch rather
+  than being silently dropped, and a pull flushes whatever is still pending.
+
+  This replaced a snapshot-diff that was re-based from local state after every
+  pull: an edit still inside the 1.2s debounce, or one whose push had failed, got
+  diffed away and never reached the server. On mobile - which kept no local copy
+  at all - that edit then disappeared entirely at the next launch.
 - **Device opt-out**: when `useSharedSettings` is `false` on a device, that device
   skips the account-scope apply on pull. Device-scope settings still sync (they're
   backup, not shared).
@@ -234,6 +267,19 @@ The catalog is the reconciliation point for the WebApp's divergent keys: setting
 that are truly WebApp-only (car mode) are catalogued as `scope: 'device'` so they
 have a home without polluting other platforms; genuinely shared ones (`coverStyle`
 etc.) get one agreed default.
+
+**Everything a client can change is catalogued** - including keys only one
+platform renders (mobile's `floatingNav`, `shareInstallStats`; the WebApp's car
+mode) and the ebook reader's typography (`readerTheme`, `readerFont`, ... , mapped
+from the reader's own field names by `READER_SETTING_KEYS`). A platform that
+doesn't know a key simply never reads it, but the value is still stored and
+restored, which is the whole point: an uncatalogued preference can never follow a
+user to a new device. When adding a setting, add it to the catalog in the same
+change - a client-only key is a setting that will quietly reset on reinstall.
+
+The one deliberate exception is the WebApp's `carPlayerRect`: viewport geometry
+for a card on one screen, not a preference, and restoring it onto a different
+display would be wrong.
 
 ## Validation (first pass, not deferred)
 

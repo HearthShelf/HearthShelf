@@ -16,9 +16,68 @@ function ensure() {
   return ready
 }
 
+// Device-scoped keys a brand-new install must NOT inherit (see seedNewDevice).
+// useSharedSettings is the per-device opt-out: inheriting a `false` would make a
+// fresh phone ignore the account settings it just signed in to pull, which reads
+// as "my settings reset" - the exact failure this seeding exists to prevent.
+const NO_INHERIT_KEYS = new Set(['useSharedSettings'])
+
+// Copy the user's most recently updated device's settings onto a device id the
+// server has never seen, and return them.
+//
+// Why: deviceId is minted per install (a random uuid in the client's local
+// storage), so reinstalling the app - or moving to a new phone - arrives with a
+// fresh id, and every device-scoped row the user ever saved is orphaned under the
+// old one. Without this, haptics, the player button layout, reader typography and
+// the rest silently come back at their defaults even though the server still
+// holds them. Seeding writes the rows under the new id (preserving the source
+// updated_at, so per-key LWW still resolves correctly against any device that
+// pushes later) and only ever runs while the new device has no rows of its own.
+async function seedNewDevice(serverId, userId, deviceId) {
+  const newest = await db.execute({
+    sql: `SELECT device_id FROM user_settings
+          WHERE server_id = ? AND user_id = ? AND scope = 'device' AND device_id <> ''
+          GROUP BY device_id
+          ORDER BY MAX(updated_at) DESC
+          LIMIT 1`,
+    args: [serverId, userId],
+  })
+  const from = newest.rows[0] ? String(newest.rows[0].device_id) : ''
+  if (!from || from === deviceId) return {}
+
+  const src = await db.execute({
+    sql: `SELECT key, value_json, updated_at FROM user_settings
+          WHERE server_id = ? AND user_id = ? AND scope = 'device' AND device_id = ?`,
+    args: [serverId, userId, from],
+  })
+  const seeded = {}
+  for (const row of src.rows) {
+    const key = String(row.key)
+    if (NO_INHERIT_KEYS.has(key)) continue
+    let value = null
+    try {
+      value = JSON.parse(row.value_json)
+    } catch {
+      continue
+    }
+    // DO NOTHING, not DO UPDATE: if the device wrote this key in a racing PUT
+    // between our read and here, its own value is the newer truth.
+    await db.execute({
+      sql: `INSERT INTO user_settings (server_id, user_id, scope, device_id, key, value_json, updated_at)
+            VALUES (?, ?, 'device', ?, ?, ?, ?)
+            ON CONFLICT (server_id, user_id, scope, device_id, key) DO NOTHING`,
+      args: [serverId, userId, deviceId, key, String(row.value_json), Number(row.updated_at)],
+    })
+    seeded[key] = { value, updatedAt: Number(row.updated_at) }
+  }
+  return seeded
+}
+
 // All of a user's settings, split by scope. Account rows always apply; device
 // rows are returned only for the given deviceId (or none when deviceId is
-// falsy). Each value is { value, updatedAt }.
+// falsy). Each value is { value, updatedAt }. A deviceId with no rows of its own
+// inherits the user's most recent device (see seedNewDevice) so a reinstall or a
+// new phone starts from the setup they already had.
 export async function getSettings(serverId, userId, deviceId = '') {
   await ensure()
   const r = await db.execute({
@@ -38,6 +97,14 @@ export async function getSettings(serverId, userId, deviceId = '') {
     }
     const bucket = row.scope === 'device' ? device : account
     bucket[String(row.key)] = { value, updatedAt: Number(row.updated_at) }
+  }
+  if (deviceId && !Object.keys(device).length) {
+    try {
+      Object.assign(device, await seedNewDevice(serverId, userId, deviceId))
+    } catch {
+      // Best-effort: a failed seed must never break the pull - the device just
+      // starts at catalog defaults, as it did before.
+    }
   }
   return { account, device }
 }

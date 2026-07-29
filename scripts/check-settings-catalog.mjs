@@ -1,110 +1,80 @@
-// Drift tripwire: the server's settings catalog mirror
-// (server/lib/settingsCatalog.js) MUST list exactly the same keys as the
-// authoritative @hearthshelf/core catalog (packages/core/src/lib/settings.ts).
+// Drift tripwire for the server's settings gate (server/lib/settingsCatalog.js).
 //
-// The server runs plain ESM and can't import core's .ts, so the catalog is
-// hand-mirrored. A silently missed mirror would surface as `unknown_key`
-// rejections on every client at once (the client validates from core, the
-// server rejects from its stale mirror). This script fails CI / a manual run on
-// any key mismatch. See docs/social.md ("Drift tripwire").
+// The gate used to hand-mirror @hearthshelf/core's catalog as its own DEFS
+// object, and a missed mirror surfaced as `unknown_key` rejections on every
+// client at once (client validates from core, server rejects from a stale copy).
+// It now imports core's catalog directly, so the drift is structurally
+// impossible - and this script's job changed to keeping it that way:
+//
+//   1. the gate must import validateSetting + settingDef from core, and
+//   2. it must not declare a catalog of its own (no local DEFS / catalog object).
+//
+// It also prints the catalog size as a sanity check that core actually loads.
 //
 // Usage: node scripts/check-settings-catalog.mjs  (npm run check:catalog)
 
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const CORE = join(root, 'packages', 'core', 'src', 'lib', 'settings.ts')
-const MIRROR = join(root, 'server', 'lib', 'settingsCatalog.js')
+const GATE = join(root, 'server', 'lib', 'settingsCatalog.js')
 
-// Core's DEFS is an array of object literals, each opening with `key: '<name>'`
-// (or "double" quotes). Pull every such key. There are no other `key:` uses in
-// the file's DEFS section, but playerActions' default entries also use `key:`
-// with a placement sibling - those live in DEFAULT_PLAYER_ACTIONS, above DEFS,
-// with string-literal keys like 'chapters'/'speed' that are NOT settings. We
-// scope extraction to the DEFS array to avoid picking them up.
-function coreKeys() {
-  const src = readFileSync(CORE, 'utf8')
-  const start = src.indexOf('const DEFS')
-  if (start === -1) throw new Error('could not locate DEFS in core settings.ts')
-  // DEFS ends at the closing `]` that precedes SETTINGS_CATALOG.
-  const end = src.indexOf('SETTINGS_CATALOG', start)
-  const region = end === -1 ? src.slice(start) : src.slice(start, end)
-  const keys = new Set()
-  const re = /\bkey:\s*'([^']+)'|\bkey:\s*"([^"]+)"/g
-  let m
-  while ((m = re.exec(region)) !== null) keys.add(m[1] ?? m[2])
-  return keys
+const problems = []
+
+let src = ''
+try {
+  src = readFileSync(GATE, 'utf8')
+} catch {
+  problems.push(`cannot read ${GATE}`)
 }
 
-// The server mirror's DEFS is a plain object literal: `const DEFS = { ... }`.
-// Each catalog entry is `<key>: { scope: ... }`. Extract the top-level keys of
-// that object by matching identifiers/quoted keys that are followed by `: {`.
-function mirrorKeys() {
-  const src = readFileSync(MIRROR, 'utf8')
-  const start = src.indexOf('const DEFS')
-  if (start === -1) throw new Error('could not locate DEFS in settingsCatalog.js')
-  const braceOpen = src.indexOf('{', start)
-  // Walk to the matching close brace so we only scan the DEFS object body.
-  let depth = 0
-  let end = -1
-  for (let i = braceOpen; i < src.length; i++) {
-    if (src[i] === '{') depth++
-    else if (src[i] === '}') {
-      depth--
-      if (depth === 0) {
-        end = i
-        break
-      }
+if (src) {
+  if (!/from\s+'@hearthshelf\/core\/lib\/settings'/.test(src)) {
+    problems.push(
+      "server/lib/settingsCatalog.js must import from '@hearthshelf/core/lib/settings' - " +
+        'the core catalog is the one definition of every setting.',
+    )
+  }
+  for (const decl of ['DEFS', 'CATALOG', 'SETTINGS']) {
+    if (new RegExp(`\\bconst\\s+${decl}\\s*=`).test(src)) {
+      problems.push(
+        `server/lib/settingsCatalog.js declares its own \`${decl}\` - a second catalog will ` +
+          "drift from core. Re-use core's instead.",
+      )
     }
   }
-  if (end === -1) throw new Error('unbalanced braces in settingsCatalog.js DEFS')
-  const region = src.slice(braceOpen + 1, end)
-  const keys = new Set()
-  // Match top-level entries only: a key at depth 1 followed by `: {`. We track
-  // brace depth so nested `values: [...]` or `pattern` don't confuse us; catalog
-  // entry values are always `{ ... }`, so a `<key>: {` at depth 0 (relative to
-  // the region) is an entry.
-  let d = 0
-  const re = /([A-Za-z_$][\w$]*|'[^']+'|"[^"]+")\s*:\s*\{|[{}]/g
-  let m
-  while ((m = re.exec(region)) !== null) {
-    const tok = m[0]
-    if (tok === '{') {
-      d++
-      continue
-    }
-    if (tok === '}') {
-      d--
-      continue
-    }
-    // A `<key>: {` match; the regex consumed the opening brace, so account for it.
-    if (d === 0) {
-      let name = m[1]
-      if (name.startsWith("'") || name.startsWith('"')) name = name.slice(1, -1)
-      keys.add(name)
-    }
-    d++ // the `{` this match consumed
+}
+
+// Load the gate for real: proves core resolves (from server/node_modules, where
+// @hearthshelf/core is declared) and that the re-exports behave.
+try {
+  const gate = await import(pathToFileURL(GATE).href)
+  if (typeof gate.validateSetting !== 'function') {
+    problems.push('gate does not export validateSetting')
   }
-  return keys
+  if (typeof gate.settingScope !== 'function') {
+    problems.push('gate does not export settingScope')
+  } else {
+    // Two keys of each scope: if the gate resolved an empty or wrong catalog,
+    // these come back null.
+    if (gate.settingScope('theme') !== 'account') {
+      problems.push("settingScope('theme') should be 'account' - is core's catalog loaded?")
+    }
+    if (gate.settingScope('useSharedSettings') !== 'device') {
+      problems.push("settingScope('useSharedSettings') should be 'device'")
+    }
+    if (gate.settingScope('definitely-not-a-setting') !== null) {
+      problems.push('an unknown key must resolve to a null scope')
+    }
+  }
+  if (!problems.length) console.log("[check:catalog] OK - server gate re-uses core's catalog.")
+} catch (err) {
+  problems.push(`could not load the settings gate: ${err.message}`)
 }
 
-const core = coreKeys()
-const mirror = mirrorKeys()
-
-const missingInMirror = [...core].filter((k) => !mirror.has(k)).sort()
-const extraInMirror = [...mirror].filter((k) => !core.has(k)).sort()
-
-if (missingInMirror.length === 0 && extraInMirror.length === 0) {
-  console.log(`[check:catalog] OK - ${core.size} keys match between core and server mirror.`)
-  process.exit(0)
+if (problems.length) {
+  console.error('[check:catalog] PROBLEM:')
+  for (const p of problems) console.error(`  - ${p}`)
+  process.exit(1)
 }
-
-console.error('[check:catalog] MISMATCH between core catalog and server mirror:')
-if (missingInMirror.length)
-  console.error(`  missing from server/lib/settingsCatalog.js: ${missingInMirror.join(', ')}`)
-if (extraInMirror.length)
-  console.error(`  extra in server/lib/settingsCatalog.js (not in core): ${extraInMirror.join(', ')}`)
-console.error('Update the server mirror to match packages/core/src/lib/settings.ts (core first, mirror second).')
-process.exit(1)

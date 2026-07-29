@@ -44,7 +44,7 @@ change is a one-file fix.
   the instance-wide **default** in `community_config` applies. Admins set that
   default under Config > Community (seeded from `COMMUNITY_DEFAULT_SHARE`, default
   on = opt-out). Changing it is retroactive for users who never chose, but never
-  overrides an explicit choice. All of this reads `app_settings` /
+  overrides an explicit choice. All of this reads `user_settings` /
   `community_config` from *our* database - no write ever reaches ABS.
 
 ## Schema
@@ -53,7 +53,9 @@ Created on boot via `CREATE TABLE IF NOT EXISTS` (see `server/db.js`):
 
 | Table | Holds |
 | --- | --- |
-| `app_settings` | per-user app settings (theme, accent, sleep prefs, queue mode + auto-rules…), one JSON blob per ABS user id - drives cross-device sync |
+| `user_settings` | per-user app settings (theme, accent, sleep prefs, queue mode + auto-rules, reader typography…), **one row per key** with its own `updated_at`, scoped `account` (syncs everywhere) or `device` (per-install backup) - drives cross-device sync, see `docs/settings-sync.md` |
+| `app_settings` | the superseded whole-blob settings table, left in place after the one-time fan-out into `user_settings` so a rollback is possible - nothing writes it |
+| `connections` | the syncable bookshelf connection per user (ABS url + label; the per-user ABS key is server-side only and never sent to a client) |
 | `listening_queue` | the user's up-next queue: the active item list (rebuilt in Auto/Playlist), the durable hand-queued `manual` list (drives Manual mode + the Auto `manual` rule), and playlist id - one row per ABS user id, see `docs/queue.md` |
 | `ai_config` | the editable QuestGiver AI config (provider, model, key, rate limit, QuestGiver + Discover on/off) - single row; any `QG_*` / `DISCOVER_ENABLED` env var overrides its field |
 | `integrations_config` | editable connections for external services (ReadMeABook url+token, Audplexus url+key, Audible region) - single row; any `RMAB_*` / `AUDPLEXUS_*` / `AUDIBLE_REGION` env var overrides its field |
