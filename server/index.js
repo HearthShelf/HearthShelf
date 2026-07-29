@@ -65,6 +65,7 @@ import { provisionAio } from './lib/provision-aio.js'
 import { hsDirectOnStartup } from './lib/hsdirect.js'
 import { emailRelayOnStartup } from './lib/emailRelay.js'
 import { startVersionReporting } from './lib/versionReport.js'
+import { startLanReporting } from './lib/lanReport.js'
 import { startTelemetryReporting } from './lib/telemetry.js'
 import { handleJobs } from './routes/jobs.js'
 import { handleBackups } from './routes/backups.js'
@@ -223,6 +224,12 @@ initDb()
     // weekly) so the hosted app can prompt the admin to update when it's behind.
     // Runs for every paired box regardless of mode. Background; never delays serving.
     void startVersionReporting()
+    // If paired, register this box's LAN address so a phone on the same Wi-Fi can
+    // still reach it when the box's own internet is down. Re-checked periodically
+    // because DHCP can move the address without a restart, and a stale private IP
+    // is actively harmful (clients would dial another device). Background; never
+    // delays serving, and a no-op on hosts with no LAN (a cloud VPS).
+    startLanReporting()
     // If the admin opted in, send anonymous usage stats (startup + weekly). No-op
     // when opted out (the default). Background; never delays serving.
     void startTelemetryReporting()

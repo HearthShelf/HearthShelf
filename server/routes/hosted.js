@@ -74,9 +74,15 @@ import {
   clearHostedConfig,
   resolveHostedContext,
   verifyGrant,
+  verifyGrantDetailed,
+  isTransientGrantError,
   getLinkedAbsUserIds,
   forgetHostedUserByAbsId,
 } from '../lib/hosted.js'
+import { primeJwksCache, clearJwksCache } from '../lib/jwksCache.js'
+import { clearRevocationState } from '../lib/keyRevocation.js'
+import { getIdentityPublicKey, signIdentityChallenge } from '../lib/serverIdentity.js'
+import { reportLanAddress } from '../lib/lanReport.js'
 import {
   getCredentialHealth,
   remintServiceKey,
@@ -178,12 +184,68 @@ export async function handleHosted(req, res, url, _ctx) {
       return (json(res, 409, { error: 'not_paired' }), true)
     }
 
+    // Verify FIRST and separately, so we can distinguish "this grant is bad"
+    // (401 - the client should re-authenticate) from "we currently cannot check
+    // grants" (503 - the client should retry). Collapsing both into 401 is what
+    // made the cold-boot outage look like a mass sign-in rejection: a restart
+    // while the control plane was unreachable left us with no keys, and every
+    // request answered 401 as though every grant were forged.
+    const verdict = await verifyGrantDetailed(grant)
+    if (!verdict.ok) {
+      if (isTransientGrantError(verdict.reason)) {
+        return (json(res, 503, { error: 'verification_unavailable', reason: verdict.reason }), true)
+      }
+      return (json(res, 401, { error: 'connect_failed', reason: verdict.reason }), true)
+    }
+
     const ctx = await resolveHostedContext(grant)
     if (!ctx?.absToken) {
-      // Bad/expired grant, or the user couldn't be matched/provisioned + keyed.
-      return (json(res, 401, { error: 'connect_failed' }), true)
+      // The grant was good, so this is a user-resolution failure: no ABS match and
+      // provisioning failed, or the admin credential is broken.
+      return (json(res, 401, { error: 'connect_failed', reason: 'user_unresolved' }), true)
     }
     return (json(res, 200, { token: ctx.absToken, userId: ctx.userId, role: ctx.role }), true)
+  }
+
+  // Prove to a client that this origin really is the server it believes it is,
+  // BEFORE the client sends us a grant.
+  //
+  // WHY: a grant is a bearer credential carrying the user's verified email, Clerk
+  // subject and role, and any HearthShelf server receiving one can exchange it for
+  // a long-lived per-user ABS key. Over the public internet TLS authenticates us.
+  // On a LAN it cannot - a private IP has no usable CA cert, and any device on the
+  // network can answer at that address (especially once DHCP reassigns the lease
+  // the control plane has on file). So the client challenges us with a fresh nonce
+  // and we sign it with our own Ed25519 identity key, whose public half the client
+  // fetched from the control plane over TLS. An impostor cannot produce that
+  // signature, and the client walks away WITHOUT having sent a grant.
+  //
+  // Unauthenticated on purpose: it discloses nothing (a signature over the
+  // caller's own nonce plus our already-public server_id) and must work before any
+  // credential exists. The nonce is caller-chosen, so a captured response cannot
+  // be replayed back at that caller later.
+  if (p === '/hs/hosted/identity' && req.method === 'POST') {
+    let body = {}
+    try {
+      const raw = await readBody(req)
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const nonce = typeof body.nonce === 'string' ? body.nonce : ''
+    if (!nonce) return (json(res, 400, { error: 'nonce_required' }), true)
+
+    const signed = await signIdentityChallenge(nonce)
+    if (!signed) {
+      // No identity key (pre-migration box, or the key could not be persisted).
+      // The client MUST treat this as "cannot prove identity" and refuse the LAN
+      // path - never as success.
+      return (json(res, 501, { error: 'identity_unavailable' }), true)
+    }
+    return (
+      json(res, 200, { server_id: signed.serverId, signature: signed.signature, alg: 'ed25519' }),
+      true
+    )
   }
 
   // Admin recovery: re-enable disabled admin accounts when every human admin has
@@ -639,6 +701,11 @@ export async function handleHosted(req, res, url, _ctx) {
       }
     }
     await clearHostedConfig()
+    // Drop the pinned control-plane keys and the revocation state too. An unpaired
+    // box has no CP trust left to hold, and leaving pinned keys behind would let a
+    // later re-pair to a DIFFERENT control plane silently start from stale trust.
+    await clearJwksCache()
+    await clearRevocationState()
     return (json(res, 200, { ok: true }), true)
   }
 
@@ -806,6 +873,12 @@ export async function handleHosted(req, res, url, _ctx) {
       jwksUrl: data.jwks_url,
       serverSecret: data.server_secret,
     })
+    // Pin the control plane's signing keys to disk NOW, while we know it is
+    // reachable (we just talked to it). Without this the first cold boot after
+    // pairing would need the network to verify anything - the exact failure the
+    // on-disk cache exists to prevent. Best-effort: a hiccup here must not fail
+    // pairing, and any later request will refresh it.
+    await primeJwksCache(data.jwks_url)
     // Mint a DURABLE admin API key from the caller's session token rather than
     // storing the session token itself - a session token dies with its user, and
     // re-pairing must never clobber a healthy stored key with a perishable one.
@@ -854,6 +927,11 @@ export async function handleHosted(req, res, url, _ctx) {
         return (json(res, 502, { error: 'address_update_failed' }), true)
       }
     }
+
+    // Register our LAN address so a phone on the same Wi-Fi can still reach us if
+    // our internet later goes down. Fire-and-forget: this is an optimisation and
+    // must not delay or fail pairing.
+    void reportLanAddress({ force: true }).catch(() => {})
 
     // Return the code (and expiry) for the admin to redeem on app.hs.com.
     return (
