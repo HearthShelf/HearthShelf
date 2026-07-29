@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { getHostedConfig } from './hosted.js'
 import { getServerId } from '../db.js'
+import { recordRevocationSignal } from './keyRevocation.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
@@ -65,6 +66,18 @@ async function reportVersion() {
     })
     if (!res.ok) return null
     const data = await res.json().catch(() => null)
+
+    // This response doubles as the grant-signing-key REVOCATION channel. It is
+    // authenticated by our server_secret rather than by the signing key, which is
+    // the point: we pin the control plane's JWKS to disk so verification survives
+    // an offline cold boot, and that pinning would otherwise make a compromised
+    // signing key permanently honoured. A revocation signed by the stolen key
+    // would be worthless, so it rides this separate credential instead.
+    // recordRevocationSignal is monotonic - silence never widens trust.
+    if (data && (data.revoked_kids || data.min_key_gen)) {
+      await recordRevocationSignal(data).catch(() => {})
+    }
+
     // Log a one-line nudge to the box's own console if it's behind. The admin's
     // real prompt is the banner in the hosted app; this is just operator-friendly.
     const latest = data?.latest?.version
@@ -77,11 +90,18 @@ async function reportVersion() {
   }
 }
 
-// Report on startup, then weekly. The interval is unref'd so it never holds the
+// Report on startup, then daily. The interval is unref'd so it never holds the
 // process open. No-op (silently) until the box is paired.
+//
+// This was weekly when it only carried version bookkeeping. It now also delivers
+// signing-key revocation, so the interval bounds how long a box keeps honouring a
+// revoked key while online - a week was too long for that. Daily is still
+// negligible traffic (one request per box per day).
 export async function startVersionReporting() {
   await reportVersion()
-  const everyMs = Number(process.env.HS_VERSION_REPORT_INTERVAL_MS || String(7 * 24 * 60 * 60 * 1000)) // 7d
+  const everyMs = Number(
+    process.env.HS_VERSION_REPORT_INTERVAL_MS || String(24 * 60 * 60 * 1000),
+  ) // 24h
   const timer = setInterval(() => {
     reportVersion().catch(() => {})
   }, everyMs)

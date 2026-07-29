@@ -679,6 +679,21 @@ const MIGRATIONS = [
   // records when self-heal has flagged the credential as needing an operator
   // reset. See server/lib/serviceCredential.js.
   `ALTER TABLE hosted_config ADD COLUMN admin_cred_status TEXT`,
+  // Last time we confirmed a cached per-user ABS key is still accepted by ABS.
+  // NULL = never checked (created_at seeds it). Lets the hosted fast path
+  // re-validate periodically instead of trusting a cached key forever - a revoked
+  // key used to be a permanent lockout, recoverable only by deleting the ABS
+  // user. See server/lib/hosted.js absKeyStillValid().
+  `ALTER TABLE hosted_user_keys ADD COLUMN last_checked_at INTEGER`,
+  // This server's own Ed25519 identity keypair (PKCS8/SPKI, base64). Used to
+  // PROVE to a client that a given origin really is this server before the client
+  // hands over a control-plane grant. Essential for the LAN path: a private IP is
+  // trivially spoofable by any device on the network, and a grant is a bearer
+  // credential carrying the user's identity - handing it to whatever answers at
+  // 192.168.x.y would let a rogue listener replay it against the real server for
+  // a long-lived ABS token. See server/lib/serverIdentity.js.
+  `ALTER TABLE server_identity ADD COLUMN identity_private_key TEXT`,
+  `ALTER TABLE server_identity ADD COLUMN identity_public_key TEXT`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

@@ -22,12 +22,24 @@
 // tables (see db.js). This module is only exercised when HS_MODE=hosted.
 
 import crypto from 'node:crypto'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 import { db, initDb, getServerId } from '../db.js'
 import { appLog } from './appLog.js'
 import { getServiceToken } from './serviceCredential.js'
+import { resolveJwks, JWKS_STALE_EXPIRED } from './jwksCache.js'
+import { isKeyRevoked } from './keyRevocation.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
+
+/**
+ * How often to re-verify a cached per-user ABS key against ABS (12h).
+ *
+ * A tradeoff: too eager and every request pays an ABS round-trip (defeating the
+ * cache); too lax and a revoked key keeps working for longer than it should.
+ * 12h keeps the steady state free while bounding how long a revoked user retains
+ * access - and any 401 the client surfaces will re-connect anyway.
+ */
+const CACHED_KEY_RECHECK_MS = 12 * 60 * 60 * 1000
 
 let ready = null
 function ensure() {
@@ -127,48 +139,94 @@ export async function clearHostedConfig() {
   })
 }
 
-// --- grant verification (offline, JWKS-cached) -----------------------------
+// --- grant verification (offline, JWKS pinned to disk) ---------------------
 
-// One JWKS set per jwks_url, reused across requests (jose caches the fetched
-// keys internally and refreshes them as needed - this is the "pin + cache"
-// behaviour: HS follows the control plane's key rotation without manual steps).
-const jwksByUrl = new Map()
-function jwksFor(url) {
-  let set = jwksByUrl.get(url)
-  if (!set) {
-    set = createRemoteJWKSet(new URL(url))
-    jwksByUrl.set(url, set)
-  }
-  return set
+// Verification failure reasons. These MUST stay distinguishable: "I could not
+// check this grant" and "this grant is forged" look identical to a caller that
+// only sees null, which is exactly how the cold-boot outage stayed invisible - a
+// CP-unreachable restart made every hosted-mode request answer 401, reading as a
+// rejected sign-in. The connect route maps the transient reasons to 503 so a
+// client retries instead of sending the user to re-authenticate.
+export const GRANT_ERR_INVALID = 'grant_invalid'
+export const GRANT_ERR_NOT_PAIRED = 'not_paired'
+export const GRANT_ERR_KEYS_UNAVAILABLE = 'keys_unavailable'
+export const GRANT_ERR_KEYS_EXPIRED = 'keys_expired'
+export const GRANT_ERR_KEY_REVOKED = 'key_revoked'
+
+/** True for reasons that are OUR problem, not the caller's - safe to retry. */
+export function isTransientGrantError(reason) {
+  return reason === GRANT_ERR_KEYS_UNAVAILABLE || reason === GRANT_ERR_KEYS_EXPIRED
 }
 
-// Verify a control-plane grant. Returns the trusted claims, or null if the
-// grant is missing/invalid/expired or hosted mode isn't configured.
-export async function verifyGrant(token) {
-  if (!token) return null
+/**
+ * Verify a control-plane grant.
+ *
+ * Returns { ok: true, claims } or { ok: false, reason }.
+ *
+ * Keys come from jwksCache.js, which pins them to the config volume, so this is
+ * genuinely offline after pairing - no network on the request path. Previously
+ * the only cache was jose's in-process one, so a restart while the control plane
+ * was unreachable broke ALL request serving in hosted mode.
+ */
+export async function verifyGrantDetailed(token) {
+  if (!token) return { ok: false, reason: GRANT_ERR_INVALID }
   const cfg = await getHostedConfig()
-  if (!cfg?.jwksUrl || !cfg?.issuer) return null
+  if (!cfg?.jwksUrl || !cfg?.issuer) return { ok: false, reason: GRANT_ERR_NOT_PAIRED }
+
+  const { status, keySet } = await resolveJwks(cfg.jwksUrl)
+  if (status === JWKS_STALE_EXPIRED) return { ok: false, reason: GRANT_ERR_KEYS_EXPIRED }
+  if (!keySet) return { ok: false, reason: GRANT_ERR_KEYS_UNAVAILABLE }
 
   const serverId = await getServerId()
+  let payload
+  let protectedHeader
   try {
-    const { payload } = await jwtVerify(token, jwksFor(cfg.jwksUrl), {
+    const verified = await jwtVerify(token, keySet, {
       issuer: cfg.issuer,
       audience: serverId, // grant must be minted FOR this server
     })
-    // The grant is the gate: only a verified email may be federated, because
-    // ABS user-matching keys on it.
-    if (payload.email_verified !== true) return null
-    if (typeof payload.email !== 'string' || !payload.email) return null
-    if (typeof payload.sub !== 'string' || !payload.sub) return null
-    return {
+    payload = verified.payload
+    protectedHeader = verified.protectedHeader
+  } catch (err) {
+    // A signature/claim failure is the caller's problem; a failure reaching a
+    // remote key set is ours. Separate them so a transient outage is never
+    // reported as a forged grant.
+    const name = String(err?.code || err?.name || '')
+    if (name.includes('JWKS') || name.includes('Fetch') || name.includes('Timeout')) {
+      return { ok: false, reason: GRANT_ERR_KEYS_UNAVAILABLE }
+    }
+    return { ok: false, reason: GRANT_ERR_INVALID }
+  }
+
+  // Signature is proven, so the `kid` in the header is authentic and safe to
+  // judge. Checking it before verification would let a caller name any kid.
+  if (await isKeyRevoked(protectedHeader?.kid, payload.key_gen)) {
+    return { ok: false, reason: GRANT_ERR_KEY_REVOKED }
+  }
+
+  // The grant is the gate: only a verified email may be federated, because ABS
+  // user-matching keys on it.
+  if (payload.email_verified !== true) return { ok: false, reason: GRANT_ERR_INVALID }
+  if (typeof payload.email !== 'string' || !payload.email)
+    return { ok: false, reason: GRANT_ERR_INVALID }
+  if (typeof payload.sub !== 'string' || !payload.sub)
+    return { ok: false, reason: GRANT_ERR_INVALID }
+
+  return {
+    ok: true,
+    claims: {
       subject: payload.sub,
       email: payload.email,
       username: typeof payload.username === 'string' ? payload.username : '',
       role: payload.role === 'admin' ? 'admin' : 'user',
-    }
-  } catch {
-    return null
+    },
   }
+}
+
+// Back-compat wrapper: most callers only need claims-or-null.
+export async function verifyGrant(token) {
+  const r = await verifyGrantDetailed(token)
+  return r.ok ? r.claims : null
 }
 
 // --- ABS per-user credential resolution ------------------------------------
@@ -259,11 +317,22 @@ async function mintAbsApiKey(adminToken, absUserId) {
 }
 
 async function getCachedKey(serverId, subject) {
-  const r = await db.execute({
-    sql: `SELECT abs_user_id, abs_api_key, role, synced_username FROM hosted_user_keys
-          WHERE server_id = ? AND cp_subject = ?`,
-    args: [serverId, subject],
-  })
+  // last_checked_at is added by a migration; select it defensively so a box that
+  // hasn't migrated yet still resolves keys (it just re-checks more often).
+  let r
+  try {
+    r = await db.execute({
+      sql: `SELECT abs_user_id, abs_api_key, role, synced_username, last_checked_at, created_at
+            FROM hosted_user_keys WHERE server_id = ? AND cp_subject = ?`,
+      args: [serverId, subject],
+    })
+  } catch {
+    r = await db.execute({
+      sql: `SELECT abs_user_id, abs_api_key, role, synced_username, created_at
+            FROM hosted_user_keys WHERE server_id = ? AND cp_subject = ?`,
+      args: [serverId, subject],
+    })
+  }
   const row = r.rows[0]
   if (!row) return null
   return {
@@ -271,6 +340,7 @@ async function getCachedKey(serverId, subject) {
     absApiKey: String(row.abs_api_key),
     role: row.role,
     syncedUsername: row.synced_username ?? null,
+    lastCheckedAt: Number(row.last_checked_at ?? row.created_at ?? 0) || 0,
   }
 }
 
@@ -296,6 +366,59 @@ async function cacheKey(serverId, subject, email, absUserId, absApiKey, role, sy
       Date.now(),
     ],
   })
+}
+
+// Drop a cached per-user key that ABS no longer accepts, so the next request
+// takes the cold path and mints a fresh one.
+//
+// Without this, an invalidated key is a PERMANENT lockout: the fast path returned
+// the cached value unconditionally, so once ABS stopped honouring it (expiry,
+// admin revocation, ABS-side key purge) every request failed forever and the only
+// recovery was deleting the ABS user. The admin credential already self-heals
+// this way via getServiceToken(); this is the missing per-user equivalent.
+async function forgetCachedKey(serverId, subject) {
+  await db.execute({
+    sql: `DELETE FROM hosted_user_keys WHERE server_id = ? AND cp_subject = ?`,
+    args: [serverId, subject],
+  })
+}
+
+/**
+ * Is this per-user ABS key still accepted by ABS?
+ *
+ * Cheap authenticated probe against /api/me. Only called when the cached row
+ * looks due for a check (see CACHED_KEY_RECHECK_MS) - not on every request,
+ * which would put an ABS round-trip in front of all traffic and undo the whole
+ * point of the cache.
+ *
+ * Returns true (assume good) on a NETWORK failure: if ABS is unreachable we
+ * cannot conclude the key is bad, and discarding a probably-valid credential
+ * because ABS blipped would be a self-inflicted outage. Only an explicit
+ * 401/403 counts as invalid.
+ */
+async function absKeyStillValid(absApiKey) {
+  try {
+    const res = await fetch(`${ABS_URL}/api/me`, {
+      headers: { Authorization: `Bearer ${absApiKey}` },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (res.status === 401 || res.status === 403) return false
+    return true
+  } catch {
+    return true // inconclusive - do not throw away a working key
+  }
+}
+
+// Record when we last confirmed a cached key works.
+async function markKeyChecked(serverId, subject) {
+  try {
+    await db.execute({
+      sql: `UPDATE hosted_user_keys SET last_checked_at = ? WHERE server_id = ? AND cp_subject = ?`,
+      args: [Date.now(), serverId, subject],
+    })
+  } catch {
+    // Column added by migration; a pre-migration box just re-checks more often.
+  }
 }
 
 // Record the latest synced username without touching the key/role.
@@ -369,7 +492,25 @@ export async function resolveHostedContext(token) {
   // Clerk username differs from what we last pushed (avoids an ABS write per
   // request); on success record the new value. Username sync is best-effort, so
   // we only resolve an admin token for it lazily and skip silently if none.
-  const cached = await getCachedKey(serverId, claims.subject)
+  let cached = await getCachedKey(serverId, claims.subject)
+
+  // Periodically confirm the cached key still works. ABS keys can be revoked or
+  // expire out from under us, and the fast path used to return them forever - a
+  // permanent lockout with no recovery short of deleting the ABS user. Re-check
+  // at most once per CACHED_KEY_RECHECK_MS so this stays off the hot path.
+  if (cached && Date.now() - cached.lastCheckedAt > CACHED_KEY_RECHECK_MS) {
+    if (await absKeyStillValid(cached.absApiKey)) {
+      await markKeyChecked(serverId, claims.subject)
+    } else {
+      appLog.warn(
+        'hosted',
+        `cached ABS key for user ${cached.absUserId} was rejected; re-minting`,
+      )
+      await forgetCachedKey(serverId, claims.subject)
+      cached = null // fall through to the cold path, which mints a fresh key
+    }
+  }
+
   if (cached) {
     if (claims.username && claims.username !== cached.syncedUsername) {
       const adminToken = await getServiceToken()
