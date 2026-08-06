@@ -6,8 +6,9 @@
 //
 // Ownership is computed globally from ABS's own database (lib/absdb.js) - no user
 // token, no per-item API call. A roster book is owned when the library holds its
-// ASIN; failing an ASIN match (ABS may lack one), we fall back to a series-
-// sequence match, then a normalized-title match.
+// ASIN. Weaker signals (normalized title, then series sequence) only fill in for
+// owned books ABS has no ASIN for - see stampOwned for why sequence is last and
+// is consumed rather than shared.
 
 import { getAllSeries, getOwnedSeriesBooks, absDbAvailable } from '../lib/absdb.js'
 import { resolveSeriesAsin, fetchSeriesBooks, currentRegion } from '../routes/audible.js'
@@ -33,26 +34,75 @@ function seqKey(sequence) {
 }
 
 // Stamp each Audible roster book with owned:true/false against the library's
-// owned books for this series (asin/sequence/title from ABS's db).
+// owned books for this series (asin/title/sequence from ABS's db).
+//
+// Signals are ranked, and each owned book is CONSUMED by the first roster entry
+// it matches. Bare sequence used to be an unranked, unlimited OR, which produced
+// two false "owned" verdicts that hid genuinely missing books:
+//
+//   - Mis-sequenced metadata: ABS tags an owned book "#4", so Audible's real
+//     book 4 reads owned and silently leaves the missing list. Server flags are
+//     authoritative for clients, so nothing downstream could recover it.
+//   - Omnibus / boxed set: one owned bundle at sequence "1" claimed slot 1 while
+//     the books it actually contains stayed unowned - inconsistent either way.
+//
+// Ranking (strongest first) fixes both: an ASIN match is conclusive; an owned
+// book that HAS an ASIN is never matched by title or sequence (a real ASIN that
+// didn't match means it's a different book); and a sequence claim only stands
+// when the two titles don't actively disagree - both sides having real titles
+// that differ is contradicted metadata, not a match.
+//
+// Keep in step with @hearthshelf/core missingSeriesBooks, which applies the same
+// ranking client-side for servers that haven't stamped `owned`.
 function stampOwned(audibleBooks, ownedBooks) {
-  const ownedAsins = new Set()
-  const ownedSeqs = new Set()
-  const ownedTitles = new Set()
-  for (const b of ownedBooks) {
-    if (b.asin) ownedAsins.add(b.asin.toLowerCase())
-    const s = seqKey(b.sequence)
-    if (s) ownedSeqs.add(s)
-    const t = normalizeTitle(b.title)
-    if (t) ownedTitles.add(t)
+  // Index owned books by each signal, keeping their identity so a match can
+  // consume them. Only ASIN-less books are eligible for the weaker signals.
+  const byAsin = new Map()
+  const byTitle = new Map()
+  const bySeq = new Map()
+  const push = (map, key, entry) => {
+    if (!key) return
+    const list = map.get(key)
+    if (list) list.push(entry)
+    else map.set(key, [entry])
   }
-  return audibleBooks.map((b) => {
-    const asin = b.asin ? String(b.asin).toLowerCase() : ''
-    const s = seqKey(b.sequence)
-    const t = normalizeTitle(b.title)
-    const owned =
-      (asin && ownedAsins.has(asin)) || (s && ownedSeqs.has(s)) || (!!t && ownedTitles.has(t))
-    return { ...b, owned: Boolean(owned) }
+
+  for (const b of ownedBooks) {
+    const entry = { used: false, title: normalizeTitle(b.title) }
+    if (b.asin) {
+      push(byAsin, String(b.asin).toLowerCase(), entry)
+      continue // ASIN is conclusive for this book; don't weaken it with title/seq
+    }
+    push(byTitle, entry.title, entry)
+    push(bySeq, seqKey(b.sequence), entry)
+  }
+
+  const claim = (map, key, accept) => {
+    if (!key) return false
+    const list = map.get(key)
+    if (!list) return false
+    const entry = list.find((e) => !e.used && (!accept || accept(e)))
+    if (!entry) return false // already claimed, or contradicted
+    entry.used = true
+    return true
+  }
+
+  // Strongest signal first across the WHOLE roster, so a definite ASIN match
+  // always beats a weaker claim on the same owned book.
+  const out = audibleBooks.map((b) => ({ ...b, owned: false }))
+  out.forEach((b) => {
+    if (claim(byAsin, b.asin ? String(b.asin).toLowerCase() : '')) b.owned = true
   })
+  out.forEach((b) => {
+    if (!b.owned && claim(byTitle, normalizeTitle(b.title))) b.owned = true
+  })
+  out.forEach((b) => {
+    if (b.owned) return
+    const rosterTitle = normalizeTitle(b.title)
+    const compatible = (e) => !e.title || !rosterTitle || e.title === rosterTitle
+    if (claim(bySeq, seqKey(b.sequence), compatible)) b.owned = true
+  })
+  return out
 }
 
 // Small delay so we don't hammer the Audible catalog API across a large library.
@@ -89,25 +139,36 @@ export async function runSeriesRoster(logger, signal) {
     }
     i++
     try {
-      const match = await resolveSeriesAsin(s.name, region)
+      // Owned books first: their authors disambiguate the Audible match when two
+      // distinct series share this name.
+      const owned = await getOwnedSeriesBooks(s.seriesId)
+      const ownedAuthors = [...new Set(owned.map((b) => b.author).filter(Boolean))]
+      const match = await resolveSeriesAsin(s.name, region, ownedAuthors)
       if (!match) {
         unresolved++
-        await saveSeriesRoster({ name: s.name, seriesAsin: null, seriesTitle: null, books: [] })
+        await saveSeriesRoster({
+          seriesId: s.seriesId,
+          name: s.name,
+          seriesAsin: null,
+          seriesTitle: null,
+          books: [],
+        })
         logger.info(`[${i}/${seriesList.length}] ${s.name}: no Audible match`)
       } else {
         const roster = await fetchSeriesBooks(match.asin, region)
-        const owned = await getOwnedSeriesBooks(s.seriesId)
         const books = stampOwned(roster, owned)
         const missing = books.filter((b) => b.owned === false).length
         await saveSeriesRoster({
+          seriesId: s.seriesId,
           name: s.name,
           seriesAsin: match.asin,
           seriesTitle: match.title,
           books,
         })
         resolved++
+        const how = match.authorHits > 0 ? 'author-matched' : 'name-only'
         logger.info(
-          `[${i}/${seriesList.length}] ${s.name}: ${books.length} books, ${missing} not owned`,
+          `[${i}/${seriesList.length}] ${s.name}: ${books.length} books, ${missing} not owned (${how})`,
         )
       }
     } catch (err) {
