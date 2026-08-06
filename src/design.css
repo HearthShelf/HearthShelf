@@ -5304,6 +5304,84 @@
   font-size: 13.5px;
 }
 
+/* Type-ahead dropdown shared by SuggestChips and the series editor. */
+.suggest-wrap {
+  position: relative;
+}
+
+.suggest-list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--c-high);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+}
+
+.suggest-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.suggest-item:hover,
+.suggest-item.on {
+  background: var(--c-highest);
+}
+
+/* Series editor: one row per membership (name + position + remove). */
+.series-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.series-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.series-row .fld {
+  flex: 1;
+  min-width: 0;
+}
+
+.series-row .se-seq {
+  flex: 0 0 74px;
+  text-align: center;
+}
+
+.se-hint,
+.be-warn {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+  line-height: 1.45;
+}
+
+.be-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--warn, #e0b341);
+  margin-top: 8px;
+}
+
 .btn-sm {
   font-family: inherit;
   cursor: pointer;

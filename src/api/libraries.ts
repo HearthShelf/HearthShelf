@@ -32,6 +32,25 @@ export const libraryKeys = {
   collection: (collectionId: string) => ['collection', collectionId] as const,
   playlists: (libraryId: string) => ['playlists', libraryId] as const,
   authors: (libraryId: string) => ['authors', libraryId] as const,
+  filterData: (libraryId: string) => ['library-filterdata', libraryId] as const,
+}
+
+// The library's existing values for each metadata field, used to suggest
+// autocompletions in the edit forms so a user picks the established spelling
+// rather than creating a near-duplicate author/series/genre. ABS caches this
+// server-side for 30 minutes.
+export interface ABSLibraryFilterData {
+  authors: { id: string; name: string }[]
+  series: { id: string; name: string }[]
+  genres: string[]
+  tags: string[]
+  narrators: string[]
+  languages: string[]
+  publishers: string[]
+}
+
+export function getLibraryFilterData(libraryId: string): Promise<ABSLibraryFilterData> {
+  return absRequest<ABSLibraryFilterData>(ABS_ENDPOINTS.libraryFilterData(libraryId))
 }
 
 export function getItem(itemId: string): Promise<ABSLibraryItemDetail> {
@@ -46,18 +65,46 @@ export function ebookUrl(itemId: string, token: string | null): string {
   return `/abs-api${ABS_ENDPOINTS.itemEbook(itemId)}${params}`
 }
 
+// A series membership as ABS's media PATCH accepts it. Matching is by NAME -
+// ABS ignores any id sent here (server/models/Book.js updateSeriesFromRequest),
+// finding-or-creating the series by name within the library.
+//
+// `sequence` MUST be a string: ABS does
+// `typeof seriesObj.sequence === 'string' ? seriesObj.sequence : null`, so a
+// numeric 3 silently WIPES the sequence instead of setting it.
+export interface ItemSeriesPatch {
+  name: string
+  sequence: string | null
+}
+
+// An author as ABS's media PATCH accepts it. Like series, matched by name and
+// find-or-created; any id is discarded server-side.
+export interface ItemAuthorPatch {
+  name: string
+}
+
 // Editable subset of an item's metadata. PATCH /api/items/:id/media accepts a
-// partial { metadata } payload and returns the updated libraryItem.
+// partial { metadata } payload and returns the updated libraryItem. Omitted keys
+// are left untouched, so this is a true partial update.
+//
+// CAUTION - the four list fields are REPLACE, not merge. ABS unlinks any series
+// or author whose name is absent from the array you send (and an empty array
+// clears them), so a caller must always submit the COMPLETE list, not a delta.
 export interface ItemMetadataPatch {
   title?: string | null
   subtitle?: string | null
   description?: string | null
   publishedYear?: string | null
+  // Accepted by ABS but absent from its own edit form; we expose it.
+  publishedDate?: string | null
   publisher?: string | null
   language?: string | null
   isbn?: string | null
   asin?: string | null
   genres?: string[]
+  narrators?: string[]
+  series?: ItemSeriesPatch[]
+  authors?: ItemAuthorPatch[]
   explicit?: boolean
   abridged?: boolean
 }
@@ -198,12 +245,35 @@ export function embedItemMetadata(
   })
 }
 
+// Drop entries ABS would reject and coerce sequence to the string it requires.
+// ABS silently ABORTS the entire series update if any entry lacks a string name
+// (returning null rather than erroring), which would look like "my other edits
+// saved but the series didn't" - so clean the list here instead.
+export function normalizeSeriesPatch(series: ItemSeriesPatch[]): ItemSeriesPatch[] {
+  return series
+    .map((s) => ({ name: String(s.name ?? '').trim(), sequence: s.sequence }))
+    .filter((s) => s.name.length > 0)
+    .map((s) => {
+      const seq = s.sequence == null ? '' : String(s.sequence).trim()
+      return { name: s.name, sequence: seq === '' ? null : seq }
+    })
+}
+
+export function normalizeAuthorsPatch(authors: ItemAuthorPatch[]): ItemAuthorPatch[] {
+  return authors
+    .map((a) => ({ name: String(a.name ?? '').trim() }))
+    .filter((a) => a.name.length > 0)
+}
+
 export function updateItemMetadata(
   itemId: string,
   metadata: ItemMetadataPatch,
   tags?: string[],
 ): Promise<void> {
-  const body: { metadata: ItemMetadataPatch; tags?: string[] } = { metadata }
+  const clean: ItemMetadataPatch = { ...metadata }
+  if (clean.series) clean.series = normalizeSeriesPatch(clean.series)
+  if (clean.authors) clean.authors = normalizeAuthorsPatch(clean.authors)
+  const body: { metadata: ItemMetadataPatch; tags?: string[] } = { metadata: clean }
   if (tags) body.tags = tags
   return absRequest<void>(`/api/items/${itemId}/media`, {
     method: 'PATCH',

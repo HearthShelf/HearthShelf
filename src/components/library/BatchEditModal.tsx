@@ -1,13 +1,15 @@
 import { useState, type ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   batchUpdateItems,
+  getLibraryFilterData,
   libraryKeys,
   type BatchMediaPayload,
   type ItemMetadataPatch,
 } from '@/api/libraries'
 import { Modal } from '@/components/common/Modal'
 import { Chips } from '@/components/common/Chips'
+import { SuggestChips } from '@/components/common/SuggestChips'
 import { Icon } from '@/components/common/Icon'
 import { Cover } from '@/components/common/Cover'
 import type { ABSLibraryItem } from '@/api/types'
@@ -75,9 +77,37 @@ export function BatchEditModal({ ids, libraryId, items, onClose, onDone }: Batch
   const [language, setLanguage] = useState('')
   const [explicitOn, setExplicitOn] = useState(false)
   const [explicit, setExplicit] = useState(false)
+  const [abridgedOn, setAbridgedOn] = useState(false)
+  const [abridged, setAbridged] = useState(false)
+  const [authorsOn, setAuthorsOn] = useState(false)
+  const [authors, setAuthors] = useState<string[]>([])
+  const [narratorsOn, setNarratorsOn] = useState(false)
+  const [narrators, setNarrators] = useState<string[]>([])
+  const [seriesOn, setSeriesOn] = useState(false)
+  const [seriesName, setSeriesName] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const tickedCount = [genresOn, tagsOn, pubOn, yearOn, langOn, explicitOn].filter(Boolean).length
+  // Suggestions from the library's existing values, same as the single-item form.
+  const { data: filterData } = useQuery({
+    queryKey: libraryKeys.filterData(libraryId),
+    queryFn: () => getLibraryFilterData(libraryId),
+    enabled: Boolean(libraryId),
+    staleTime: 30 * 60 * 1000,
+    retry: false,
+  })
+
+  const tickedCount = [
+    genresOn,
+    tagsOn,
+    pubOn,
+    yearOn,
+    langOn,
+    explicitOn,
+    abridgedOn,
+    authorsOn,
+    narratorsOn,
+    seriesOn,
+  ].filter(Boolean).length
 
   // Note: in append mode for list fields we can't merge per-book client-side
   // without each book's current list, so append is a hint; the batch endpoint
@@ -91,12 +121,23 @@ export function BatchEditModal({ ids, libraryId, items, onClose, onDone }: Batch
     if (yearOn) metadata.publishedYear = year
     if (langOn) metadata.language = language
     if (explicitOn) metadata.explicit = explicit
+    if (abridgedOn) metadata.abridged = abridged
+    if (narratorsOn) metadata.narrators = narrators
+    if (authorsOn) metadata.authors = authors.map((name) => ({ name }))
+    // One series for the whole selection, with NO sequence: a position is
+    // per-book and can't be meaningful across a multi-book write. Users set the
+    // numbers afterwards per book. This still REPLACES each book's existing
+    // series memberships, which the warning below makes explicit.
+    if (seriesOn && seriesName.trim()) {
+      metadata.series = [{ name: seriesName.trim(), sequence: null }]
+    }
     const payload: BatchMediaPayload = {}
     if (Object.keys(metadata).length) payload.metadata = metadata
     if (tagsOn) payload.tags = tags
     try {
       await batchUpdateItems(ids, payload)
       qc.invalidateQueries({ queryKey: libraryKeys.allItems(libraryId) })
+      qc.invalidateQueries({ queryKey: libraryKeys.series(libraryId) })
       onDone()
     } finally {
       setSaving(false)
@@ -183,6 +224,57 @@ export function BatchEditModal({ ids, libraryId, items, onClose, onDone }: Batch
           >
             <i />
           </div>
+        </FieldRow>
+        <FieldRow label="Abridged" on={abridgedOn} setOn={setAbridgedOn}>
+          <div
+            className={'toggle' + (abridged ? ' on' : '')}
+            role="switch"
+            aria-checked={abridged}
+            onClick={() => setAbridged((v) => !v)}
+          >
+            <i />
+          </div>
+        </FieldRow>
+        <FieldRow
+          label="Authors"
+          on={authorsOn}
+          setOn={setAuthorsOn}
+          hint="replaces each book's authors"
+        >
+          <SuggestChips
+            items={authors}
+            onChange={setAuthors}
+            suggestions={(filterData?.authors ?? []).map((a) => a.name)}
+            placeholder="Add author…"
+          />
+        </FieldRow>
+        <FieldRow
+          label="Narrators"
+          on={narratorsOn}
+          setOn={setNarratorsOn}
+          hint="replaces each book's narrators"
+        >
+          <SuggestChips
+            items={narrators}
+            onChange={setNarrators}
+            suggestions={filterData?.narrators ?? []}
+            placeholder="Add narrator…"
+          />
+        </FieldRow>
+        <FieldRow label="Series" on={seriesOn} setOn={setSeriesOn} hint="replaces, no numbers">
+          <SuggestChips
+            items={seriesName ? [seriesName] : []}
+            onChange={(v) => setSeriesName(v[v.length - 1] ?? '')}
+            suggestions={(filterData?.series ?? []).map((s) => s.name)}
+            placeholder="Series name…"
+          />
+          {seriesOn && (
+            <p className="be-warn">
+              <Icon name="warning" style={{ fontSize: 15 }} /> Puts all {ids.length} books in this
+              one series and takes them out of any other. Book numbers aren't set - add those on
+              each book afterwards.
+            </p>
+          )}
         </FieldRow>
       </div>
 
