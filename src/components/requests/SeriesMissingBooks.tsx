@@ -9,6 +9,9 @@ import { useRmabEnabled } from '@/hooks/useRmab'
 import { missingSeriesBooks, type OwnedSeriesBook } from '@hearthshelf/core'
 
 interface SeriesMissingBooksProps {
+  // ABS's series id - what identifies the series when resolving its Audible
+  // roster (two distinct series can share a name).
+  seriesId: string
   seriesName: string
   // Owned books (title + this-series sequence) to match against the Audible
   // roster - see missingSeriesBooks for how the match is made.
@@ -26,6 +29,7 @@ interface SeriesMissingBooksProps {
 // Inline mode folds the missing rows into the series list (DS sl-row-missing);
 // the default renders the standalone "Complete the series" section.
 export function SeriesMissingBooks({
+  seriesId,
   seriesName,
   ownedBooks,
   inline,
@@ -35,8 +39,8 @@ export function SeriesMissingBooks({
   const [confirm, setConfirm] = useState<CatalogResult | null>(null)
 
   const { data } = useQuery({
-    queryKey: audibleKeys.series(seriesName),
-    queryFn: () => fetchAudibleSeries(seriesName),
+    queryKey: audibleKeys.series(seriesId, seriesName),
+    queryFn: () => fetchAudibleSeries(seriesId, seriesName),
     enabled: seriesName.length >= 2,
     staleTime: 30 * 60 * 1000,
     retry: false,

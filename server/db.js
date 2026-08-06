@@ -497,17 +497,21 @@ const SCHEMA = [
      PRIMARY KEY (run_id, seq)
    )`,
   // Precomputed Audible series roster, GLOBAL (no user_id - "owned" is a
-  // library-wide fact). Keyed by lowercased series name (how the client asks).
+  // library-wide fact). Keyed by ABS's own series id, NOT the series name: two
+  // distinct series can share a name (e.g. Karevik's "Accidental Champion" and
+  // Herzman's), and a name key made the second one processed silently overwrite
+  // the first, so one series' page listed the other's books as "not in library".
+  // name is kept for display and as the Audible resolution input only.
   // books_json is the enriched roster: each Audible book + sequence + owned flag.
   `CREATE TABLE IF NOT EXISTS series_roster (
      server_id     TEXT NOT NULL DEFAULT 'local',
-     name_key      TEXT NOT NULL,             -- lowercased series name
-     name          TEXT NOT NULL,             -- original series name
+     series_id     TEXT NOT NULL,             -- ABS series.id (stable identity)
+     name          TEXT NOT NULL,             -- series name, for display
      series_asin   TEXT,                      -- null when unresolved
      series_title  TEXT,
      books_json    TEXT NOT NULL,             -- JSON array of enriched books
      resolved_at   INTEGER NOT NULL,
-     PRIMARY KEY (server_id, name_key)
+     PRIMARY KEY (server_id, series_id)
    )`,
 
   // Durable per-user daily listening history. ABS keeps NO history (a re-finish
@@ -811,12 +815,31 @@ async function assertRegisteredTables() {
 
 let ready = null
 
+// Schema changes that must land BEFORE the CREATE TABLE statements, because
+// CREATE TABLE IF NOT EXISTS is a no-op against a table whose shape changed.
+// Each is best-effort and idempotent.
+async function preSchemaMigrations() {
+  // series_roster was keyed (server_id, name_key) on the lowercased series name;
+  // it is now keyed by ABS's series id. A name key merged two distinct series
+  // that share a name, so the roster it held for such a pair was wrong. The
+  // table is a pure cache that the nightly series-roster job rebuilds from ABS +
+  // Audible, so dropping the old shape costs nothing and loses no user data.
+  try {
+    const info = await db.execute(`PRAGMA table_info(series_roster)`)
+    const hasNameKey = info.rows.some((r) => String(r.name) === 'name_key')
+    if (hasNameKey) await db.execute(`DROP TABLE series_roster`)
+  } catch {
+    // Table doesn't exist yet (fresh DB) - the CREATE below makes it correctly.
+  }
+}
+
 // Initialise the database exactly once. Callers await this before first use;
 // index.js awaits it on boot so a query never races schema creation.
 export function initDb() {
   if (!ready) {
     ready = (async () => {
       await applyPragmas()
+      await preSchemaMigrations()
       for (const stmt of SCHEMA) await db.execute(stmt)
       for (const stmt of MIGRATIONS) {
         try {

@@ -1345,9 +1345,12 @@ export async function getAllSeries() {
   }
 }
 
-// The books the library owns in one series: { asin, title, sequence }. asin/title
-// may be '' when ABS has none. sequence is ABS's bookSeries.sequence (a string,
-// e.g. "4" or "2.5") or ''. [] on any failure.
+// The books the library owns in one series: { asin, title, sequence, author }.
+// asin/title/author may be '' when ABS has none. sequence is ABS's
+// bookSeries.sequence (a string, e.g. "4" or "2.5") or ''. author is the first
+// author name via the bookAuthors join (same join readImportInventory uses) and
+// is what disambiguates two same-named series when resolving the Audible match.
+// [] on any failure.
 export async function getOwnedSeriesBooks(seriesId) {
   if (!seriesId) return []
   const c = await ensureClient()
@@ -1355,7 +1358,10 @@ export async function getOwnedSeriesBooks(seriesId) {
   try {
     const res = await c.execute({
       sql: `
-        SELECT b.asin AS asin, b.title AS title, bs.sequence AS sequence
+        SELECT b.asin AS asin, b.title AS title, bs.sequence AS sequence,
+               (SELECT a.name FROM authors a
+                  JOIN bookAuthors ba ON ba.authorId = a.id
+                 WHERE ba.bookId = b.id LIMIT 1) AS author
         FROM bookSeries bs
         JOIN books b ON b.id = bs.bookId
         WHERE bs.seriesId = ?
@@ -1366,6 +1372,7 @@ export async function getOwnedSeriesBooks(seriesId) {
       asin: r.asin == null ? '' : String(r.asin),
       title: r.title == null ? '' : String(r.title),
       sequence: r.sequence == null ? '' : String(r.sequence),
+      author: r.author == null ? '' : String(r.author),
     }))
   } catch {
     return []

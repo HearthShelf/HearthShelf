@@ -14,7 +14,8 @@
 
 import { json } from '../lib/http.js'
 import { getIntegrations } from '../integrations.js'
-import { getSeriesRoster } from '../lib/seriesRosterStore.js'
+import { getSeriesRoster, getSeriesRosterById } from '../lib/seriesRosterStore.js'
+import { getOwnedSeriesBooks } from '../lib/absdb.js'
 
 const PAGE_SIZE = 25
 const RESPONSE_GROUPS =
@@ -147,24 +148,72 @@ async function searchAudible(query, page, region) {
   }
 }
 
-// Resolve a series name to its Audible series ASIN by searching and picking the
-// most common series whose title matches the query (case-insensitive). ABS
-// exposes no series ASIN, so this is the bridge - best-effort, returns null when
-// no confident match.
-export async function resolveSeriesAsin(name, region) {
+// Normalize an author name for comparison: lowercase, drop punctuation and
+// middle initials' periods, collapse whitespace.
+function normalizeAuthor(name) {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Do two author strings refer to the same person? Audible may list "Andrew
+// Karevik, LitRPG Freaks" where ABS has just "Andrew Karevik", so compare the
+// comma-separated names and accept any overlap.
+function authorsOverlap(a, b) {
+  const split = (s) =>
+    String(s ?? '')
+      .split(',')
+      .map(normalizeAuthor)
+      .filter(Boolean)
+  const setA = new Set(split(a))
+  if (!setA.size) return false
+  return split(b).some((n) => setA.has(n))
+}
+
+// Resolve a series name to its Audible series ASIN. ABS exposes no series ASIN,
+// so a name search is the only bridge - but a name ALONE is ambiguous: distinct
+// series share titles (Karevik's "Accidental Champion" vs Herzman's), and
+// picking by raw popularity attached the wrong roster to a series, listing
+// another author's books as "missing from your library".
+//
+// So candidates whose books share an author with the library's own copies win
+// over more-popular but unrelated ones. `ownedAuthors` are the author strings of
+// the books ABS already holds in this series; with none (or no author match at
+// all) this degrades to the old popularity vote rather than returning nothing,
+// keeping single-series libraries working exactly as before.
+export async function resolveSeriesAsin(name, region, ownedAuthors = []) {
   const norm = name.trim().toLowerCase()
   const { results } = await searchAudible(name, 1, region)
-  const tally = new Map() // seriesAsin -> { title, asin, count }
+  const tally = new Map() // seriesAsin -> { title, asin, count, authorHits }
   for (const r of results) {
     if (!r.seriesAsin || !r.series) continue
     if (r.series.trim().toLowerCase() !== norm) continue
-    const cur = tally.get(r.seriesAsin) ?? { title: r.series, asin: r.seriesAsin, count: 0 }
+    const cur = tally.get(r.seriesAsin) ?? {
+      title: r.series,
+      asin: r.seriesAsin,
+      count: 0,
+      authorHits: 0,
+    }
     cur.count++
+    if (ownedAuthors.some((owned) => authorsOverlap(owned, r.author))) cur.authorHits++
     tally.set(r.seriesAsin, cur)
   }
+  // Author agreement first, popularity only as the tiebreak.
   let best = null
-  for (const v of tally.values()) if (!best || v.count > best.count) best = v
-  return best // { title, asin, count } | null
+  for (const v of tally.values()) {
+    if (!best) {
+      best = v
+      continue
+    }
+    if (v.authorHits !== best.authorHits) {
+      if (v.authorHits > best.authorHits) best = v
+      continue
+    }
+    if (v.count > best.count) best = v
+  }
+  return best // { title, asin, count, authorHits } | null
 }
 
 // Fetch the child books of a series by its ASIN, ordered by series sequence.
@@ -272,17 +321,25 @@ export async function handleAudible(req, res, url, ctx) {
     return (json(res, 200, product), true)
   }
 
-  // Series books by name: GET /hs/audible/series?q=<series name>
+  // Series books: GET /hs/audible/series?q=<series name>&seriesId=<abs series id>
   // Prefers the precomputed roster (the nightly series-roster job) - it carries a
   // library-wide `owned` flag per book and needs no live Audible call. Falls back
   // to resolving live for a series the job hasn't swept yet (new series, or job
   // never run), so a cold instance still works while the sweep catches up.
+  //
+  // seriesId is what actually identifies the series; a name alone is ambiguous
+  // (two series can share one). It's optional for back-compat with older clients,
+  // which get the name lookup - and that returns nothing when the name is
+  // ambiguous rather than guessing the wrong series.
   if (p === '/hs/audible/series') {
     const name = (url.searchParams.get('q') ?? '').trim()
-    if (name.length < 2) return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+    const seriesId = (url.searchParams.get('seriesId') ?? '').trim()
+    if (name.length < 2 && !seriesId) {
+      return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+    }
 
-    // 1) Precomputed (owned-flagged) roster, if the job has recorded this series.
-    const precomputed = await getSeriesRoster(name)
+    // 1) Precomputed (owned-flagged) roster, by id when we have one.
+    const precomputed = seriesId ? await getSeriesRosterById(seriesId) : await getSeriesRoster(name)
     if (precomputed) {
       return (
         json(res, 200, {
@@ -295,12 +352,24 @@ export async function handleAudible(req, res, url, ctx) {
       )
     }
 
-    // 2) Live resolve (in-memory TTL cache), for a series not yet swept.
-    const key = `series|${region}|${name.toLowerCase()}`
+    // 2) Live resolve (in-memory TTL cache), for a series not yet swept. Cache by
+    // series id when we have one so two same-named series can't share an entry.
+    const key = `series|${region}|${seriesId || name.toLowerCase()}`
     const cached = cacheGet(key)
     if (cached) return (json(res, 200, cached), true)
 
-    const match = await resolveSeriesAsin(name, region)
+    // Disambiguate by the authors of the books the library already owns here.
+    let ownedAuthors = []
+    if (seriesId) {
+      try {
+        const owned = await getOwnedSeriesBooks(seriesId)
+        ownedAuthors = [...new Set(owned.map((b) => b.author).filter(Boolean))]
+      } catch {
+        // ABS db not mounted - fall back to the name-only match.
+      }
+    }
+
+    const match = await resolveSeriesAsin(name, region, ownedAuthors)
     if (!match) {
       const empty = { name, seriesAsin: null, books: [] }
       cacheSet(key, empty)

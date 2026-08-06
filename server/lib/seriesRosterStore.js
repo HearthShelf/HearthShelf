@@ -1,22 +1,46 @@
 // Durable store for the precomputed Audible series roster (the series-roster
 // job's output). GLOBAL per HearthShelf instance - "owned" is a library-wide
-// fact, not per-user - so rows key on (server_id, lowercased name). The roster
-// books carry an `owned` flag the clients read directly. See jobs/seriesRoster.js
-// for the producer and routes/audible.js for the consumer.
+// fact, not per-user - so rows key on (server_id, series_id).
+//
+// Keyed by ABS's series id, NOT the name: two distinct series can share a name
+// (Karevik's "Accidental Champion" vs Herzman's), and a name key made one
+// overwrite the other. The roster books carry an `owned` flag the clients read
+// directly. See jobs/seriesRoster.js for the producer and routes/audible.js for
+// the consumer.
 
 import { db, getServerId } from '../db.js'
 
+function parseBooks(raw) {
+  try {
+    const books = JSON.parse(String(raw))
+    return Array.isArray(books) ? books : []
+  } catch {
+    return []
+  }
+}
+
+function rowToRoster(row) {
+  return {
+    seriesId: String(row.series_id),
+    name: String(row.name),
+    seriesAsin: row.series_asin == null ? null : String(row.series_asin),
+    seriesTitle: row.series_title == null ? undefined : String(row.series_title),
+    books: parseBooks(row.books_json),
+    resolvedAt: Number(row.resolved_at) || 0,
+  }
+}
+
 // Persist one series' enriched roster. `books` is the array already stamped with
 // owned flags. Upsert so a re-run refreshes in place.
-export async function saveSeriesRoster({ name, seriesAsin, seriesTitle, books }) {
+export async function saveSeriesRoster({ seriesId, name, seriesAsin, seriesTitle, books }) {
+  if (!seriesId) return
   const serverId = await getServerId()
-  const nameKey = name.trim().toLowerCase()
   await db.execute({
     sql: `
       INSERT INTO series_roster
-        (server_id, name_key, name, series_asin, series_title, books_json, resolved_at)
+        (server_id, series_id, name, series_asin, series_title, books_json, resolved_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (server_id, name_key) DO UPDATE SET
+      ON CONFLICT (server_id, series_id) DO UPDATE SET
         name         = excluded.name,
         series_asin  = excluded.series_asin,
         series_title = excluded.series_title,
@@ -25,7 +49,7 @@ export async function saveSeriesRoster({ name, seriesAsin, seriesTitle, books })
     `,
     args: [
       serverId,
-      nameKey,
+      String(seriesId),
       name,
       seriesAsin ?? null,
       seriesTitle ?? null,
@@ -35,40 +59,79 @@ export async function saveSeriesRoster({ name, seriesAsin, seriesTitle, books })
   })
 }
 
-// Read a precomputed roster by series name. Returns the same shape the audible
-// route returns ({ name, seriesAsin, seriesTitle, books, resolvedAt }) or null
-// when this series hasn't been swept yet.
-export async function getSeriesRoster(name) {
+// Read a precomputed roster by ABS series id - the precise lookup. Returns
+// null when this series hasn't been swept yet.
+export async function getSeriesRosterById(seriesId) {
+  const id = String(seriesId ?? '').trim()
+  if (!id) return null
   const serverId = await getServerId()
+  try {
+    const res = await db.execute({
+      sql: `
+        SELECT series_id, name, series_asin, series_title, books_json, resolved_at
+        FROM series_roster
+        WHERE server_id = ? AND series_id = ?
+        LIMIT 1
+      `,
+      args: [serverId, id],
+    })
+    const row = res.rows[0]
+    return row ? rowToRoster(row) : null
+  } catch {
+    return null
+  }
+}
+
+// Read a precomputed roster by its resolved Audible series ASIN. Precise (the
+// ASIN identifies the Audible series), used by the release-notify job, whose
+// stored subscriptions carry the ASIN rather than an ABS series id.
+export async function getSeriesRosterByAsin(seriesAsin) {
+  const asin = String(seriesAsin ?? '').trim()
+  if (!asin) return null
+  const serverId = await getServerId()
+  try {
+    const res = await db.execute({
+      sql: `
+        SELECT series_id, name, series_asin, series_title, books_json, resolved_at
+        FROM series_roster
+        WHERE server_id = ? AND lower(series_asin) = ?
+        LIMIT 1
+      `,
+      args: [serverId, asin.toLowerCase()],
+    })
+    const row = res.rows[0]
+    return row ? rowToRoster(row) : null
+  } catch {
+    return null
+  }
+}
+
+// Read a precomputed roster by series NAME. Ambiguous by nature - two series can
+// share a name - so this returns null when the name matches more than one row
+// rather than guessing wrong. Callers that know the ABS series id should use
+// getSeriesRosterById; this exists for callers that only have a name (the
+// release-notify job's stored subscriptions, and older clients that send only
+// ?q=<name>).
+export async function getSeriesRoster(name) {
   const nameKey = String(name ?? '')
     .trim()
     .toLowerCase()
   if (!nameKey) return null
+  const serverId = await getServerId()
   try {
     const res = await db.execute({
       sql: `
-        SELECT name, series_asin, series_title, books_json, resolved_at
+        SELECT series_id, name, series_asin, series_title, books_json, resolved_at
         FROM series_roster
-        WHERE server_id = ? AND name_key = ?
-        LIMIT 1
+        WHERE server_id = ? AND lower(trim(name)) = ?
+        LIMIT 2
       `,
       args: [serverId, nameKey],
     })
-    const row = res.rows[0]
-    if (!row) return null
-    let books = []
-    try {
-      books = JSON.parse(String(row.books_json))
-    } catch {
-      books = []
-    }
-    return {
-      name: String(row.name),
-      seriesAsin: row.series_asin == null ? null : String(row.series_asin),
-      seriesTitle: row.series_title == null ? undefined : String(row.series_title),
-      books: Array.isArray(books) ? books : [],
-      resolvedAt: Number(row.resolved_at) || 0,
-    }
+    // More than one series carries this name: no way to pick correctly from a
+    // name alone, and guessing is exactly the bug this re-key removed.
+    if (res.rows.length !== 1) return null
+    return rowToRoster(res.rows[0])
   } catch {
     return null
   }

@@ -9,7 +9,7 @@
 import { getServerId } from '../db.js'
 import { getUserSetting } from '../settings.js'
 import { absDbAvailable, getOwnedAsins, getLibraryItemByAsin } from '../lib/absdb.js'
-import { getSeriesRoster } from '../lib/seriesRosterStore.js'
+import { getSeriesRoster, getSeriesRosterByAsin } from '../lib/seriesRosterStore.js'
 import {
   allSubscriptions,
   markSubscriptionAvailable,
@@ -160,7 +160,11 @@ export async function runReleaseNotify(logger) {
       // Series subscription: notify when a NEW book in the series lands in ABS.
       // Tracked per-asin in notified_json so each book pushes at most once.
       if (sub.kind === 'series' && sub.seriesTitle) {
-        const roster = sub.seriesTitle ? await getSeriesRoster(sub.seriesTitle) : null
+        // Prefer the subscription's resolved series ASIN - a name can match two
+        // distinct series, and the name lookup returns null when it's ambiguous.
+        const roster = sub.seriesAsin
+          ? await getSeriesRosterByAsin(sub.seriesAsin)
+          : await getSeriesRoster(sub.seriesTitle)
         const books = roster?.books ?? []
         const notified = { ...(sub.notified || {}) }
         let changed = false

@@ -17,7 +17,9 @@ export type AudibleSeriesResponse = HSAudibleSeriesResponse
 
 export const audibleKeys = {
   search: (q: string, page = 1) => ['audible', 'search', q, page] as const,
-  series: (name: string) => ['audible', 'series', name] as const,
+  // Keyed by ABS series id, not name - two distinct series can share a name, and
+  // a name-only key made them collide in the cache.
+  series: (seriesId: string, name: string) => ['audible', 'series', seriesId, name] as const,
 }
 
 export async function searchAudible(query: string, page = 1): Promise<AudibleSearchResponse> {
@@ -29,12 +31,20 @@ export async function searchAudible(query: string, page = 1): Promise<AudibleSea
   return res.json() as Promise<AudibleSearchResponse>
 }
 
-// Fetch a series' books from Audible by series name. The backend resolves the
-// series ASIN (ABS exposes none) and returns the child books ordered by
-// sequence; seriesAsin is null when no confident match was found.
-export async function fetchAudibleSeries(name: string): Promise<AudibleSeriesResponse> {
+// Fetch a series' books from Audible. The backend resolves the series ASIN (ABS
+// exposes none) and returns the child books ordered by sequence; seriesAsin is
+// null when no confident match was found.
+//
+// seriesId is ABS's own series id and is what identifies the series - the name
+// is passed too because it's the Audible search term, but two distinct series
+// can share a name, so the id is what keeps their rosters apart.
+export async function fetchAudibleSeries(
+  seriesId: string,
+  name: string,
+): Promise<AudibleSeriesResponse> {
   const token = useAuthStore.getState().token
-  const res = await fetch(`/hs/audible/series?q=${encodeURIComponent(name)}`, {
+  const params = new URLSearchParams({ q: name, seriesId })
+  const res = await fetch(`/hs/audible/series?${params.toString()}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!res.ok) throw new Error(`Audible series ${res.status}`)

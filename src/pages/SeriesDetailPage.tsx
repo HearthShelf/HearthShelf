@@ -85,8 +85,8 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   // same query). The unowned gap enlarges the completion denominator so the % and
   // the segment track reflect the whole series, not just what's owned.
   const { data: audible } = useQuery({
-    queryKey: audibleKeys.series(series.name),
-    queryFn: () => fetchAudibleSeries(series.name),
+    queryKey: audibleKeys.series(series.id, series.name),
+    queryFn: () => fetchAudibleSeries(series.id, series.name),
     enabled: series.name.length >= 2,
     staleTime: 30 * 60 * 1000,
     retry: false,
@@ -389,6 +389,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           })}
           {selected.size === 0 && (
             <SeriesMissingBooks
+              seriesId={series.id}
               seriesName={series.name}
               ownedBooks={ownedBooks}
               inline
