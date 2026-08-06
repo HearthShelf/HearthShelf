@@ -105,6 +105,40 @@ function stampOwned(audibleBooks, ownedBooks) {
   return out
 }
 
+// Do the owned books in one series come from authors with nothing in common?
+//
+// Deliberately conservative - it must not fire on the normal cases. Co-authored
+// series list several names per book ("Andrew Karevik, LitRPG Freaks"), and ABS
+// records one author per book, so a legitimate series can still show several
+// author strings. We split every string on commas and only flag a conflict when
+// NO single person appears across all of them, which is the real signature of
+// two different series sharing a name.
+function isAuthorConflict(ownedAuthors) {
+  if (ownedAuthors.length < 2) return false
+  const personSets = ownedAuthors.map(
+    (a) =>
+      new Set(
+        String(a)
+          .split(',')
+          .map((n) =>
+            n
+              .toLowerCase()
+              .replace(/[^\p{L}\p{N}\s]/gu, '')
+              .replace(/\s+/g, ' ')
+              .trim(),
+          )
+          .filter(Boolean),
+      ),
+  )
+  if (personSets.some((s) => s.size === 0)) return false
+  // Any person present in every book's author list means they're related.
+  const [first, ...rest] = personSets
+  for (const person of first) {
+    if (rest.every((s) => s.has(person))) return false
+  }
+  return true
+}
+
 // Small delay so we don't hammer the Audible catalog API across a large library.
 // Resolves early if the run is cancelled so a Kill doesn't wait out the pacing.
 const between = (ms, signal) =>
@@ -143,6 +177,32 @@ export async function runSeriesRoster(logger, signal) {
       // distinct series share this name.
       const owned = await getOwnedSeriesBooks(s.seriesId)
       const ownedAuthors = [...new Set(owned.map((b) => b.author).filter(Boolean))]
+
+      // A single ABS series holding books by unrelated authors is almost always
+      // two real series merged under one name (ABS matches series by name, so a
+      // title collision silently fuses them). We cannot tell which one the user
+      // means, and either roster would list the OTHER author's books as "missing
+      // from your library" - a confidently wrong answer. Skip it and say so;
+      // showing nothing is better, and the log tells the user what to fix.
+      if (isAuthorConflict(ownedAuthors)) {
+        unresolved++
+        await saveSeriesRoster({
+          seriesId: s.seriesId,
+          name: s.name,
+          seriesAsin: null,
+          seriesTitle: null,
+          books: [],
+        })
+        logger.warn(
+          `[${i}/${seriesList.length}] ${s.name}: skipped - books by unrelated authors ` +
+            `(${ownedAuthors.join(' / ')}) share this series. Two series are likely merged; ` +
+            `split them in the book editor to get missing-book suggestions.`,
+        )
+        logger.progress(i, seriesList.length)
+        if (PACING_MS > 0 && i < seriesList.length) await between(PACING_MS, signal)
+        continue
+      }
+
       const match = await resolveSeriesAsin(s.name, region, ownedAuthors)
       if (!match) {
         unresolved++
