@@ -11583,3 +11583,143 @@ select.fld {
   text-align: center;
   font-family: var(--font-mono);
 }
+/* ---- Home bands: dashboard, countdown, clubs ----------------------------- */
+/* Up-next queue peek beside the listening streak. */
+.dash-row {
+  display: flex;
+  gap: var(--s3);
+  margin-bottom: var(--s5);
+}
+
+.dash-card {
+  flex: 1;
+  text-align: left;
+  padding: 14px;
+  background: var(--c-high);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.dash-card:first-child {
+  flex: 1.2;
+}
+
+.dash-card:hover {
+  border-color: var(--primary);
+}
+
+.dash-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 650;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.dash-covers {
+  display: flex;
+  margin: 10px 0 4px;
+}
+
+.dash-cap {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.dash-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.dash-big {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+/* "X days until <book>" for a followed release landing soon. */
+.rc-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 12px 14px;
+  margin-bottom: var(--s5);
+  border-radius: var(--r-card);
+  border: 1px solid var(--primary);
+  background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+.rc-cover {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.rc-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.rc-title {
+  font-weight: 650;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-sub {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One club per tile: its current book's cover, the club name, the book. */
+.club-tile {
+  width: 104px;
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.club-tile-n {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.club-tile-b {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -32,6 +32,9 @@ import { useMonthlyShelf, useDiscoverFeedbackQuery } from '@/hooks/useDiscover'
 import { useQuestGiverPicks } from '@/hooks/useQuestGiverPicks'
 import { useDiscoverEnabled } from '@/hooks/useQuestGiver'
 import { HomeSectionsEditor } from '@/components/home/HomeSectionsEditor'
+import { HomeClubShelf } from '@/components/home/HomeClubShelf'
+import { ReleaseCountdownBanner } from '@/components/home/ReleaseCountdownBanner'
+import { DashboardRow } from '@/components/home/DashboardRow'
 
 const SHELF_ICONS: Record<string, string> = {
   'recently-added': 'schedule',
@@ -455,6 +458,15 @@ export function HomePage() {
         homeSections.map((sec) => {
           if (!sec.on) return null
           switch (sec.id) {
+            case 'dashboard':
+              return <DashboardRow key={sec.id} />
+
+            case 'release-countdown':
+              return <ReleaseCountdownBanner key={sec.id} />
+
+            case 'book-club':
+              return <HomeClubShelf key={sec.id} />
+
             // The monthly AI shelf rides with the QuestGiver band - both are the
             // "picked for you by name" flavour of recommendation.
             case 'questgiver':

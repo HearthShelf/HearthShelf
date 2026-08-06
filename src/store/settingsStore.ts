@@ -120,6 +120,8 @@ export interface SettingsState {
   // How many taste-derived rows (genre / author / narrator) the "More picks for
   // you" block may spawn. 0 turns the block off.
   homeRecShelfCount: number
+  // How many days out a followed book starts showing on Home's countdown band.
+  notifyCountdownWindowDays: number
   // When on, Search also looks up titles you don't own via the Audible catalog
   // and shows them in a "Not in your library" section.
   searchExternalSources: boolean
@@ -252,6 +254,7 @@ export const useSettingsStore = create<SettingsState>()(
       showOthersBooks: true,
       homeSections: DEFAULT_HOME_SECTIONS,
       homeRecShelfCount: DEFAULT_REC_SHELF_COUNT,
+      notifyCountdownWindowDays: 14,
       searchExternalSources: true,
       externalLinkGoodreads: true,
       externalLinkAudible: true,
