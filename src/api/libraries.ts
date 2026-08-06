@@ -1,4 +1,11 @@
-import { ABS_ENDPOINTS } from '@hearthshelf/core'
+import {
+  ABS_ENDPOINTS,
+  normalizeSeriesPatch,
+  normalizeAuthorsPatch,
+  type ABSItemMetadataPatch,
+  type ABSItemSeriesPatch,
+  type ABSItemAuthorPatch,
+} from '@hearthshelf/core'
 import { absRequest } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
 import type {
@@ -65,49 +72,12 @@ export function ebookUrl(itemId: string, token: string | null): string {
   return `/abs-api${ABS_ENDPOINTS.itemEbook(itemId)}${params}`
 }
 
-// A series membership as ABS's media PATCH accepts it. Matching is by NAME -
-// ABS ignores any id sent here (server/models/Book.js updateSeriesFromRequest),
-// finding-or-creating the series by name within the library.
-//
-// `sequence` MUST be a string: ABS does
-// `typeof seriesObj.sequence === 'string' ? seriesObj.sequence : null`, so a
-// numeric 3 silently WIPES the sequence instead of setting it.
-export interface ItemSeriesPatch {
-  name: string
-  sequence: string | null
-}
-
-// An author as ABS's media PATCH accepts it. Like series, matched by name and
-// find-or-created; any id is discarded server-side.
-export interface ItemAuthorPatch {
-  name: string
-}
-
-// Editable subset of an item's metadata. PATCH /api/items/:id/media accepts a
-// partial { metadata } payload and returns the updated libraryItem. Omitted keys
-// are left untouched, so this is a true partial update.
-//
-// CAUTION - the four list fields are REPLACE, not merge. ABS unlinks any series
-// or author whose name is absent from the array you send (and an empty array
-// clears them), so a caller must always submit the COMPLETE list, not a delta.
-export interface ItemMetadataPatch {
-  title?: string | null
-  subtitle?: string | null
-  description?: string | null
-  publishedYear?: string | null
-  // Accepted by ABS but absent from its own edit form; we expose it.
-  publishedDate?: string | null
-  publisher?: string | null
-  language?: string | null
-  isbn?: string | null
-  asin?: string | null
-  genres?: string[]
-  narrators?: string[]
-  series?: ItemSeriesPatch[]
-  authors?: ItemAuthorPatch[]
-  explicit?: boolean
-  abridged?: boolean
-}
+// The editable-metadata payload and its guards live in @hearthshelf/core so
+// every surface sends ABS the same well-formed body. See core's
+// lib/itemMetadata.ts for why the normalizers exist (ABS fails silently).
+export type ItemSeriesPatch = ABSItemSeriesPatch
+export type ItemAuthorPatch = ABSItemAuthorPatch
+export type ItemMetadataPatch = ABSItemMetadataPatch
 
 // A metadata-provider search result (POST applies it via matchItem).
 export interface ABSMatchResult {
@@ -243,26 +213,6 @@ export function embedItemMetadata(
   return absRequest<void>(`/api/tools/item/${itemId}/embed-metadata${qs ? '?' + qs : ''}`, {
     method: 'POST',
   })
-}
-
-// Drop entries ABS would reject and coerce sequence to the string it requires.
-// ABS silently ABORTS the entire series update if any entry lacks a string name
-// (returning null rather than erroring), which would look like "my other edits
-// saved but the series didn't" - so clean the list here instead.
-export function normalizeSeriesPatch(series: ItemSeriesPatch[]): ItemSeriesPatch[] {
-  return series
-    .map((s) => ({ name: String(s.name ?? '').trim(), sequence: s.sequence }))
-    .filter((s) => s.name.length > 0)
-    .map((s) => {
-      const seq = s.sequence == null ? '' : String(s.sequence).trim()
-      return { name: s.name, sequence: seq === '' ? null : seq }
-    })
-}
-
-export function normalizeAuthorsPatch(authors: ItemAuthorPatch[]): ItemAuthorPatch[] {
-  return authors
-    .map((a) => ({ name: String(a.name ?? '').trim() }))
-    .filter((a) => a.name.length > 0)
 }
 
 export function updateItemMetadata(
