@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type {
   QueueMode,
   AutoRulePref,
+  HomeSectionPref,
   ReaderAlign,
   ReaderFont,
   ReaderLayout,
@@ -16,10 +17,13 @@ import type {
 } from '@hearthshelf/core'
 import {
   DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS,
+  DEFAULT_HOME_SECTIONS,
+  DEFAULT_REC_SHELF_COUNT,
   READER_DEFAULTS,
   SETTINGS_CATALOG,
   settingDefault,
   normalizeAutoRules,
+  normalizeHomeSections,
   validateSetting,
 } from '@hearthshelf/core'
 
@@ -109,6 +113,13 @@ export interface SettingsState {
   libraryFill: boolean
   unifiedHome: boolean
   showOthersBooks: boolean
+  // The Home screen's section arrangement: array order is display order, `on`
+  // is visibility. Written by Home's own arrange mode. Account-scoped, so a
+  // listener's Home reads the same on web and mobile.
+  homeSections: HomeSectionPref[]
+  // How many taste-derived rows (genre / author / narrator) the "More picks for
+  // you" block may spawn. 0 turns the block off.
+  homeRecShelfCount: number
   // When on, Search also looks up titles you don't own via the Audible catalog
   // and shows them in a "Not in your library" section.
   searchExternalSources: boolean
@@ -239,6 +250,8 @@ export const useSettingsStore = create<SettingsState>()(
       libraryFill: false,
       unifiedHome: false,
       showOthersBooks: true,
+      homeSections: DEFAULT_HOME_SECTIONS,
+      homeRecShelfCount: DEFAULT_REC_SHELF_COUNT,
       searchExternalSources: true,
       externalLinkGoodreads: true,
       externalLinkAudible: true,
@@ -299,9 +312,15 @@ export const useSettingsStore = create<SettingsState>()(
           const localAt = state.meta[key] ?? -1
           // Per-key last-writer-wins: server wins ties.
           if (remote.updatedAt >= localAt) {
-            // Backfill rules added since the value was stored (book-club,
-            // manual) so the picker never hides a rule the shared set defines.
-            patch[key] = key === 'queueAutoRules' ? normalizeAutoRules(remote.value) : remote.value
+            // Backfill entries added since the value was stored (book-club
+            // rules, or a Home section shipped after the user last arranged
+            // theirs) so neither picker hides something the shared set defines.
+            patch[key] =
+              key === 'queueAutoRules'
+                ? normalizeAutoRules(remote.value)
+                : key === 'homeSections'
+                  ? normalizeHomeSections(remote.value)
+                  : remote.value
             meta[key] = remote.updatedAt
           }
         }
@@ -317,7 +336,9 @@ export const useSettingsStore = create<SettingsState>()(
       // soon as localStorage rehydrates, so the picker shows the full rule set
       // without waiting for a server pull.
       onRehydrateStorage: () => (state) => {
-        if (state) state.queueAutoRules = normalizeAutoRules(state.queueAutoRules)
+        if (!state) return
+        state.queueAutoRules = normalizeAutoRules(state.queueAutoRules)
+        state.homeSections = normalizeHomeSections(state.homeSections)
       },
     },
   ),
