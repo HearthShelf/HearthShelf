@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main, master]
+  # Manual fallback for when a push fails to dispatch a run.
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref.
 concurrency:
