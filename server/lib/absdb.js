@@ -115,9 +115,7 @@ export async function readImportInventory(client) {
   }
 
   // Users.
-  const usersRes = await c.execute(
-    `SELECT id, username, email, type, isActive FROM users`,
-  )
+  const usersRes = await c.execute(`SELECT id, username, email, type, isActive FROM users`)
   const users = usersRes.rows.map((r) => ({
     id: String(r.id),
     username: r.username != null ? String(r.username) : '',
@@ -170,7 +168,9 @@ export async function readImportInventory(client) {
   }))
 
   // Bookmarks live as a JSON array on each user row.
-  const bmRes = await c.execute(`SELECT id AS userId, bookmarks FROM users WHERE bookmarks IS NOT NULL`)
+  const bmRes = await c.execute(
+    `SELECT id AS userId, bookmarks FROM users WHERE bookmarks IS NOT NULL`,
+  )
   const bookmarks = []
   for (const r of bmRes.rows) {
     let arr = null
@@ -589,6 +589,50 @@ export async function getBookByMediaId(mediaItemId) {
   })
 }
 
+// Resolve MANY media ids to their book row in one query, keyed by media id.
+//
+// The single-id getBookByMediaId above is fine for a highlight badge, but a
+// paginated finished-books list would call it once per row - an N+1 against the
+// ABS db for every page. Same media-id -> libraryItems hop, plus the author name
+// a list row needs. Ids not present in the library are simply absent from the
+// result, so callers can tell "left the library" from "never finished".
+// Returns {} on any failure or when the db isn't mounted.
+export async function getBooksByMediaIdsBulk(mediaItemIds = []) {
+  const ids = [...new Set(mediaItemIds.filter(Boolean))].map(String)
+  if (!ids.length) return {}
+  const c = await ensureClient()
+  if (!c) return {}
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const res = await c.execute({
+      sql: `
+        SELECT b.id AS mediaId, b.title AS title, b.duration AS dur,
+               (SELECT li.id FROM libraryItems li
+                 WHERE li.mediaId = b.id AND li.mediaType = 'book'
+                 LIMIT 1) AS libraryItemId,
+               (SELECT a.name FROM authors a
+                  JOIN bookAuthors ba ON ba.authorId = a.id
+                 WHERE ba.bookId = b.id LIMIT 1) AS authorName
+          FROM books b
+         WHERE b.id IN (${placeholders})
+      `,
+      args: ids,
+    })
+    const out = {}
+    for (const row of res.rows) {
+      out[String(row.mediaId)] = {
+        title: String(row.title ?? ''),
+        author: row.authorName == null ? '' : String(row.authorName),
+        durationSec: Number(row.dur) || 0,
+        libraryItemId: row.libraryItemId == null ? null : String(row.libraryItemId),
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
 // --- Daily listening aggregates (for the stats-snapshot job) ---------------
 //
 // Per (user, day) listening totals for the snapshot job, over the recent window
@@ -879,9 +923,7 @@ export async function getLibraryBookCount() {
   const c = await ensureClient()
   if (!c) return 0
   try {
-    const res = await c.execute(
-      `SELECT COUNT(*) AS n FROM libraryItems WHERE mediaType = 'book'`,
-    )
+    const res = await c.execute(`SELECT COUNT(*) AS n FROM libraryItems WHERE mediaType = 'book'`)
     return Number(res.rows[0]?.n) || 0
   } catch {
     return 0

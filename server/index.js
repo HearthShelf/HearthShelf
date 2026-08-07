@@ -60,6 +60,7 @@ import { handleAvatars } from './routes/avatars.js'
 import { handleNarrators } from './routes/narrators.js'
 import { handleFinishedBooks } from './routes/finished-books.js'
 import { handleStats } from './routes/stats.js'
+import { handleCompletions } from './routes/completions.js'
 import { handleTelemetry } from './routes/telemetry.js'
 import { provisionAio } from './lib/provision-aio.js'
 import { hsDirectOnStartup } from './lib/hsdirect.js'
@@ -152,6 +153,7 @@ const ROUTES = [
   handleClubs,
   handleFinishedBooks,
   handleStats,
+  handleCompletions,
   handleTelemetry,
   handleRmab,
   handleAudible,

@@ -108,3 +108,47 @@ export async function getMostReReadForUser(userId) {
     return null
   }
 }
+
+// A page of the user's finished books, newest finish first - the data behind the
+// History screen's Books view. Same table and ordering as getMostReReadForUser
+// above, minus its completions >= 2 filter: this lists everything they have
+// finished, and `completions` is what marks a re-read among them.
+//
+// Returns { rows, total } so an infinite list knows when it is done. `total` is
+// counted in the same call because the caller cannot derive it from a page.
+// Ties break on media id so paging is stable - without it, two books sharing a
+// last_finished_at could swap places between pages and duplicate or skip.
+export async function getCompletionsPageForUser(userId, { limit = 25, offset = 0 } = {}) {
+  if (!userId) return { rows: [], total: 0 }
+  const serverId = await getServerId()
+  const lim = Math.max(1, Math.min(100, Number(limit) || 25))
+  const off = Math.max(0, Number(offset) || 0)
+  try {
+    const countRes = await db.execute({
+      sql: `SELECT COUNT(*) AS n FROM book_completions
+             WHERE server_id = ? AND user_id = ?`,
+      args: [serverId, String(userId)],
+    })
+    const total = Number(countRes.rows[0]?.n) || 0
+    if (!total) return { rows: [], total: 0 }
+
+    const res = await db.execute({
+      sql: `SELECT media_item_id, completions, last_finished_at
+              FROM book_completions
+             WHERE server_id = ? AND user_id = ?
+             ORDER BY last_finished_at DESC, media_item_id DESC
+             LIMIT ? OFFSET ?`,
+      args: [serverId, String(userId), lim, off],
+    })
+    return {
+      total,
+      rows: res.rows.map((r) => ({
+        mediaItemId: String(r.media_item_id),
+        completions: Number(r.completions) || 0,
+        lastFinishedAt: r.last_finished_at == null ? null : Number(r.last_finished_at),
+      })),
+    }
+  } catch {
+    return { rows: [], total: 0 }
+  }
+}
