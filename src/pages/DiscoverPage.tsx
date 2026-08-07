@@ -60,8 +60,9 @@ export function DiscoverPage() {
   // Apply the shared ranking layer: QuestGiver picks lead, liked/rated items float
   // up, disliked/not-interested items drop out - same order Home previews.
   const shelves = useMemo(
-    () => rankDiscoverShelves(baseShelves, byId, { questGiverPicks, feedback: fbMap }),
-    [baseShelves, byId, questGiverPicks, fbMap],
+    () =>
+      rankDiscoverShelves(baseShelves, byId, { questGiverPicks, feedback: fbMap, progressById }),
+    [baseShelves, byId, questGiverPicks, fbMap, progressById],
   )
 
   // AI-shelf picks resolved to owned items, with not_interested hidden.
