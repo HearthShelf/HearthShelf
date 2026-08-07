@@ -191,6 +191,24 @@ export function cronMatches(cron, date) {
   )
 }
 
+// The next time `cron` fires at or after `from`, or null when it never will
+// (unparseable / no match within a year). Minute-granular local time, walked
+// forward a minute at a time - the schedules here are daily/weekly, so the walk
+// exits within a day or two in practice and the year cap is just a backstop.
+// Used to show users when the nightly catch-up runs (see /hs/queue/status).
+export function nextCronRun(cron, from = new Date()) {
+  if (!cron || typeof cron !== 'string') return null
+  const d = new Date(from)
+  d.setSeconds(0, 0)
+  d.setMinutes(d.getMinutes() + 1) // strictly after `from`
+  const limit = 366 * 24 * 60
+  for (let i = 0; i < limit; i++) {
+    if (cronMatches(cron, d)) return new Date(d)
+    d.setMinutes(d.getMinutes() + 1)
+  }
+  return null
+}
+
 // Start the scheduler. Two kinds of job:
 //   - interval jobs (defaultIntervalMs): a setInterval, overridable via
 //     HS_JOB_<ID>_INTERVAL_MS. Kept for series-roster.

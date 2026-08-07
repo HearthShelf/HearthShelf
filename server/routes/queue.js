@@ -6,8 +6,33 @@ import { json, readBody } from '../lib/http.js'
 import { getQueue, setQueue } from '../queue.js'
 import { resolveQueue } from '../lib/computeQueue.js'
 import { getUserSetting } from '../settings.js'
+import { nextCronRun } from '../jobs/runner.js'
+import { QUEUE_RECOMPUTE_CRON } from '../jobs/registry.js'
 
 export async function handleQueue(req, res, url, ctx) {
+  // GET /hs/queue/status: what the Auto-mode UI needs to explain itself - when
+  // this user's queue last changed, and when the nightly catch-up next runs.
+  // Deliberately NOT admin-gated (unlike /hs/jobs): every user in Auto mode is
+  // shown this, and it exposes nothing but their own queue timestamp and a
+  // schedule that's the same for everyone.
+  if (url.pathname === '/hs/queue/status') {
+    if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
+    if (req.method !== 'GET') return (json(res, 405, { error: 'method_not_allowed' }), true)
+    const mode = (await getUserSetting(ctx.serverId, ctx.userId, 'queueMode')) ?? 'off'
+    const { updatedAt } = await getQueue(ctx.serverId, ctx.userId)
+    const next = nextCronRun(QUEUE_RECOMPUTE_CRON)
+    return (
+      json(res, 200, {
+        mode,
+        updatedAt,
+        // ms epoch so clients format in the viewer's own locale/zone; null if
+        // the schedule is somehow unparseable (client then hides the countdown).
+        nextRebuildAt: next ? next.getTime() : null,
+      }),
+      true
+    )
+  }
+
   // POST /hs/queue/recompute: run the Auto rebuild on demand. Recompute is now
   // trigger-based (client play-cooldown, settings/manual/dismissal edits, the
   // nightly job) instead of happening on every GET, so a plain read stays cheap

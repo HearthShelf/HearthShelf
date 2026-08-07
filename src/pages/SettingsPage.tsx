@@ -32,6 +32,7 @@ import {
 } from '@/store/readerPrefsStore'
 import { Icon } from '@/components/common/Icon'
 import { ManualQueueEditor } from '@/components/player/ManualQueueEditor'
+import { AutoQueueInfo } from '@/components/settings/AutoQueueInfo'
 import { useDismissalsStore } from '@/store/dismissalsStore'
 import { AvatarUpload } from '@/components/common/AvatarUpload'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -660,6 +661,11 @@ export function SettingsPage() {
                   </div>
                   <RuleList rules={s.queueAutoRules} onChange={(r) => put('queueAutoRules', r)} />
                 </div>
+                {s.queueMode === 'auto' && (
+                  <div className="set-row set-row-stack">
+                    <AutoQueueInfo />
+                  </div>
+                )}
                 {(s.queueMode === 'manual' || s.queueMode === 'auto') && (
                   <div className="set-row set-row-stack">
                     <div className="sr-meta">

@@ -43,6 +43,19 @@ export function recomputeServerQueue(currentItemId?: string | null): Promise<Ser
   })
 }
 
+/** What the Auto-mode UI needs to explain itself: when this user's queue last
+ *  changed, and when the nightly catch-up next runs (ms epoch, or null if the
+ *  server has no usable schedule). Not admin-gated - every Auto user sees it. */
+export interface QueueStatus {
+  mode: string
+  updatedAt: number
+  nextRebuildAt: number | null
+}
+
+export function getQueueStatus(): Promise<QueueStatus> {
+  return queueFetch<QueueStatus>('/hs/queue/status')
+}
+
 export function putServerQueue(
   items: QueueEntry[],
   manual: QueueEntry[],

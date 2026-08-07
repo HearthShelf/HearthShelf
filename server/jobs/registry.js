@@ -13,6 +13,10 @@ import { getBackupConfig } from '../backupConfig.js'
 const DAY_MS = 24 * 60 * 60 * 1000
 const HOUR_MS = 60 * 60 * 1000
 
+// When the nightly Auto-queue catch-up runs (local server time). Exported so the
+// queue route can tell users when the next rebuild lands without re-deriving it.
+export const QUEUE_RECOMPUTE_CRON = '0 3 * * *'
+
 export const JOBS = [
   {
     id: 'series-roster',
@@ -51,7 +55,13 @@ export const JOBS = [
     name: 'Up-next queue refresh',
     description:
       'Rebuilds your Auto up-next list overnight so new books in series you are reading show up on their own, without you having to open the app.',
-    defaultIntervalMs: DAY_MS, // nightly
+    // Cron-scheduled at 3am rather than interval-from-boot: users are shown a
+    // countdown to this run (see /hs/queue/status), and "tonight at 3am" is only
+    // truthful if it fires at a fixed hour. An interval from boot would drift to
+    // whatever time the box last restarted. defaultIntervalMs stays as the
+    // fallback the runner uses if the cron is ever cleared.
+    defaultIntervalMs: DAY_MS,
+    cronSchedule: async () => QUEUE_RECOMPUTE_CRON,
     run: runQueueRecompute,
   },
   {
