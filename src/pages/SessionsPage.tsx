@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getListeningSessions, meKeys } from '@/api/me'
 import { usePlayer } from '@/hooks/usePlayer'
-import { formatTimestamp, fmtSessDate } from '@/lib/format'
+import { formatTimestamp, fmtSessDate, groupByDay } from '@/lib/format'
 import type { ABSListeningSession } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
@@ -33,14 +33,9 @@ export function SessionsPage() {
   const uniqueBooks = new Set(sessions.map((s) => s.libraryItemId)).size
   const longest = sessions.reduce((m, s) => Math.max(m, s.timeListening ?? 0), 0)
 
-  // Group sessions by day (array is already newest-first).
-  const groups: { day: string; rows: ABSListeningSession[] }[] = []
-  for (const s of sessions) {
-    const { day } = fmtSessDate(s.startedAt)
-    const last = groups[groups.length - 1]
-    if (last && last.day === day) last.rows.push(s)
-    else groups.push({ day, rows: [s] })
-  }
+  // Group sessions by day (array is already newest-first). Shared with the
+  // hosted app and mobile so all three group history identically.
+  const groups = groupByDay(sessions, (s) => s.startedAt)
 
   return (
     <div className="page fade-in">
@@ -99,10 +94,10 @@ export function SessionsPage() {
           </div>
 
           {groups.map((g) => (
-            <div className="section" key={g.day}>
-              <div className="sh-day">{g.day}</div>
+            <div className="section" key={g.title}>
+              <div className="sh-day">{g.title}</div>
               <div className="sh-list">
-                {g.rows.map((s) => {
+                {g.data.map((s) => {
                   const when = fmtSessDate(s.startedAt)
                   return (
                     <div
