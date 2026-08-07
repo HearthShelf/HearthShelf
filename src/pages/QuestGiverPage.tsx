@@ -19,6 +19,8 @@ import {
   qgLibraryCandidates,
   qgExternalSearchTerms,
   qgExternalCandidates,
+  qgResolvePicks,
+  qgRunLabel,
   QG_EXPLORE_GENRES,
   type QgAnswers,
   type QgCandidate,
@@ -216,84 +218,22 @@ export function QuestGiverPage() {
 
     const out = await qgRecommend(profile, answers, candidates)
 
-    const byId = new Map(books.map((b) => [b.id, b]))
-    const priorKeys = new Map<string, number>()
-    runs.forEach((r) =>
-      r.picks.forEach((p) => priorKeys.set(p.key, (priorKeys.get(p.key) ?? 0) + 1)),
-    )
-
-    const seen = new Set<string>()
-    const picks: QgRenderedPick[] = []
-    for (const p of out.picks) {
-      if (seen.has(p.id)) continue
-      seen.add(p.id)
-      const b = byId.get(p.id)
-      if (b) {
-        const key = (b.title + '|' + b.author).toLowerCase()
-        picks.push({
-          key,
-          kind: 'library',
-          itemId: b.id,
-          title: b.title,
-          author: b.author,
-          genre: b.genre,
-          hours: b.hours,
-          reason: p.reason,
-          priorCount: priorKeys.get(key) ?? 0,
-        })
-        continue
-      }
-      // Not in the library - an external catalog hit. Requestable when RMAB is
-      // connected, otherwise a buy-on-Audible "new to your shelf" pick.
-      const ext = externalById.get(p.id)
-      if (!ext) continue
-      const key = (ext.title + '|' + ext.author).toLowerCase()
-      picks.push({
-        key,
-        kind: rmabEnabled ? 'request' : 'new',
-        itemId: ext.id, // asin - used for the request action
-        title: ext.title,
-        author: ext.author,
-        genre: ext.genre,
-        hours: ext.hours,
-        reason: p.reason,
-        priorCount: priorKeys.get(key) ?? 0,
-      })
-    }
-    for (const np of out.newPicks) {
-      const key = (np.title + '|' + np.author).toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      picks.push({
-        key,
-        kind: rmabEnabled ? 'request' : 'new',
-        title: np.title,
-        author: np.author,
-        genre: np.genre,
-        hours: np.hours,
-        reason: np.reason,
-        priorCount: priorKeys.get(key) ?? 0,
-      })
-    }
-    const top = picks.slice(0, answers.count ?? 4)
+    // Resolving picks (owned vs external, dedupe, repeat counts) is shared with
+    // the hosted app and mobile so all three agree on what a pick becomes.
+    const top = qgResolvePicks({
+      result: out,
+      books,
+      externalById,
+      priorPicks: runs.flatMap((r) => r.picks),
+      canRequest: rmabEnabled,
+      count: answers.count ?? 4,
+    })
 
     // stamp a label + timestamp and persist the run
-    const topGenre = Object.entries(weights ?? {})
-      .filter(([, v]) => v > 0)
-      .sort((a, b) => b[1] - a[1])[0]
-    const dirLabel =
-      direction === 'more'
-        ? 'More like this'
-        : direction === 'switch'
-          ? 'Switch it up'
-          : 'Something new'
-    const label =
-      dirLabel +
-      (mood.trim() ? ' · "' + mood.trim().slice(0, 28) + '"' : topGenre ? ' · ' + topGenre[0] : '')
     const now = new Date()
     const runRec: QgRun = {
       id: 'run' + now.getTime(),
-      label,
+      label: qgRunLabel(direction, mood, weights ?? {}),
       when: now.toLocaleString(undefined, {
         month: 'short',
         day: 'numeric',
