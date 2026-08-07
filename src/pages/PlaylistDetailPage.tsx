@@ -5,6 +5,7 @@ import { getPlaylist, updatePlaylist, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { usePlayer } from '@/hooks/usePlayer'
 import { formatDuration } from '@/lib/format'
+import { resolvePlaylistEntry } from '@hearthshelf/core'
 import type { ABSPlaylist } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
@@ -25,8 +26,13 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
     qc.invalidateQueries({ queryKey: ['playlist', playlist.id] })
     if (activeId) qc.invalidateQueries({ queryKey: libraryKeys.playlists(activeId) })
   }
-  const totalH = items.reduce((s, it) => s + (it.libraryItem.media.duration ?? 0), 0)
-  const cv = tintFor(items[0]?.libraryItem.media.metadata.title ?? playlist.name)
+  // Resolve each entry before anything reads it. ABS emits two shapes and only
+  // an episode entry carries `episode`; reading a row off `libraryItem`
+  // regardless is what made every episode display its podcast.
+  const rows = items.map(resolvePlaylistEntry)
+  const totalH = rows.reduce((s, r) => s + r.seconds, 0)
+  const cv = tintFor(rows[0]?.title ?? playlist.name)
+  const firstBook = rows.find((r) => !r.isEpisode)
 
   return (
     <div className="page fade-in" style={{ ['--glow-accent' as string]: cv }}>
@@ -49,8 +55,13 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
           {items.length} {items.length === 1 ? 'item' : 'items'} · {formatDuration(totalH)}
         </span>
         <div className="tb-spacer" />
-        {items[0] && (
-          <button className="btn btn-primary" onClick={() => void playItem(items[0].libraryItemId)}>
+        {/* Play starts the first BOOK - playback addresses a library item, so
+            leading with an episode would start its whole podcast instead. */}
+        {firstBook && (
+          <button
+            className="btn btn-primary"
+            onClick={() => void playItem(firstBook.libraryItemId)}
+          >
             <Icon name="play_arrow" fill /> Play
           </button>
         )}
@@ -66,38 +77,44 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
         </div>
       ) : (
         <div className="pl-list">
-          {items.map((it) => {
-            const b = it.libraryItem
-            const m = b.media.metadata
-            const hours = b.media.duration ? Math.round(b.media.duration / 360) / 10 : 0
+          {rows.map((r, i) => {
+            const hours = r.seconds ? Math.round(r.seconds / 360) / 10 : 0
             return (
               <div
                 className="pl-row"
-                key={it.libraryItemId}
-                data-cv={tintFor(m.title ?? 'Untitled')}
-                onClick={() => navigate(`/book/${it.libraryItemId}`)}
+                key={(r.episodeId ?? r.libraryItemId) + ':' + i}
+                data-cv={tintFor(r.title)}
+                // No episode route exists yet, so an episode row opens its
+                // containing podcast - the honest destination available today.
+                onClick={() => navigate(`/book/${r.libraryItemId}`)}
               >
-                <Icon name="drag_indicator" className="drag" />
-                <Cover itemId={it.libraryItemId} title={m.title ?? 'Untitled'} fs={5} />
+                <Cover itemId={r.libraryItemId} title={r.title} fs={5} />
                 <div style={{ minWidth: 0 }}>
-                  <div className="ll-title">{m.title}</div>
+                  <div className="ll-title">{r.title}</div>
                   <div className="ll-sub">
-                    {[m.authorName, m.narratorName].filter(Boolean).join(' · ')}
+                    {r.isEpisode ? 'Episode · ' : ''}
+                    {r.source}
                   </div>
                 </div>
                 <span className="ll-col mono" style={{ fontFamily: 'var(--font-mono)' }}>
                   {hours}h
                 </span>
-                <button
-                  className="ll-play"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void playItem(it.libraryItemId)
-                  }}
-                  aria-label="Play"
-                >
-                  <Icon name="play_arrow" fill />
-                </button>
+                {/* Playback addresses a library item, so a single episode has no
+                    play control until podcast playback exists. */}
+                {r.isEpisode ? (
+                  <span className="ll-play" aria-hidden />
+                ) : (
+                  <button
+                    className="ll-play"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void playItem(r.libraryItemId)
+                    }}
+                    aria-label="Play"
+                  >
+                    <Icon name="play_arrow" fill />
+                  </button>
+                )}
               </div>
             )
           })}
