@@ -135,6 +135,7 @@ function MobileDrawer({
     sec: 'Insights',
     rows: [
       { id: 'stats', icon: 'insights', label: 'Stats', to: '/stats' },
+      { id: 'finished', icon: 'check_circle', label: 'Finished', to: '/finished' },
       { id: 'sessions', icon: 'history', label: 'Listening history', to: '/sessions' },
     ],
   })

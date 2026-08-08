@@ -19,11 +19,13 @@ import { Avatar } from '@/components/common/Avatar'
 import { ImageZoomViewer } from '@/components/common/ImageZoomViewer'
 import { Icon } from '@/components/common/Icon'
 import { Stars } from '@/components/common/Stars'
+import { StarRating } from '@/components/common/StarRating'
 import { Dropdown, MItem } from '@/components/common/Dropdown'
 import { ItemEditModal } from '@/components/library/ItemEditModal'
 import { AddToListMenu } from '@/components/library/AddToListMenu'
 import { ChapterEditorModal } from '@/components/library/ChapterEditorModal'
 import { useToast } from '@/hooks/useToast'
+import { useRatings, useSetRating } from '@/hooks/useRatings'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -84,6 +86,8 @@ export function BookDetailPage() {
   const { playItem, seek } = usePlayer()
   const progressById = useMediaProgress()
   const { markFinished, isPending: marking } = useMarkFinished()
+  const { data: ratings } = useRatings()
+  const setRating = useSetRating()
   const sessionItemId = usePlayerStore((s) => s.libraryItemId)
   const token = useAuthStore((s) => s.token)
   const extGoodreads = useSettingsStore((s) => s.externalLinkGoodreads)
@@ -157,6 +161,8 @@ export function BookDetailPage() {
   const chapters = data.media.chapters ?? []
   const tracks = data.media.audioFiles ?? []
   const duration = tracks.reduce((s, t) => s + (t.duration ?? 0), 0)
+  // ABS's scraped community rating, read-only. The user's own rating is separate
+  // (book_ratings) and rendered above it.
   const rating = m.rating ?? null
   // The expanded item detail carries the ebook as `ebookFile` (object), not the
   // flat `ebookFormat` string used on minified list items.
@@ -297,9 +303,16 @@ export function BookDetailPage() {
                 </dd>
               </>
             )}
+            <dt>Your rating</dt>
+            <dd>
+              <StarRating
+                value={ratings?.[data.id] ?? null}
+                onChange={(n) => setRating.mutate({ itemKey: data.id, rating: n })}
+              />
+            </dd>
             {rating != null && rating > 0 && (
               <>
-                <dt>Rating</dt>
+                <dt>Community</dt>
                 <dd style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Stars rating={rating} />
                   <span className="mono" style={{ fontFamily: 'var(--font-mono)' }}>

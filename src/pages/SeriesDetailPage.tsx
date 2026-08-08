@@ -9,11 +9,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useMarkFinished } from '@/hooks/useMarkFinished'
+import { useRatings, useSetRating } from '@/hooks/useRatings'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
+import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
 import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -69,6 +71,8 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const { playItem } = usePlayer()
   const progressById = useMediaProgress()
   const { markFinished, isPending: marking } = useMarkFinished()
+  const { data: ratings } = useRatings()
+  const setRating = useSetRating()
   const isMobile = useIsMobile()
   const books = orderBooks(series.books ?? [])
   const author = books[0]?.media.metadata.authorName || ''
@@ -372,7 +376,17 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
                       </div>
                     )}
                   </div>
-                  <div className="sl-rating" />
+                  <div className="sl-rating">
+                    {/* Suppressed in select mode: per-row rating and bulk select
+                        compete for the same click. */}
+                    {!active && (
+                      <StarRating
+                        value={ratings?.[b.id] ?? null}
+                        onChange={(n) => setRating.mutate({ itemKey: b.id, rating: n })}
+                        size={15}
+                      />
+                    )}
+                  </div>
                   <button
                     className="icon-btn sl-play"
                     onClick={(e) => {

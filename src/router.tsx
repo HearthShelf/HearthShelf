@@ -23,6 +23,7 @@ import { SessionsPage } from '@/pages/SessionsPage'
 import { AuthorDetailPage } from '@/pages/AuthorDetailPage'
 import { NarratorsPage } from '@/pages/NarratorsPage'
 import { StatsPage } from '@/pages/StatsPage'
+import { FinishedBooksPage } from '@/pages/FinishedBooksPage'
 import { PodcastDetailPage } from '@/pages/PodcastDetailPage'
 import { PodcastLatestPage } from '@/pages/PodcastLatestPage'
 import { PodcastSearchPage } from '@/pages/PodcastSearchPage'
@@ -75,6 +76,7 @@ export const router = createBrowserRouter([
       { path: 'playlists', element: <PlaylistsPage /> },
       { path: 'playlists/:playlistId', element: <PlaylistDetailPage /> },
       { path: 'stats', element: <StatsPage /> },
+      { path: 'finished', element: <FinishedBooksPage /> },
       { path: 'podcast/:podcastId', element: <PodcastDetailPage /> },
       { path: 'podcasts/latest', element: <PodcastLatestPage /> },
       { path: 'podcasts/add', element: <PodcastSearchPage /> },

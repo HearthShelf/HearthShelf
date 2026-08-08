@@ -45,16 +45,9 @@ export function useDiscoverFeedbackQuery(enabled: boolean) {
 export function useSetDiscoverFeedback() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      itemKey,
-      vote,
-      rating,
-    }: {
-      itemKey: string
-      vote?: DiscoverVote | null
-      rating?: number | null
-    }) => setDiscoverFeedback(itemKey, { vote, rating }),
-    onMutate: async ({ itemKey, vote, rating }) => {
+    mutationFn: ({ itemKey, vote }: { itemKey: string; vote?: DiscoverVote | null }) =>
+      setDiscoverFeedback(itemKey, { vote }),
+    onMutate: async ({ itemKey, vote }) => {
       await qc.cancelQueries({ queryKey: discoverKeys.feedback })
       const prev = qc.getQueryData<DiscoverFeedbackMap>(discoverKeys.feedback) ?? {}
       const next: DiscoverFeedbackMap = { ...prev }
@@ -62,10 +55,6 @@ export function useSetDiscoverFeedback() {
       if (vote !== undefined) {
         if (vote === null) delete entry.vote
         else entry.vote = vote
-      }
-      if (rating !== undefined) {
-        if (rating === null) delete entry.rating
-        else entry.rating = rating
       }
       if (Object.keys(entry).length === 0) delete next[itemKey]
       else next[itemKey] = entry

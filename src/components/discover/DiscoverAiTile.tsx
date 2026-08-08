@@ -1,4 +1,5 @@
 import { Icon } from '@/components/common/Icon'
+import { StarRating } from '@/components/common/StarRating'
 import { BookTile } from '@/components/library/BookTile'
 import type { ABSLibraryItem } from '@/api/types'
 import type { DiscoverFeedbackEntry, DiscoverVote } from '@/api/discover'
@@ -9,6 +10,8 @@ interface DiscoverAiTileProps {
   progress?: number
   finished?: boolean
   feedback?: DiscoverFeedbackEntry
+  /** The user's own rating for this book, from /hs/ratings. */
+  rating?: number
   onVote: (itemKey: string, vote: DiscoverVote | null) => void
   onRate: (itemKey: string, rating: number | null) => void
   onNotInterested: (itemKey: string) => void
@@ -16,18 +19,20 @@ interface DiscoverAiTileProps {
 
 // An AI-shelf tile: the standard BookTile plus a compact feedback bar (thumb
 // up/down, 1-5 stars, not-interested) that drives next month's generation.
+// The stars are the same site-wide rating shown on the book page, not a
+// Discover-local one - rating here shows up there and vice versa.
 export function DiscoverAiTile({
   item,
   reason,
   progress,
   finished,
   feedback,
+  rating,
   onVote,
   onRate,
   onNotInterested,
 }: DiscoverAiTileProps) {
   const fb = feedback ?? {}
-  const rating = fb.rating ?? 0
   const toggle = (v: DiscoverVote) => onVote(item.id, fb.vote === v ? null : v)
 
   return (
@@ -51,19 +56,7 @@ export function DiscoverAiTile({
         >
           <Icon name="thumb_down" fill={fb.vote === 'dislike'} />
         </button>
-        <div className="disc-stars" role="radiogroup" aria-label="Rate">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <button
-              key={n}
-              type="button"
-              className={'disc-star' + (n <= rating ? ' on' : '')}
-              title={`${n} star${n > 1 ? 's' : ''}`}
-              onClick={() => onRate(item.id, rating === n ? null : n)}
-            >
-              <Icon name="star" fill={n <= rating} />
-            </button>
-          ))}
-        </div>
+        <StarRating value={rating ?? null} onChange={(n) => onRate(item.id, n)} />
         <button
           className="disc-not"
           title="Not interested - hide and stop suggesting"

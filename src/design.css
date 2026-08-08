@@ -900,6 +900,38 @@
   font-size: 16px;
 }
 
+/* ---- Star rating (interactive) -------------------------------------- */
+/* The user's own rating, wherever it appears (book page, series rows, the
+   finished-books page, the Discover tile). Sized by the --star-size custom
+   property the StarRating component sets. .stars above is the read-only
+   community rating and stays separate. */
+.star-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+.star-rate-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-faint);
+  display: grid;
+  place-items: center;
+  transition:
+    color 0.12s,
+    transform 0.1s;
+}
+.star-rate-btn:hover {
+  transform: scale(1.12);
+}
+.star-rate-btn .ms {
+  font-size: var(--star-size, 16px);
+}
+.star-rate-btn.on {
+  color: #e8b54a;
+}
+
 /* ---- Persistent play bar ------------------------------------------- */
 .playbar {
   position: absolute;
@@ -1394,6 +1426,14 @@
   font-size: 12.5px;
   color: var(--text-muted);
   margin-top: 3px;
+}
+/* Holds the row's star rating. Fixed width so rated and unrated rows line up
+   instead of the title column shifting between them. Hidden under 920px, where
+   .sl-row drops to four columns. */
+.sl-rating {
+  min-width: 92px;
+  display: flex;
+  justify-content: flex-end;
 }
 @media (max-width: 920px) {
   .sl-row {
@@ -7760,31 +7800,8 @@ select.fld {
 .disc-fb .qg-vote .ms {
   font-size: 15px;
 }
-.disc-stars {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-}
-.disc-star {
-  background: none;
-  border: none;
-  padding: 2px;
-  cursor: pointer;
-  color: var(--text-faint);
-  display: grid;
-  place-items: center;
-  transition:
-    color 0.12s,
-    transform 0.1s;
-}
-.disc-star:hover {
-  transform: scale(1.12);
-}
-.disc-star .ms {
+.disc-fb .star-rate-btn .ms {
   font-size: 16px;
-}
-.disc-star.on {
-  color: #e8b54a;
 }
 .disc-not {
   margin-left: auto;

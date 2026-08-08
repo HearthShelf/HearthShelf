@@ -73,7 +73,7 @@ export async function getDiscoverFeedback(): Promise<DiscoverFeedbackMap> {
 
 export async function setDiscoverFeedback(
   itemKey: string,
-  fb: { vote?: DiscoverVote | null; rating?: number | null },
+  fb: { vote?: DiscoverVote | null },
 ): Promise<DiscoverFeedbackMap> {
   const r = await dFetch<{ feedback: DiscoverFeedbackMap }>('/feedback', {
     method: 'POST',

@@ -31,6 +31,7 @@ function groupForPath(path: string): string {
   if (path.startsWith('/discover')) return 'discover'
   if (path.startsWith('/requests')) return 'requests'
   if (path.startsWith('/stats')) return 'stats'
+  if (path.startsWith('/finished')) return 'finished'
   if (path.startsWith('/sessions')) return 'sessions'
   if (path.startsWith('/player')) return 'player'
   if (path.startsWith('/config')) return 'config'
@@ -162,6 +163,7 @@ export function Sidebar() {
 
         <div className="nav-label">Insights</div>
         <Item id="stats" icon="insights" label="Stats" to="/stats" />
+        <Item id="finished" icon="check_circle" label="Finished" to="/finished" />
         <Item id="sessions" icon="history" label="History" to="/sessions" />
         <Item id="player" icon="graphic_eq" label="Now playing" to="/player" />
 
