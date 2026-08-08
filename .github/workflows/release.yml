@@ -3,7 +3,7 @@ name: Release
 # Pushing a version tag (v1.2.3) publishes production images + a GitHub Release.
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ['*.*.*']
 
 env:
   REGISTRY: ghcr.io
