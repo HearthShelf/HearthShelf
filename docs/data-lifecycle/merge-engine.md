@@ -124,7 +124,10 @@ Walk the data-domain registry (`data-inventory.md` §5); each domain's
 - apply the policy: `union` (e.g. `finished_books`, notes), `lww` (settings,
   queue - reusing the per-key LWW helpers already in core), `skip`
   (rate_limits, job history), `custom` (clubs: union clubs by name with
-  admin confirmation, then union members/books)
+  admin confirmation, then union members/books; `book_ratings`: re-map
+  `item_key` as an item ref EXCEPT `fb:`-prefixed keys, which name a
+  `finished_books` row whose id the merge preserves, so they pass through
+  verbatim and a rating for an unowned imported book survives)
 
 Instance singletons (`ai_config`, `integrations_config`, ...) never merge -
 target wins, report says so.

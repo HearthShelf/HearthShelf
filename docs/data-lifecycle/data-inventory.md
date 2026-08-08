@@ -84,10 +84,11 @@ From `server/db.js` (verified 2026-07-03). Scope legend: **U** = per-user
 | `listening_queue` | U | - | LWW on `updated_at` |
 | `avatars` (+ files) | U | - | Files at `avatars/<server_id>_<user_id>.<ext>` - file names embed the key pair; re-key must rename files |
 | `narrator_images` (+ files) | S | - | Re-derivable by the series-roster job; back up as convenience |
-| `finished_books` | U | - | Reading history incl. Goodreads/Hardcover imports - exists nowhere else; merge = union on the UNIQUE key |
+| `finished_books` | U | - | Reading history incl. Goodreads/Hardcover imports - exists nowhere else; merge = union on the UNIQUE key. Ratings are NOT here; see `book_ratings` |
+| `book_ratings` | U | - | The user's own 1-5 star ratings - ABS has no rating field, so these exist nowhere else. `item_key` is an ABS item id needing re-mapping, EXCEPT `fb:<finished_books.id>` keys (an unowned imported book), which pass through since the merge preserves those row ids |
 | `book_notes` | U | - | References ABS `library_item_id` - needs item re-mapping on cross-server merge |
 | `clubs` / `club_books` / `club_members` | S / per-club | - | `club_books.library_item_id` needs item re-mapping; `club_members.user_id` needs user re-mapping |
-| `qg_feedback`, `qg_monthly`, `qg_runs` | U | - | Discover/QuestGiver state; merge = LWW / union, low stakes |
+| `qg_feedback`, `qg_monthly`, `qg_runs` | U | - | Discover/QuestGiver state (votes, not ratings); merge = LWW / union, low stakes |
 | `popular_signals`, `series_roster` | S | - | Aggregates; re-derivable, back up as convenience |
 | `rate_limits` | U | - | Do not merge; reset on migration is fine |
 | `community_config` | I | - | Instance policy |

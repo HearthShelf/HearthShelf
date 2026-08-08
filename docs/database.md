@@ -60,7 +60,8 @@ Created on boot via `CREATE TABLE IF NOT EXISTS` (see `server/db.js`):
 | `ai_config` | the editable QuestGiver AI config (provider, model, key, rate limit, QuestGiver + Discover on/off) - single row; any `QG_*` / `DISCOVER_ENABLED` env var overrides its field |
 | `integrations_config` | editable connections for external services (ReadMeABook url+token, Audplexus url+key, Audible region) - single row; any `RMAB_*` / `AUDPLEXUS_*` / `AUDIBLE_REGION` env var overrides its field |
 | `community_config` | instance-wide community settings (leaderboard default sharing) - single row, seeded from `COMMUNITY_DEFAULT_SHARE` on first boot |
-| `qg_feedback` | per-user Discover votes / ratings |
+| `book_ratings` | the user's own 1-5 star rating per book - site-wide, **not** gated on Discover. Keyed by ABS item id, or `fb:<finished_books.id>` for an imported book the server doesn't own |
+| `qg_feedback` | per-user Discover votes |
 | `qg_monthly` | the per-user monthly AI shelf cache |
 | `qg_runs` | per-user QuestGiver run history (last 30) |
 | `popular_signals` | daily server-wide popular-item aggregate |

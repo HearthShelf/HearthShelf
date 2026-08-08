@@ -108,3 +108,12 @@ provider seam is what makes (1) mechanical when you set the package up.
 - `src/pages/config/ConfigLogs.tsx` (both repos, identical) — first unified page.
 - `src/pages/config/ConfigShell.tsx` (both repos) — provider mounted.
 - `@hearthshelf/core` `src/types/abs.ts` — shared log types.
+
+## Precedent: star ratings (landed in both repos by hand)
+
+The site-wide star rating shipped to both repos in one change rather than
+through a shared seam: `StarRating.tsx` is byte-identical in each, the
+`.star-rate*` / `.sl-rating` CSS blocks are byte-identical, and only the API
+layer differs (`src/api/ratings.ts` relative-URL vs `src/api/absRatings.ts`
+`AbsTarget`-threaded). That split — identical component + CSS, divergent
+transport — is the shape a future seam should formalize.
