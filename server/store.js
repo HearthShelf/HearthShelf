@@ -25,10 +25,17 @@ async function migrateLegacyJson() {
     for (const [userId, items] of Object.entries(parsed.feedback ?? {})) {
       for (const [itemKey, fb] of Object.entries(items ?? {})) {
         await db.execute({
-          sql: `INSERT OR REPLACE INTO qg_feedback (user_id, item_key, vote, rating, updated_at)
-                VALUES (?, ?, ?, ?, ?)`,
-          args: [userId, itemKey, fb.vote ?? null, fb.rating ?? null, now],
+          sql: `INSERT OR REPLACE INTO qg_feedback (user_id, item_key, vote, updated_at)
+                VALUES (?, ?, ?, ?)`,
+          args: [userId, itemKey, fb.vote ?? null, now],
         })
+        if (fb.rating != null) {
+          await db.execute({
+            sql: `INSERT OR IGNORE INTO book_ratings (server_id, user_id, item_key, rating, updated_at)
+                  VALUES ('local', ?, ?, ?, ?)`,
+            args: [userId, itemKey, fb.rating, now],
+          })
+        }
       }
     }
     for (const [userId, shelf] of Object.entries(parsed.monthly ?? {})) {
@@ -69,17 +76,18 @@ export function ensureStore() {
 
 // --- Feedback ---
 
+// Votes only. Star ratings moved to book_ratings (lib/ratingsStore.js) so they
+// survive Discover being switched off.
 export async function getFeedback(serverId, userId) {
   await ensureStore()
   const r = await db.execute({
-    sql: `SELECT item_key, vote, rating FROM qg_feedback WHERE server_id = ? AND user_id = ?`,
+    sql: `SELECT item_key, vote FROM qg_feedback WHERE server_id = ? AND user_id = ?`,
     args: [serverId, userId],
   })
   const out = {}
   for (const row of r.rows) {
     const fb = {}
     if (row.vote != null) fb.vote = row.vote
-    if (row.rating != null) fb.rating = Number(row.rating)
     out[row.item_key] = fb
   }
   return out
@@ -87,27 +95,18 @@ export async function getFeedback(serverId, userId) {
 
 export async function setFeedback(serverId, userId, itemKey, fb) {
   await ensureStore()
-  // Merge with any existing row so a vote-only update keeps the rating.
-  const existing = await db.execute({
-    sql: `SELECT vote, rating FROM qg_feedback WHERE server_id = ? AND user_id = ? AND item_key = ?`,
-    args: [serverId, userId, itemKey],
-  })
-  const cur = existing.rows[0] ?? {}
-  let vote = cur.vote ?? null
-  let rating = cur.rating ?? null
-  if ('vote' in fb) vote = fb.vote ?? null
-  if ('rating' in fb) rating = fb.rating ?? null
+  const vote = 'vote' in fb ? (fb.vote ?? null) : null
 
-  if (vote == null && rating == null) {
+  if (vote == null) {
     await db.execute({
       sql: `DELETE FROM qg_feedback WHERE server_id = ? AND user_id = ? AND item_key = ?`,
       args: [serverId, userId, itemKey],
     })
   } else {
     await db.execute({
-      sql: `INSERT OR REPLACE INTO qg_feedback (server_id, user_id, item_key, vote, rating, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-      args: [serverId, userId, itemKey, vote, rating, Date.now()],
+      sql: `INSERT OR REPLACE INTO qg_feedback (server_id, user_id, item_key, vote, updated_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [serverId, userId, itemKey, vote, Date.now()],
     })
   }
   return getFeedback(serverId, userId)

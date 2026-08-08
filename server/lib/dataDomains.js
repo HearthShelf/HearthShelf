@@ -124,6 +124,20 @@ export const DATA_DOMAINS = [
     userRefs: 'key',
   },
   {
+    // Its own domain rather than part of 'discover', so ratings are still backed
+    // up, exported, and merged on an install with Discover switched off.
+    key: 'book-ratings',
+    tables: ['book_ratings'],
+    files: null,
+    scope: 'user',
+    secretColumns: {},
+    backup: 'always', // the user's own score exists nowhere else - ABS has no rating
+    userExport: true,
+    merge: 'custom', // item_key needs an item re-map, except 'fb:'-prefixed stub keys
+    itemRefs: ['book_ratings.item_key'],
+    userRefs: 'key',
+  },
+  {
     key: 'book-notes',
     tables: ['book_notes'],
     files: null,

@@ -24,6 +24,7 @@ import { createClient } from '@libsql/client'
 import { pathToFileURL } from 'node:url'
 import { db, DB_DIR } from '../db.js'
 import { DATA_DOMAINS } from './dataDomains.js'
+import { isFinishedBookKey } from '@hearthshelf/core'
 
 // Domains we actually merge on a cross-server import, and how. Everything else in
 // the registry is 'skip' for import (instance config, caches, aggregates, op
@@ -31,6 +32,7 @@ import { DATA_DOMAINS } from './dataDomains.js'
 // a table we know how to re-key safely.
 const MERGE_HANDLERS = {
   'finished-books': mergeFinishedBooks,
+  'book-ratings': mergeBookRatings,
   'book-notes': mergeBookNotes,
   clubs: mergeClubs,
 }
@@ -81,16 +83,46 @@ async function mergeFinishedBooks(src, tgtServerId, ctx) {
     const id = r.id != null ? String(r.id) : crypto.randomUUID()
     const res = await db.execute({
       sql: `INSERT OR IGNORE INTO finished_books
-              (id, server_id, user_id, source, library_item_id, title, author, isbn, date_finished, rating, hardcover_book_id, hardcover_synced_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (id, server_id, user_id, source, library_item_id, title, author, isbn, date_finished, hardcover_book_id, hardcover_synced_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id, tgtServerId, userId, String(r.source ?? 'abs'), libraryItemId,
         String(r.title ?? ''), r.author != null ? String(r.author) : null,
         r.isbn != null ? String(r.isbn) : null, r.date_finished != null ? String(r.date_finished) : null,
-        r.rating != null ? Number(r.rating) : null,
         r.hardcover_book_id != null ? String(r.hardcover_book_id) : null,
         r.hardcover_synced_at != null ? Number(r.hardcover_synced_at) : null,
         Number(r.created_at) || Date.now(), Number(r.updated_at) || Date.now(),
+      ],
+    })
+    written += Number(res.rowsAffected) || 0
+  }
+  return written
+}
+
+// The user's star ratings. item_key is polymorphic (see @hearthshelf/core
+// lib/ratings.ts): a 'fb:'-prefixed key names a finished_books row, whose id
+// mergeFinishedBooks preserves verbatim, so the reference still resolves on the
+// target and the key passes through untouched. Anything else is an ABS item id
+// and needs the usual re-map; a rating for an item that didn't import is dropped.
+async function mergeBookRatings(src, tgtServerId, ctx) {
+  const rows = await src.execute(`SELECT * FROM book_ratings`)
+  let written = 0
+  for (const r of rows.rows) {
+    const userId = targetUser(ctx.userMap, r.user_id)
+    if (!userId) continue
+    const srcKey = String(r.item_key ?? '')
+    if (!srcKey) continue
+    let itemKey = srcKey
+    if (!isFinishedBookKey(srcKey)) {
+      itemKey = targetItem(ctx.srcItemMedia, ctx.mediaToTargetItem, srcKey)
+      if (!itemKey) continue
+    }
+    const res = await db.execute({
+      sql: `INSERT OR IGNORE INTO book_ratings (server_id, user_id, item_key, rating, updated_at)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        tgtServerId, userId, itemKey,
+        Number(r.rating), Number(r.updated_at) || Date.now(),
       ],
     })
     written += Number(res.rowsAffected) || 0

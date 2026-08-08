@@ -13,7 +13,9 @@
 // not a storage one.
 
 import crypto from 'node:crypto'
+import { ratingKeyForFinishedBook } from '@hearthshelf/core'
 import { db, initDb } from '../db.js'
+import { seedRating } from './ratingsStore.js'
 
 function rowToFinishedBook(r) {
   return {
@@ -24,7 +26,6 @@ function rowToFinishedBook(r) {
     author: r.author ? String(r.author) : null,
     isbn: r.isbn ? String(r.isbn) : null,
     dateFinished: r.date_finished ? String(r.date_finished) : null,
-    rating: r.rating == null ? null : Number(r.rating),
     hardcoverBookId: r.hardcover_book_id ? String(r.hardcover_book_id) : null,
     hardcoverSyncedAt: r.hardcover_synced_at == null ? null : Number(r.hardcover_synced_at),
     absSyncedAt: r.abs_synced_at == null ? null : Number(r.abs_synced_at),
@@ -63,7 +64,7 @@ async function upsertRow(serverId, userId, source, row) {
     const resyncNeeded = prevItem !== libraryItemId || prevDate !== (row.dateFinished || null)
     await db.execute({
       sql: `UPDATE finished_books SET
-              library_item_id = ?, author = ?, isbn = ?, date_finished = ?, rating = ?, updated_at = ?${
+              library_item_id = ?, author = ?, isbn = ?, date_finished = ?, updated_at = ?${
                 resyncNeeded ? ', abs_synced_at = NULL' : ''
               }
             WHERE id = ?`,
@@ -72,7 +73,6 @@ async function upsertRow(serverId, userId, source, row) {
         row.author || null,
         row.isbn || null,
         row.dateFinished || null,
-        row.rating ?? null,
         now,
         existing.rows[0].id,
       ],
@@ -82,8 +82,8 @@ async function upsertRow(serverId, userId, source, row) {
   const id = crypto.randomUUID()
   await db.execute({
     sql: `INSERT INTO finished_books
-            (id, server_id, user_id, source, library_item_id, title, author, isbn, date_finished, rating, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, server_id, user_id, source, library_item_id, title, author, isbn, date_finished, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       serverId,
@@ -94,7 +94,6 @@ async function upsertRow(serverId, userId, source, row) {
       row.author || null,
       row.isbn || null,
       row.dateFinished || null,
-      row.rating ?? null,
       now,
       now,
     ],
@@ -104,6 +103,10 @@ async function upsertRow(serverId, userId, source, row) {
 
 // Commit reviewed Goodreads rows. Each row is already resolved by the client
 // (definite libraryItemId or null for a stub) - this never re-runs matching.
+//
+// An imported star rating seeds book_ratings rather than living on the row. Seed,
+// not overwrite: re-running an import must not clobber a score the listener has
+// since changed in the app.
 export async function upsertGoodreadsRows(serverId, userId, rows) {
   await initDb()
   let inserted = 0
@@ -113,6 +116,14 @@ export async function upsertGoodreadsRows(serverId, userId, rows) {
     const result = await upsertRow(serverId, userId, 'goodreads', row)
     if (result.inserted) inserted++
     else updated++
+    if (row.rating != null) {
+      await seedRating(
+        serverId,
+        userId,
+        ratingKeyForFinishedBook({ id: result.id, libraryItemId: row.libraryItemId || null }),
+        row.rating,
+      )
+    }
   }
   return { inserted, updated }
 }
@@ -131,7 +142,6 @@ export async function syncAbsFinished(serverId, userId, finishedItems) {
       author: item.author || null,
       isbn: item.isbn || null,
       dateFinished: item.dateFinished || null,
-      rating: null,
     })
     if (result.inserted) inserted++
   }

@@ -10,6 +10,7 @@
 // Adding an exportable feature = flipping userExport on its domain; this code
 // picks it up with no change.
 
+import { ratingKeyForFinishedBook } from '@hearthshelf/core'
 import { db, getServerId } from '../db.js'
 import { DATA_DOMAINS } from './dataDomains.js'
 import { HS_VERSION } from './hsVersion.js'
@@ -75,14 +76,22 @@ export async function buildUserExport(userId, username) {
 // A CSV of the user's finished books (the piece people most want portable). One
 // row per finished book; header first. Values are quoted + escaped. Empty (just
 // the header) when they've finished nothing.
+// The `rating` column comes from the ratings domain, not the finished_books row:
+// a rating is now its own record, so the CSV carries whatever the user last set
+// in the app rather than the value some old import happened to seed.
 export function finishedBooksCsv(exportObj) {
   const rows = exportObj.domains['finished-books']?.finished_books ?? []
+  const ratingRows = exportObj.domains['book-ratings']?.book_ratings ?? []
+  const ratings = new Map(ratingRows.map((r) => [String(r.item_key), r.rating]))
   const cols = ['title', 'author', 'isbn', 'source', 'date_finished', 'rating']
   const esc = (v) => {
     const s = v == null ? '' : String(v)
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
   const lines = [cols.join(',')]
-  for (const r of rows) lines.push(cols.map((c) => esc(r[c])).join(','))
+  for (const r of rows) {
+    const rating = ratings.get(ratingKeyForFinishedBook({ id: String(r.id), libraryItemId: r.library_item_id ? String(r.library_item_id) : null })) ?? null
+    lines.push(cols.map((c) => esc(c === 'rating' ? rating : r[c])).join(','))
+  }
   return lines.join('\n')
 }

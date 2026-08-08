@@ -30,6 +30,8 @@ import {
   markAbsSynced,
 } from '../lib/finishedBooks.js'
 import { writeFinishesAsUser } from '../lib/absProgress.js'
+import { getRatingsForKeys } from '../lib/ratingsStore.js'
+import { ratingKeyForFinishedBook } from '@hearthshelf/core'
 
 async function fetchLibraryItems(ctx, libraryId) {
   const res = await fetch(
@@ -188,6 +190,14 @@ export async function handleFinishedBooks(req, res, url, ctx) {
     const token = await getHardcoverToken(ctx.serverId, ctx.userId)
     if (!token) return (json(res, 400, { error: 'not_connected' }), true)
     const unsynced = await getUnsyncedFinishedBooks(ctx.serverId, ctx.userId)
+    // One batch lookup rather than a query per book. A stub with no ABS item is
+    // rated under its own namespaced key, so imported history for a book this
+    // server doesn't own still carries its rating to Hardcover.
+    const ratings = await getRatingsForKeys(
+      ctx.serverId,
+      ctx.userId,
+      unsynced.map(ratingKeyForFinishedBook),
+    )
     let synced = 0
     const notFound = []
     const errors = []
@@ -205,7 +215,7 @@ export async function handleFinishedBooks(req, res, url, ctx) {
         await hardcover.upsertReadBook(token, {
           bookId: match.id,
           dateFinished: book.dateFinished,
-          rating: book.rating,
+          rating: ratings.get(ratingKeyForFinishedBook(book)) ?? null,
         })
         await markHardcoverSynced(book.id, String(match.id))
         synced++

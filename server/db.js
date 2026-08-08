@@ -75,12 +75,13 @@ const SCHEMA = [
                                    -- the server is referred to + sent at pairing
      created_at   INTEGER NOT NULL
    )`,
+  // Discover votes only. Star ratings used to live here too; they moved to
+  // book_ratings, which is not behind the Discover feature flag.
   `CREATE TABLE IF NOT EXISTS qg_feedback (
      server_id TEXT NOT NULL DEFAULT 'local',
      user_id   TEXT NOT NULL,
      item_key  TEXT NOT NULL,
      vote      TEXT,
-     rating    INTEGER,
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id, item_key)
    )`,
@@ -348,12 +349,32 @@ const SCHEMA = [
      author              TEXT,
      isbn                TEXT,
      date_finished       TEXT,           -- ISO date (YYYY-MM-DD), nullable
-     rating              INTEGER,        -- 1-5, nullable
      hardcover_book_id   TEXT,
      hardcover_synced_at INTEGER,
      created_at          INTEGER NOT NULL,
      updated_at          INTEGER NOT NULL,
      UNIQUE (server_id, user_id, source, library_item_id, title)
+   )`,
+  // The user's own 1-5 star rating for a book. ABS has no user-rating concept at
+  // all - the `rating` on its item detail is a scraped COMMUNITY rating we only
+  // read, and its media PATCH accepts no rating field - so this is the only place
+  // a listener's own score can live.
+  //
+  // Deliberately NOT under the Discover feature flag: a rating is a property of a
+  // book, and it is shown on the book page, series rows, and the finished-books
+  // page whether or not Discover is switched on. Discover only reads it.
+  //
+  // item_key is an ABS library_item_id for an owned book, or 'fb:<id>' for a
+  // finished_books stub with no ABS item (imported history for a book the server
+  // doesn't own). See @hearthshelf/core lib/ratings.ts. No extra index: the PK
+  // prefix (server_id, user_id) already serves the only query.
+  `CREATE TABLE IF NOT EXISTS book_ratings (
+     server_id  TEXT NOT NULL DEFAULT 'local',
+     user_id    TEXT NOT NULL,
+     item_key   TEXT NOT NULL,
+     rating     INTEGER NOT NULL,   -- 1-5
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (server_id, user_id, item_key)
    )`,
   // Public + club notes on books (see docs/social.md). One row per note or
   // reply. club_id '' = a public note (house sentinel, like user_settings
@@ -796,6 +817,52 @@ async function migrateSettingsToRows() {
   }
 }
 
+// One-time move of the two old rating columns into book_ratings, then drop them.
+// Ratings used to be split across qg_feedback.rating (set from the Discover tile)
+// and finished_books.rating (set only by a Goodreads CSV import, never rendered),
+// which meant the same book could hold two different scores.
+//
+// Must run AFTER the BACKFILLS loop: the DROPs are destructive, so copying first
+// in the same ordered pass is what makes this safe. Each statement is wrapped
+// because a fresh database has no `rating` column to read or drop, and an
+// already-migrated one has nothing left to copy - both are correct no-ops, which
+// is also what makes re-running this idempotent.
+//
+// Precedence when a book has both: INSERT OR IGNORE in this order means the
+// Discover rating wins. It was a deliberate in-app click; the import value is a
+// bulk CSV that may be years stale.
+async function migrateRatingsIntoBookRatings() {
+  try {
+    await db.execute(
+      `INSERT OR IGNORE INTO book_ratings (server_id, user_id, item_key, rating, updated_at)
+       SELECT server_id, user_id, item_key, rating, updated_at
+         FROM qg_feedback WHERE rating IS NOT NULL`,
+    )
+  } catch {
+    // No qg_feedback.rating column - fresh DB or already migrated.
+  }
+  try {
+    await db.execute(
+      `INSERT OR IGNORE INTO book_ratings (server_id, user_id, item_key, rating, updated_at)
+       SELECT server_id, user_id, COALESCE(library_item_id, 'fb:' || id), rating, updated_at
+         FROM finished_books WHERE rating IS NOT NULL
+        ORDER BY updated_at DESC`,
+    )
+  } catch {
+    // No finished_books.rating column - fresh DB or already migrated.
+  }
+  for (const stmt of [
+    `ALTER TABLE qg_feedback DROP COLUMN rating`,
+    `ALTER TABLE finished_books DROP COLUMN rating`,
+  ]) {
+    try {
+      await db.execute(stmt)
+    } catch {
+      // Column already gone.
+    }
+  }
+}
+
 // Boot-time guard: diff the real tables against the data-domain registry so a
 // new table can never ship without a lifecycle decision (backup/export/merge).
 // Best-effort - a failure here must not stop the box from booting.
@@ -856,6 +923,7 @@ export function initDb() {
           // that references a just-added column is harmless if it no-ops.
         }
       }
+      await migrateRatingsIntoBookRatings()
       await migrateSettingsToRows()
       await assertRegisteredTables()
     })()

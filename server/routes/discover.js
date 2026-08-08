@@ -7,6 +7,7 @@ import { craftDiscoverPrompt, heuristicShelf, filterByFeedback } from '../discov
 import { parseResult } from './questgiver.js'
 import { getConfig } from '../config.js'
 import * as store from '../store.js'
+import { getRatings } from '../lib/ratingsStore.js'
 
 // UTC period keys for the monthly shelf + daily popular cache. Stable across a
 // restart (purely date-derived), so the cache survives process bounces.
@@ -93,11 +94,6 @@ export async function handleDiscover(req, res, url, ctx) {
         if (v === null || ['like', 'dislike', 'not_interested'].includes(v)) fb.vote = v
         else return (json(res, 400, { error: 'invalid_vote' }), true)
       }
-      if ('rating' in body) {
-        const r = body.rating
-        if (r === null || (Number.isInteger(r) && r >= 1 && r <= 5)) fb.rating = r
-        else return (json(res, 400, { error: 'invalid_rating' }), true)
-      }
       const next = await store.setFeedback(sid, uid, itemKey, fb)
       return (json(res, 200, { feedback: next }), true)
     }
@@ -138,19 +134,20 @@ export async function handleDiscover(req, res, url, ctx) {
     const candidates = Array.isArray(body?.candidates) ? body.candidates : []
     if (!candidates.length) return (json(res, 400, { error: 'no_candidates' }), true)
     const feedback = await store.getFeedback(sid, uid)
+    const ratings = await getRatings(sid, uid)
     const pool = filterByFeedback(candidates, feedback)
 
     let shelf
     if ((await isProviderConfigured()) && pool.length) {
       try {
-        const text = await complete(craftDiscoverPrompt(summary, pool, feedback, month))
+        const text = await complete(craftDiscoverPrompt(summary, pool, feedback, ratings, month))
         const parsed = parseResult(text)
         shelf = { month, engine: 'ai', intro: parsed.intro, picks: parsed.picks }
       } catch {
-        shelf = { month, engine: 'heuristic', ...heuristicShelf(summary, pool, feedback) }
+        shelf = { month, engine: 'heuristic', ...heuristicShelf(summary, pool, feedback, ratings) }
       }
     } else if (pool.length) {
-      shelf = { month, engine: 'heuristic', ...heuristicShelf(summary, pool, feedback) }
+      shelf = { month, engine: 'heuristic', ...heuristicShelf(summary, pool, feedback, ratings) }
     } else {
       shelf = { month, engine: 'none', intro: '', picks: [] }
     }

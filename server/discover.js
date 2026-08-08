@@ -1,6 +1,7 @@
 // Discover backend logic: builds the monthly AI shelf prompt from a client-
 // supplied history summary + candidate pool, applies the user's stored feedback
-// (drop not_interested/dislike, favor likes), and provides a deterministic
+// and star ratings (drop not_interested/dislike, favor likes and 4-5 stars), and
+// provides a deterministic
 // heuristic fallback when no AI is configured.
 //
 // The server holds no ABS data of its own - the client posts the summary +
@@ -8,7 +9,9 @@
 
 // A candidate: { id, title, author, genre, hours }
 // Summary: { totalFinished, dominant, topAuthors[], topNarrators[], recentFinishes[] }
-// Feedback: { [itemKey]: { vote?, rating? } }
+// Feedback: { [itemKey]: { vote? } }
+// Ratings:  { [itemKey]: 1-5 } - a separate map, since star ratings are
+//           site-wide (book_ratings) and outlive Discover being switched off.
 
 const SHELF_SIZE = 8
 
@@ -22,15 +25,22 @@ export function filterByFeedback(candidates, feedback) {
   })
 }
 
-// Liked / highly-rated item ids, to nudge the model toward similar picks.
-function likedIds(feedback) {
-  return Object.entries(feedback)
-    .filter(([, fb]) => fb.vote === 'like' || (fb.rating ?? 0) >= 4)
-    .map(([id]) => id)
+// Liked / highly-rated item ids, to nudge the model toward similar picks. Votes
+// and ratings arrive separately: ratings are a site-wide signal (book_ratings),
+// not part of Discover's own feedback.
+function likedIds(feedback, ratings) {
+  const ids = new Set()
+  for (const [id, fb] of Object.entries(feedback)) {
+    if (fb.vote === 'like') ids.add(id)
+  }
+  for (const [id, rating] of Object.entries(ratings)) {
+    if (rating >= 4) ids.add(id)
+  }
+  return [...ids]
 }
 
-export function craftDiscoverPrompt(summary, candidates, feedback, month) {
-  const liked = likedIds(feedback)
+export function craftDiscoverPrompt(summary, candidates, feedback, ratings, month) {
+  const liked = likedIds(feedback, ratings)
   const pool = candidates
     .map((c) => `${c.id} | ${c.title} - ${c.author} | ${c.genre} | ${c.hours}h`)
     .join('\n')
@@ -65,7 +75,7 @@ export function craftDiscoverPrompt(summary, candidates, feedback, month) {
 // Deterministic fallback shelf when AI is unavailable. Leans on the dominant
 // genre + liked patterns, then fills with the rest of the (feedback-filtered)
 // pool. Stable for a given month/input.
-export function heuristicShelf(summary, candidates, feedback) {
+export function heuristicShelf(summary, candidates, feedback, ratings) {
   const pool = filterByFeedback(candidates, feedback)
   const dominant = summary.dominant || null
   const scored = pool
@@ -73,7 +83,7 @@ export function heuristicShelf(summary, candidates, feedback) {
       let s = 0
       if (dominant && c.genre === dominant) s += 5
       if (feedback[c.id]?.vote === 'like') s += 4
-      s += (feedback[c.id]?.rating ?? 0) * 0.5
+      s += (ratings[c.id] ?? 0) * 0.5
       // gentle deterministic spread by index so ties don't all clump
       s += ((i * 7) % 5) * 0.1
       return { c, s }
