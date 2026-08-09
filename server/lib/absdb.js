@@ -262,12 +262,41 @@ export function getWindowsAvailable() {
   return windowsAvailable !== false
 }
 
-// UTC 'YYYY-MM-DD' cutoff for a rolling window, or null for all-time.
+// Week starts Sunday, matching the DAY_LABELS order the stats UIs render.
+const WEEK_STARTS_ON = 0
+
+// 'YYYY-MM-DD' for a Date's LOCAL calendar day. Deliberately not toISOString(),
+// which would shift the day across the UTC boundary for any non-UTC server.
+function localDateKey(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// 'YYYY-MM-DD' cutoff for the start of the current CALENDAR period, or null for
+// all-time. These are calendar periods, not rolling windows: 'month' is the 1st
+// of the current month and 'week' is the most recent week start - "this month"
+// and "last 30 days" are different metrics and the UI pills say the former.
+//
+// The cutoff is a LOCAL calendar date because that is the only granularity both
+// windowed columns share: playbackSessions.date is a plain 'YYYY-MM-DD' TEXT
+// day with no time component, so an instant-precise cutoff is not expressible
+// against it. Comparing a local day key to those columns can therefore be off
+// by at most one boundary day on a server far from UTC - accepted, since the
+// alternative (a UTC instant) is wrong for every day of the period, not one.
 function windowCutoff(window) {
-  const days = window === 'week' ? 7 : window === 'month' ? 30 : 0
-  if (!days) return null
-  const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-  return d.toISOString().slice(0, 10)
+  const now = new Date()
+  if (window === 'month') {
+    return localDateKey(new Date(now.getFullYear(), now.getMonth(), 1))
+  }
+  if (window === 'week') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const back = (start.getDay() - WEEK_STARTS_ON + 7) % 7
+    start.setDate(start.getDate() - back)
+    return localDateKey(start)
+  }
+  return null
 }
 
 // Probe one real finishedAt to confirm the stored text is lexicographic-safe.
@@ -299,9 +328,11 @@ async function probeWindowFormat(c) {
 // the earlier code built entries only from the finished query and silently
 // dropped listen-only users.
 //
-// `window`: 'week' (rolling 7 days), 'month' (rolling 30 days), or 'all'
-// (default). Windowing is a lexicographic string compare against ABS's date
-// columns; if the boot-time format probe fails, we serve all-time regardless of
+// `window`: 'week' (current calendar week, from Sunday), 'month' (current
+// calendar month, from the 1st), or 'all' (default). Period starts are server
+// LOCAL calendar dates - see windowCutoff. Windowing is a lexicographic compare
+// against ABS's date columns; if the boot-time format probe fails, we serve
+// all-time regardless of
 // the requested window (the route reads getWindowsAvailable() to tell the UI).
 //
 // Returns the FULL ranked set (no display LIMIT) so the route can privacy-filter
