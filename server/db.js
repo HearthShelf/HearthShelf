@@ -272,6 +272,71 @@ const SCHEMA = [
      created_at  INTEGER NOT NULL,
      PRIMARY KEY (server_id, cp_subject)
    )`,
+  // Third-party app connections - the credentials an authorized app actually
+  // lives on. THIS BOX IS AUTHORITATIVE for them.
+  //
+  // The control plane only INTRODUCES an app (it verifies who the Clerk user is
+  // and that they consented, then hands over a single-use introduction token).
+  // Everything after that is here: the app's refresh token, its access tokens,
+  // its scopes, and its revocation. That split is deliberate and load-bearing:
+  //   - revoking is a DELETE here, so the app's very next request fails - there
+  //     is no cloud TTL to wait out;
+  //   - an established connection keeps working with the control plane
+  //     unreachable, which matters because a LAN app talking to a LAN box should
+  //     not depend on the internet.
+  //
+  // Keyed by (server_id, app_id, cp_subject): the same app connected by two
+  // different users on one box is two independent installations.
+  `CREATE TABLE IF NOT EXISTS app_installations (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     app_id        TEXT NOT NULL,
+     cp_subject    TEXT NOT NULL,   -- Clerk user id the app acts for
+     app_name      TEXT,
+     app_kind      TEXT,            -- 'instance' | 'cloud'
+     app_family    TEXT,
+     -- Space-delimited granted scopes. The CEILING on what this app may do; the
+     -- effective permission is this INTERSECTED with the user's own ABS rights.
+     scopes        TEXT NOT NULL DEFAULT '',
+     -- The ABS identity the app acts as. Resolved once at introduction through
+     -- the same path a browser session uses, so an app can never exceed the
+     -- person who authorized it.
+     abs_user_id   TEXT NOT NULL,
+     abs_api_key   TEXT NOT NULL,
+     -- SHA-256 of the CURRENT refresh token. Rotated on every exchange.
+     refresh_hash  TEXT NOT NULL,
+     -- SHA-256 of the PREVIOUS refresh token, kept briefly. An app that crashed
+     -- after exchanging but before persisting the new token retries with the old
+     -- one; without this grace window that legitimate retry would look like a
+     -- replay and revoke a working connection. See prev_expires_at.
+     prev_hash     TEXT,
+     prev_expires_at INTEGER,
+     created_at    INTEGER NOT NULL,
+     last_used_at  INTEGER,
+     PRIMARY KEY (server_id, app_id, cp_subject)
+   )`,
+  // Spent introduction tokens (by jti), so one cannot be replayed into a second
+  // installation. Rows are swept once past the token's own expiry - the jti only
+  // needs to outlive the window in which the token would still verify.
+  `CREATE TABLE IF NOT EXISTS app_intro_jtis (
+     jti        TEXT PRIMARY KEY,
+     expires_at INTEGER NOT NULL
+   )`,
+  // Rolling per-app request counters for rate limiting. Kept on the box because
+  // that is where requests land and it must work with the control plane
+  // unreachable - and because it is the only thing standing between a
+  // revoked-but-still-retrying app and someone's Raspberry Pi.
+  `CREATE TABLE IF NOT EXISTS app_rate_buckets (
+     server_id   TEXT NOT NULL DEFAULT 'local',
+     app_id      TEXT NOT NULL,
+     cp_subject  TEXT NOT NULL,
+     kind        TEXT NOT NULL,   -- 'read' | 'write'
+     window_start INTEGER NOT NULL,
+     count       INTEGER NOT NULL DEFAULT 0,
+     -- Set when a bucket overflows, so the connections page can show "this app
+     -- is being throttled" - the signal that lets a user notice and revoke.
+     throttled_at INTEGER,
+     PRIMARY KEY (server_id, app_id, cp_subject, kind)
+   )`,
   // Profile photos (a HearthShelf "US thing" - ABS has no avatar concept). The
   // image bytes live as files under QG_DATA_DIR/avatars/<server_id>_<user_id>.<ext>;
   // this table only tracks the content type, extension, and version so the GET

@@ -326,6 +326,24 @@ export const DATA_DOMAINS = [
     userRefs: [],
   },
   {
+    key: 'app-connections',
+    tables: ['app_installations', 'app_intro_jtis', 'app_rate_buckets'],
+    files: null,
+    scope: 'server',
+    // The app's ABS key and its refresh-token hashes are the credential an
+    // authorized third-party app lives on - flagged so a backup never leaks them
+    // in the clear.
+    secretColumns: { app_installations: ['abs_api_key', 'refresh_hash', 'prev_hash'] },
+    // Backed up: losing these silently disconnects every app the user connected,
+    // with no signal beyond things quietly stopping. Restoring is cheaper than
+    // asking every user to notice and re-authorize.
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: [],
+  },
+  {
     key: 'service-accounts',
     tables: ['service_accounts'],
     files: null,

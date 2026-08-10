@@ -55,6 +55,7 @@ import { handleSubscriptions } from './routes/subscriptions.js'
 import { handleAudplexus } from './routes/audplexus.js'
 import { handleIntegrations } from './routes/integrations.js'
 import { handleHosted } from './routes/hosted.js'
+import { handleApps } from './routes/apps.js'
 import { handleRuntime } from './routes/runtime.js'
 import { handleServiceAccounts } from './routes/serviceAccounts.js'
 import { handleAvatars } from './routes/avatars.js'
@@ -145,6 +146,7 @@ const ROUTES = [
   handleAvatars,
   handleNarrators,
   handleHosted,
+  handleApps,
   handleQuestGiver,
   handleDiscover,
   handleSettings,
@@ -184,6 +186,20 @@ const server = http.createServer(async (req, res) => {
     ctx = await resolveContext(req)
   } catch (err) {
     return json(res, 500, { error: 'context_error', detail: String(err).slice(0, 120) })
+  }
+
+  // A third-party app was recognised but refused - out of scope, or over its
+  // rate limit. Answered here rather than inside each route so the refusal
+  // cannot be skipped by a handler that forgets to check, and so a denied app
+  // never reaches a route with a ctx that looks authenticated.
+  if (ctx?.appDenied === 'insufficient_scope') {
+    return json(res, 403, { error: 'insufficient_scope', required_scope: ctx.requiredScope })
+  }
+  if (ctx?.appDenied === 'rate_limited') {
+    // Retry-After is a real header apps already understand - far better than a
+    // bespoke error nobody handles.
+    res.setHeader('Retry-After', String(ctx.retryAfter ?? 60))
+    return json(res, 429, { error: 'rate_limited', retry_after: ctx.retryAfter ?? 60 })
   }
 
   try {

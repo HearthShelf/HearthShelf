@@ -45,12 +45,95 @@ function bearer(req) {
 }
 
 // Resolve the caller's context, or null if unauthenticated.
+//
+// Three kinds of caller, checked in this order:
+//   1. A third-party APP presenting a box-issued access token (any mode).
+//   2. Hosted: a control-plane grant.
+//   3. Self-hosted: a real ABS bearer.
+//
+// Apps come first because their token is ours and cheap to recognise, and
+// because the alternative - trying it against ABS first - would send a token ABS
+// has never seen to ABS on every app request.
 export async function resolveContext(req) {
+  const app = await resolveAppContext(req)
+  if (app) return app
   if (MODE === 'hosted') {
     // The bearer is a control-plane grant, not an ABS token.
     return resolveHostedContext(bearer(req))
   }
   return resolveSelfHosted(req)
+}
+
+/**
+ * Resolve a third-party app's access token into a normal ctx.
+ *
+ * THIS IS THE SCOPE ENFORCEMENT POINT, and it is here rather than in each route
+ * for a reason: a per-route check is exactly what the next route someone adds
+ * will forget, and the failure mode is an app silently gaining access it was
+ * never granted. Everything an app can reach flows through resolveContext, so
+ * enforcing here cannot be bypassed by adding a handler.
+ *
+ * Two guards, both necessary:
+ *
+ *   SCOPE. The request's required scope must be covered by what the user
+ *   approved. Refused with 403 semantics (a null ctx surfaces as 401/403 at the
+ *   route, which is the existing contract).
+ *
+ *   INTERSECTION. The ctx carries the AUTHORIZING USER's ABS key, so ABS itself
+ *   applies that user's real permissions on top. An app holding 'library:write'
+ *   for a user who cannot delete still cannot delete, because ABS refuses the
+ *   underlying call. This is the confused-deputy guard and it is why the app
+ *   acts AS the user rather than as the server - never substitute an admin key
+ *   here, however convenient it looks.
+ *
+ * Returns null (not an error) when the bearer is not an app token, so the normal
+ * paths still get their turn.
+ */
+async function resolveAppContext(req) {
+  const token = bearer(req)
+  if (!token) return null
+
+  // Lazy import: context.js is loaded on every boot path, and appConnections
+  // pulls in jose + the DB. Only pay for it when a request actually presents
+  // something app-token-shaped.
+  const { resolveAccessToken, requiredScope, hasScope, checkRateLimit, touchInstallation } =
+    await import('./appConnections.js')
+
+  const install = await resolveAccessToken(token)
+  if (!install) return null
+
+  const url = new URL(req.url, 'http://localhost')
+  const needed = requiredScope(req.method, url.pathname)
+  if (!hasScope(install.scopes, needed)) {
+    return { appDenied: 'insufficient_scope', requiredScope: needed }
+  }
+
+  const kind = req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'write'
+  const limit = await checkRateLimit(install.appId, install.subject, kind)
+  if (!limit.allowed) {
+    return { appDenied: 'rate_limited', retryAfter: limit.retryAfter }
+  }
+
+  touchInstallation(install.appId, install.subject).catch(() => {})
+
+  const serverId = await getServerId()
+  return {
+    absUrl: ABS_URL,
+    absToken: install.absApiKey,
+    serverId,
+    userId: install.absUserId,
+    username: '',
+    // An app NEVER inherits admin. Scopes are the ceiling and 'admin' as a scope
+    // governs which HS routes it may call; the ctx role stays 'user' so nothing
+    // downstream mistakes an app for a human administrator.
+    role: 'user',
+    app: {
+      appId: install.appId,
+      appName: install.appName,
+      family: install.family,
+      scopes: install.scopes,
+    },
+  }
 }
 
 async function resolveSelfHosted(req) {
