@@ -10,6 +10,7 @@ import { Icon } from '@/components/common/Icon'
 import { ConfigUsers } from '@/pages/config/ConfigUsers'
 import { ConfigUserDetail } from '@/pages/config/ConfigUserDetail'
 import { ConfigServiceAccounts } from '@/pages/config/ConfigServiceAccounts'
+import { ConfigConnectedApps } from '@/pages/config/ConfigConnectedApps'
 import { ConfigApiKeys } from '@/pages/config/ConfigApiKeys'
 import { ConfigBackups } from '@/pages/config/ConfigBackups'
 import { ConfigImport } from '@/pages/config/ConfigImport'
@@ -106,6 +107,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
           badge: usersData?.users.length,
         },
         { id: 'service-accounts', icon: 'smart_toy', label: 'Service Accounts' },
+        { id: 'connected-apps', icon: 'power', label: 'Connected Apps' },
         { id: 'apikeys', icon: 'key', label: 'API Keys' },
         { id: 'sessions', icon: 'graphic_eq', label: 'Listening Sessions' },
         { id: 'backups', icon: 'cloud_sync', label: 'Backups' },
@@ -156,6 +158,8 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         return <ConfigUsers />
       case 'service-accounts':
         return <ConfigServiceAccounts />
+      case 'connected-apps':
+        return <ConfigConnectedApps />
       case 'apikeys':
         return <ConfigApiKeys />
       case 'backups':
