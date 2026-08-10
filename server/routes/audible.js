@@ -14,8 +14,9 @@
 
 import { json } from '../lib/http.js'
 import { getIntegrations } from '../integrations.js'
-import { getSeriesRoster, getSeriesRosterById } from '../lib/seriesRosterStore.js'
+import { getSeriesRoster, getSeriesRosterById, saveSeriesRoster } from '../lib/seriesRosterStore.js'
 import { getOwnedSeriesBooks } from '../lib/absdb.js'
+import { stampOwned } from '../lib/seriesOwned.js'
 
 const PAGE_SIZE = 25
 const RESPONSE_GROUPS =
@@ -282,6 +283,56 @@ export async function fetchProduct(asin, region) {
   }
 }
 
+// Re-stamp a roster's `owned` flags from the library as it is RIGHT NOW.
+//
+// The two halves of a roster age at completely different rates: the Audible book
+// list changes when the author publishes, while "do I own this" changes the
+// moment a book lands in ABS. Both used to be frozen together - the precomputed
+// roster is only refreshed by the nightly series-roster job, and the live-resolve
+// path cached for 10 minutes - so a book added today kept its stale `owned:false`
+// and the series page listed it twice: once in reading order, once under "not in
+// your library". Ownership is one indexed read of ABS's own db, so resolve it per
+// request and leave only the expensive Audible half cached.
+//
+// Returns `books` unchanged when ownership can't be resolved (no series id - an
+// older client sending only ?q=; ABS's db not mounted; a series with no owned
+// books), so a slim deploy behaves exactly as before and clients fall back to
+// their own title/sequence matching.
+async function withFreshOwned(seriesId, books) {
+  if (!seriesId || !books.length) return books
+  try {
+    const owned = await getOwnedSeriesBooks(seriesId)
+    if (!owned.length) return books
+    return stampOwned(books, owned)
+  } catch {
+    return books
+  }
+}
+
+// Same, for a stored roster: the refreshed flags are written back when they
+// actually changed, so the other readers of series_roster (the release-notify
+// job) see the new state too instead of waiting for the next sweep.
+async function refreshStoredRoster(roster) {
+  const books = await withFreshOwned(roster.seriesId, roster.books)
+  if (books === roster.books) return roster.books
+  const changed = books.some((b, i) => b.owned !== roster.books[i]?.owned)
+  if (changed) {
+    try {
+      await saveSeriesRoster({
+        seriesId: roster.seriesId,
+        name: roster.name,
+        seriesAsin: roster.seriesAsin,
+        seriesTitle: roster.seriesTitle,
+        books,
+      })
+    } catch {
+      // Serving the fresh flags matters more than persisting them; the nightly
+      // sweep will write them anyway.
+    }
+  }
+  return books
+}
+
 export async function handleAudible(req, res, url, ctx) {
   const p = url.pathname
   if (!p.startsWith('/hs/audible/')) return false
@@ -327,6 +378,11 @@ export async function handleAudible(req, res, url, ctx) {
   // to resolving live for a series the job hasn't swept yet (new series, or job
   // never run), so a cold instance still works while the sweep catches up.
   //
+  // Either way the `owned` flags are re-stamped from ABS's db before responding
+  // (withFreshOwned): the book list can be a day old harmlessly, but ownership
+  // can't - a stale flag puts a book the user just added under "not in your
+  // library" on the same page that lists it as owned.
+  //
   // seriesId is what actually identifies the series; a name alone is ambiguous
   // (two series can share one). It's optional for back-compat with older clients,
   // which get the name lookup - and that returns nothing when the name is
@@ -346,7 +402,7 @@ export async function handleAudible(req, res, url, ctx) {
           name: precomputed.name,
           seriesAsin: precomputed.seriesAsin,
           seriesTitle: precomputed.seriesTitle,
-          books: precomputed.books,
+          books: await refreshStoredRoster(precomputed),
         }),
         true
       )
@@ -354,9 +410,16 @@ export async function handleAudible(req, res, url, ctx) {
 
     // 2) Live resolve (in-memory TTL cache), for a series not yet swept. Cache by
     // series id when we have one so two same-named series can't share an entry.
+    // The cache holds the Audible half only; ownership is stamped per response
+    // so a book added during the cache's 10 minutes doesn't read as missing.
     const key = `series|${region}|${seriesId || name.toLowerCase()}`
     const cached = cacheGet(key)
-    if (cached) return (json(res, 200, cached), true)
+    if (cached) {
+      return (
+        json(res, 200, { ...cached, books: await withFreshOwned(seriesId, cached.books) }),
+        true
+      )
+    }
 
     // Disambiguate by the authors of the books the library already owns here.
     let ownedAuthors = []
@@ -378,7 +441,7 @@ export async function handleAudible(req, res, url, ctx) {
     const books = await fetchSeriesBooks(match.asin, region)
     const out = { name, seriesAsin: match.asin, seriesTitle: match.title, books }
     cacheSet(key, out)
-    return (json(res, 200, out), true)
+    return (json(res, 200, { ...out, books: await withFreshOwned(seriesId, books) }), true)
   }
 
   return (json(res, 404, { error: 'not_found' }), true)
