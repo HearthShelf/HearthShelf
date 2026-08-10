@@ -76,6 +76,25 @@ export function requiredScope(method, pathname) {
   const write = method !== 'GET' && method !== 'HEAD'
   const p = pathname
 
+  // The connection-management endpoints themselves. An app must be able to ask
+  // who it is and to refresh, whatever scopes it holds - gating these behind a
+  // scope would mean an app with only 'library:read' got a 403 from its OWN
+  // identity endpoint, and (worse) could never refresh its way out of it.
+  //
+  // This is not a hole: /introduce and /token authenticate with a
+  // control-plane introduction token or a refresh token rather than an access
+  // token, /me only reflects the caller's own installation back at it, and
+  // /revoke only ever REMOVES access. None of them read or write library data.
+  if (
+    p === '/hs/apps/introduce' ||
+    p === '/hs/apps/token' ||
+    p === '/hs/apps/me' ||
+    p === '/hs/apps/revoke' ||
+    p === '/.well-known/oauth-protected-resource'
+  ) {
+    return null
+  }
+
   // Listening progress and sessions.
   if (
     p.startsWith('/api/me/progress') ||

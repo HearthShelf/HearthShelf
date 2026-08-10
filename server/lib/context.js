@@ -103,8 +103,11 @@ async function resolveAppContext(req) {
   if (!install) return null
 
   const url = new URL(req.url, 'http://localhost')
+  // A null requirement means the endpoint needs no scope at all (the
+  // connection-management routes - see requiredScope). Everything else must be
+  // covered by what the user approved.
   const needed = requiredScope(req.method, url.pathname)
-  if (!hasScope(install.scopes, needed)) {
+  if (needed && !hasScope(install.scopes, needed)) {
     return { appDenied: 'insufficient_scope', requiredScope: needed }
   }
 
