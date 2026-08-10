@@ -15,6 +15,21 @@
 // wants to cut off a misbehaving app must be able to do it from the box itself,
 // including when the box has no internet.
 
+// WHY AN APP GETS THE ABS CREDENTIAL
+//
+// The access token this box issues is a HEARTHSHELF credential: it authenticates
+// /hs/* routes and nothing else. But a destination app's actual job is to talk to
+// the Audiobookshelf API - list libraries, upload a book, trigger a scan - and ABS
+// has never heard of our token. Handing an app only the HS token means every ABS
+// call it makes returns 401, which is exactly what happened the first time this
+// shipped.
+//
+// So an introduced app also receives the per-user ABS API key the box already
+// minted for it. That key is not an escalation: it belongs to the SAME ABS user
+// the app was authorized as, carries that user's own permissions, and is the very
+// credential the app would otherwise have been asked to paste by hand. Revoking
+// the installation is what takes it away.
+
 import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
 import { resolveHostedContext, getHostedConfig } from '../lib/hosted.js'
@@ -117,6 +132,15 @@ export async function handleApps(req, res, url, ctx) {
         token_type: 'Bearer',
         expires_in: issued.expiresIn,
         scope: issued.scopes.join(' '),
+        // See "WHY AN APP GETS THE ABS CREDENTIAL" above.
+        //
+        // Deliberately NO abs_url. ABS_SERVER_URL is this box's INTERNAL address
+        // (http://127.0.0.1:13378 in the all-in-one image) - handing it to a
+        // remote app would have it dial its own loopback. The app already knows
+        // the address it reached us on, and nginx serves ABS's /api/* on that
+        // same origin, so it must keep using that.
+        abs_api_key: hosted.absToken,
+        abs_user_id: String(hosted.userId),
       }),
       true
     )
@@ -148,6 +172,10 @@ export async function handleApps(req, res, url, ctx) {
         token_type: 'Bearer',
         expires_in: out.expiresIn,
         scope: out.scopes.join(' '),
+        // Re-issued on every refresh so an app that lost it, or whose key was
+        // re-minted box-side, self-heals without reconnecting. No abs_url, for
+        // the same reason as /introduce above.
+        ...(out.absApiKey ? { abs_api_key: out.absApiKey } : {}),
       }),
       true
     )

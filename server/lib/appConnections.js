@@ -315,7 +315,12 @@ export async function refreshInstallation(appId, presentedRefresh) {
     }
     // Benign retry: re-issue against the CURRENT token without rotating again.
     const scopes = parseScopes(row.scopes)
-    return { ok: true, refresh: null, ...(await issueAccess(appId, String(row.cp_subject), scopes)) }
+    return {
+      ok: true,
+      refresh: null,
+      absApiKey: String(row.abs_api_key),
+      ...(await issueAccess(appId, String(row.cp_subject), scopes)),
+    }
   }
 
   const next = token()
@@ -328,7 +333,14 @@ export async function refreshInstallation(appId, presentedRefresh) {
   })
 
   const scopes = parseScopes(row.scopes)
-  return { ok: true, refresh: next, ...(await issueAccess(appId, String(row.cp_subject), scopes)) }
+  return {
+    ok: true,
+    refresh: next,
+    // Re-issued every refresh so an app that lost the ABS key, or whose key was
+    // re-minted box-side, self-heals without the user reconnecting.
+    absApiKey: String(row.abs_api_key),
+    ...(await issueAccess(appId, String(row.cp_subject), scopes)),
+  }
 }
 
 /**
