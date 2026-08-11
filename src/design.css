@@ -1363,7 +1363,8 @@
 }
 /* Missing-from-library entries folded into the series list (requestable). */
 .sl-row-missing {
-  grid-template-columns: 32px 64px 1fr auto;
+  /* trailing pair: the quiet ignore button, then the request/follow tag */
+  grid-template-columns: 32px 64px 1fr auto auto;
   opacity: 0.82;
 }
 .sl-row-missing:hover {
@@ -1383,6 +1384,36 @@
 }
 .sl-missing-tag .ms {
   font-size: 16px;
+}
+/* "Never coming" escape hatch on a missing row - stays out of the way until the
+   row is hovered, since it's a rare action. */
+.sl-ignore-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s,
+    color 0.15s;
+}
+.sl-row:hover .sl-ignore-btn,
+.up-card:hover .sl-ignore-btn,
+.sl-ignore-btn:focus-visible {
+  opacity: 1;
+}
+.sl-ignore-btn:hover {
+  background: var(--fill-strong);
+  color: var(--text);
+}
+.sl-ignore-btn .ms {
+  font-size: 17px;
 }
 /* Unreleased entries: not a gap in the collection, just not out yet, so they
    read as informational rather than as something to go and fetch. */
@@ -1674,7 +1705,7 @@
 }
 .up-card {
   display: grid;
-  grid-template-columns: 47px minmax(0, 1fr) auto;
+  grid-template-columns: 47px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 13px;
   min-width: 0;

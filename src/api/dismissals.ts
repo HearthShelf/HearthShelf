@@ -24,10 +24,10 @@ export function getDismissals(): Promise<Dismissals> {
   return dismissalsFetch()
 }
 
-export function addDismissal(kind: 'series' | 'item', entityId: string): Promise<Dismissals> {
+export function addDismissal(kind: 'series' | 'item' | 'roster', entityId: string): Promise<Dismissals> {
   return dismissalsFetch({ method: 'POST', body: JSON.stringify({ kind, entityId }) })
 }
 
-export function removeDismissal(kind: 'series' | 'item', entityId: string): Promise<Dismissals> {
+export function removeDismissal(kind: 'series' | 'item' | 'roster', entityId: string): Promise<Dismissals> {
   return dismissalsFetch({ method: 'DELETE', body: JSON.stringify({ kind, entityId }) })
 }

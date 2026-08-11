@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getLibraries, getOneSeries, libraryKeys } from '@/api/libraries'
@@ -24,6 +24,7 @@ import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
 import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
 import { FollowSeriesButton } from '@/components/requests/FollowSeriesButton'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -101,7 +102,18 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     staleTime: 30 * 60 * 1000,
     retry: false,
   })
-  const missing = audible?.seriesAsin ? missingSeriesBooks(audible.books, ownedBooks) : []
+  // Ignored books are not a gap in the series - they drop out of the missing
+  // list, the completion denominator, and the progress track together.
+  const ignoredAsins = useDismissalsStore((st) => st.rosterAsins)
+  // These pages are reachable directly, not just via Home (which hydrates the
+  // store), so pull the list ourselves or nothing would read as ignored.
+  const hydrateDismissals = useDismissalsStore((st) => st.hydrate)
+  useEffect(() => {
+    void hydrateDismissals()
+  }, [hydrateDismissals])
+  const missing = audible?.seriesAsin
+    ? missingSeriesBooks(audible.books, ownedBooks, ignoredAsins)
+    : []
   // A book that isn't out yet isn't a gap in the collection - nobody could own
   // it. Counting it as missing would permanently cap a fully-caught-up series
   // below 100% and mark a phantom segment on the progress track, so completion

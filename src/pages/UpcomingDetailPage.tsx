@@ -11,6 +11,7 @@ import { fetchAudibleProduct, audibleKeys } from '@/api/audible'
 import { getSeries } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useFollowLookup, useFollow, useUnfollow } from '@/hooks/useSubscriptions'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -58,6 +59,9 @@ export function UpcomingDetailPage() {
   const follow = useFollow()
   const unfollow = useUnfollow()
   const { data: seriesId } = useLocalSeriesId(data?.series)
+  const isRosterIgnored = useDismissalsStore((st) => st.isRosterIgnored)
+  const dismiss = useDismissalsStore((st) => st.dismiss)
+  const restore = useDismissalsStore((st) => st.restore)
 
   if (isLoading) return <LoadingSpinner />
   if (isError || !data) {
@@ -106,6 +110,8 @@ export function UpcomingDetailPage() {
   }
 
   const q = encodeURIComponent(`${data.title ?? ''} ${data.author ?? ''}`.trim())
+  const isIgnored = isRosterIgnored(data.asin)
+
   const links: { key: string; icon: string; label: string; href: string }[] = []
   if (goodreads)
     links.push({
@@ -214,6 +220,26 @@ export function UpcomingDetailPage() {
                 <Icon name="auto_awesome_motion" /> Series page
               </button>
             )}
+            {/* Some series entries are ebook-only side stories or print
+                editions that will never be audiobooks. Ignoring one drops it
+                from the series count, Upcoming, and the Home countdown. */}
+            <button
+              className={'pill' + (isIgnored ? ' on' : '')}
+              title={
+                isIgnored
+                  ? 'Stop ignoring - this book will count toward the series again'
+                  : "Ignore this book - it won't count toward the series"
+              }
+              onClick={() =>
+                void (isIgnored
+                  ? restore('roster', data.asin)
+                  : dismiss('roster', data.asin, data.title)
+                ).catch(() => {})
+              }
+            >
+              <Icon name={isIgnored ? 'visibility' : 'visibility_off'} />{' '}
+              {isIgnored ? 'Ignored' : 'Ignore'}
+            </button>
           </div>
 
           {/* Why the usual actions aren't here. */}

@@ -6,6 +6,7 @@ import { RequestConfirmModal } from '@/components/requests/RequestConfirmModal'
 import { WatchSeriesButton } from '@/components/requests/WatchButton'
 import { fetchAudibleSeries, audibleKeys } from '@/api/audible'
 import { useRmabEnabled } from '@/hooks/useRmab'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { useFollowLookup, useFollow, useUnfollow } from '@/hooks/useSubscriptions'
 import {
   missingSeriesBooks,
@@ -45,6 +46,7 @@ function MissingRow({
   onRequest: (b: CatalogResult) => void
 }) {
   const upcoming = book.upcoming ?? isUpcoming(book, now)
+  const dismiss = useDismissalsStore((st) => st.dismiss)
   const { bookSub } = useFollowLookup()
   const follow = useFollow()
   const unfollow = useUnfollow()
@@ -100,6 +102,19 @@ function MissingRow({
           </div>
         )}
       </div>
+      {/* "Never coming" escape hatch: Audible lists ebook-only side stories and
+          print editions as series books, and they'd otherwise count against the
+          series forever. */}
+      <button
+        className="sl-ignore-btn"
+        title="Ignore this book - it won't count toward the series"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (book.asin) void dismiss('roster', book.asin, book.title).catch(() => {})
+        }}
+      >
+        <Icon name="visibility_off" />
+      </button>
       {upcoming ? (
         <span
           className={`sl-missing-tag sl-follow-tag${following ? ' on' : ''}`}
@@ -146,6 +161,7 @@ export function SeriesMissingBooks({
   startSeq = 0,
 }: SeriesMissingBooksProps) {
   const canRequest = useRmabEnabled()
+  const ignoredAsins = useDismissalsStore((st) => st.rosterAsins)
   const [confirm, setConfirm] = useState<CatalogResult | null>(null)
 
   const { data } = useQuery({
@@ -158,7 +174,7 @@ export function SeriesMissingBooks({
 
   if (!data?.seriesAsin) return null
 
-  const missing = missingSeriesBooks(data.books, ownedBooks)
+  const missing = missingSeriesBooks(data.books, ownedBooks, ignoredAsins)
   if (missing.length === 0) return null
 
   if (inline) {

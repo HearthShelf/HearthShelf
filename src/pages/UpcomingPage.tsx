@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import {
@@ -11,6 +11,7 @@ import {
   type HSAudibleSeriesResponse,
 } from '@hearthshelf/core'
 import { useSubscriptions, useUnfollow } from '@/hooks/useSubscriptions'
+import { useDismissalsStore } from '@/store/dismissalsStore'
 import { fetchAudibleSeriesByAsin, fetchAudibleSeries, audibleKeys } from '@/api/audible'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -155,6 +156,8 @@ function UpCard({
   when,
   arrived,
   onClick,
+  onIgnore,
+  ignoreBusy,
 }: {
   title: string
   author?: string
@@ -162,6 +165,8 @@ function UpCard({
   when: { top: string; bottom: string }
   arrived?: boolean
   onClick?: () => void
+  onIgnore?: () => void
+  ignoreBusy?: boolean
 }) {
   return (
     <article className={'up-card' + (arrived ? ' arrived' : '')} onClick={onClick}>
@@ -174,6 +179,21 @@ function UpCard({
         <h4>{title}</h4>
         <p>{author || ' '}</p>
       </div>
+      {/* Ebook-only side stories and print editions show up here too; ignoring
+          one drops it from the series count and every upcoming surface. */}
+      {onIgnore && (
+        <button
+          className="sl-ignore-btn"
+          title="Ignore this book - it won't count toward the series"
+          disabled={ignoreBusy}
+          onClick={(e) => {
+            e.stopPropagation()
+            onIgnore()
+          }}
+        >
+          <Icon name="visibility_off" />
+        </button>
+      )}
       <time>
         {when.top}
         <br />
@@ -295,6 +315,14 @@ export function UpcomingPage() {
   // one asks where to go rather than dead-ending.
   const [dest, setDest] = useState<UpcomingTarget | null>(null)
 
+  const ignoredAsins = useDismissalsStore((st) => st.rosterAsins)
+  // These pages are reachable directly, not just via Home (which hydrates the
+  // store), so pull the list ourselves or nothing would read as ignored.
+  const hydrateDismissals = useDismissalsStore((st) => st.hydrate)
+  useEffect(() => {
+    void hydrateDismissals()
+  }, [hydrateDismissals])
+  const dismiss = useDismissalsStore((st) => st.dismiss)
   const all = subs ?? []
   const series = all.filter((s) => s.kind === 'series')
   const books = all.filter((s) => s.kind === 'book')
@@ -309,7 +337,7 @@ export function UpcomingPage() {
     const roster = rosters[i]?.data
     return {
       sub,
-      next: roster?.seriesAsin ? nextSeriesBook(roster.books, Date.now()) : null,
+      next: roster?.seriesAsin ? nextSeriesBook(roster.books, Date.now(), ignoredAsins) : null,
       cover: sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl,
     }
   })
@@ -321,6 +349,7 @@ export function UpcomingPage() {
   const releases: Release[] = [
     ...books
       .filter((s) => !s.available)
+      .filter((s) => !(s.asin && ignoredAsins.some((a) => a.toLowerCase() === s.asin!.toLowerCase())))
       .map((s) => ({
         key: s.id,
         title: s.title,
@@ -431,6 +460,11 @@ export function UpcomingPage() {
                         mon && day ? { top: mon, bottom: day } : { top: 'DATE', bottom: 'TBD' }
                       }
                       onClick={() => setDest(toTarget(r))}
+                      onIgnore={
+                        r.asin
+                          ? () => void dismiss('roster', r.asin!, r.title).catch(() => {})
+                          : undefined
+                      }
                     />
                   )
                 })}
