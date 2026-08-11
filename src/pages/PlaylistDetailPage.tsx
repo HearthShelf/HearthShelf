@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getPlaylist, updatePlaylist, libraryKeys } from '@/api/libraries'
+import { getPlaylist, updatePlaylist, addBooksToPlaylist, libraryKeys } from '@/api/libraries'
+import { BookPickerModal } from '@/components/library/BookPickerModal'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { usePlayer } from '@/hooks/usePlayer'
 import { formatDuration } from '@/lib/format'
@@ -19,6 +20,7 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
   const { activeId } = useActiveLibrary()
   const { playItem } = usePlayer()
   const [editing, setEditing] = useState(false)
+  const [adding, setAdding] = useState(false)
   const items = playlist.items ?? []
 
   const onSaveEdit = async (patch: { name: string; description?: string }) => {
@@ -65,6 +67,9 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
             <Icon name="play_arrow" fill /> Play
           </button>
         )}
+        <button className="pill" onClick={() => setAdding(true)}>
+          <Icon name="library_add" /> Add books
+        </button>
         <button className="pill" onClick={() => setEditing(true)}>
           <Icon name="edit" /> Edit
         </button>
@@ -74,6 +79,9 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
         <div className="empty-state">
           <Icon name="queue_music" />
           <h3>This playlist is empty</h3>
+          <button className="btn-sm btn-ghost" style={{ margin: '0 auto' }} onClick={() => setAdding(true)}>
+            <Icon name="library_add" /> Add books
+          </button>
         </div>
       ) : (
         <div className="pl-list">
@@ -121,6 +129,22 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
         </div>
       )}
 
+      {adding && activeId && (
+        <BookPickerModal
+          kind="playlist"
+          libraryId={activeId}
+          mode="add"
+          listName={playlist.name}
+          existingIds={rows.map((r) => r.libraryItemId)}
+          onSubmit={async (ids) => {
+            await addBooksToPlaylist(playlist.id, ids)
+            qc.invalidateQueries({ queryKey: ['playlist', playlist.id] })
+            qc.invalidateQueries({ queryKey: libraryKeys.playlists(activeId) })
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
+
       {editing && (
         <RenameModal
           title="Edit playlist"
@@ -139,14 +163,17 @@ export function PlaylistDetailPage() {
   const location = useLocation()
   const passed = (location.state as { playlist?: ABSPlaylist } | null)?.playlist
 
+  // Router state seeds the query rather than replacing it - see the note in
+  // CollectionDetailPage: a passed copy that skips the query would keep showing
+  // the pre-edit item list after adding books.
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['playlist', playlistId],
     queryFn: () => getPlaylist(playlistId as string),
-    enabled: Boolean(playlistId) && !passed,
+    enabled: Boolean(playlistId),
+    initialData: passed,
     staleTime: 5 * 60 * 1000,
   })
 
-  if (passed) return <PlaylistDetail playlist={passed} />
   if (isLoading) {
     return (
       <div className="page">

@@ -1,8 +1,15 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getCollection, deleteCollection, updateCollection, libraryKeys } from '@/api/libraries'
+import {
+  getCollection,
+  deleteCollection,
+  updateCollection,
+  addBooksToCollection,
+  libraryKeys,
+} from '@/api/libraries'
 import { RenameModal } from '@/components/common/RenameModal'
+import { BookPickerModal } from '@/components/library/BookPickerModal'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -23,6 +30,7 @@ function CollectionDetail({ collection }: { collection: ABSCollection }) {
   const { playItem } = usePlayer()
 
   const [editing, setEditing] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   const books = collection.books ?? []
   const totalH = books.reduce((s, b) => s + (b.media.duration ?? 0), 0)
@@ -67,6 +75,9 @@ function CollectionDetail({ collection }: { collection: ABSCollection }) {
             <Icon name="play_arrow" fill /> Play all
           </button>
         )}
+        <button className="pill" onClick={() => setAdding(true)}>
+          <Icon name="library_add" /> Add books
+        </button>
         <button className="pill" onClick={() => setEditing(true)}>
           <Icon name="edit" /> Edit
         </button>
@@ -82,6 +93,9 @@ function CollectionDetail({ collection }: { collection: ABSCollection }) {
         <div className="empty-state">
           <Icon name="auto_stories" />
           <h3>This collection is empty</h3>
+          <button className="btn-sm btn-ghost" style={{ margin: '0 auto' }} onClick={() => setAdding(true)}>
+            <Icon name="library_add" /> Add books
+          </button>
         </div>
       ) : (
         <div className="lib-grid">
@@ -92,6 +106,22 @@ function CollectionDetail({ collection }: { collection: ABSCollection }) {
             )
           })}
         </div>
+      )}
+
+      {adding && activeId && (
+        <BookPickerModal
+          kind="collection"
+          libraryId={activeId}
+          mode="add"
+          listName={collection.name}
+          existingIds={books.map((b) => b.id)}
+          onSubmit={async (ids) => {
+            await addBooksToCollection(collection.id, ids)
+            qc.invalidateQueries({ queryKey: libraryKeys.collection(collection.id) })
+            qc.invalidateQueries({ queryKey: libraryKeys.collections(activeId) })
+          }}
+          onClose={() => setAdding(false)}
+        />
       )}
 
       {editing && (
@@ -112,14 +142,18 @@ export function CollectionDetailPage() {
   const location = useLocation()
   const passed = (location.state as { collection?: ABSCollection } | null)?.collection
 
+  // The grid passes the collection through router state so the page paints
+  // instantly, but it stays the QUERY's seed rather than replacing it - editing
+  // the collection has to re-render from fresh data, and a passed copy that
+  // short-circuits the query would keep showing the pre-edit book list.
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.collection(collectionId ?? ''),
     queryFn: () => getCollection(collectionId as string),
-    enabled: Boolean(collectionId) && !passed,
+    enabled: Boolean(collectionId),
+    initialData: passed,
     staleTime: 5 * 60 * 1000,
   })
 
-  if (passed) return <CollectionDetail collection={passed} />
   if (isLoading) {
     return (
       <div className="page">

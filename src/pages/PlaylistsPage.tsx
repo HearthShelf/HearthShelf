@@ -1,15 +1,21 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { getPlaylists, libraryKeys } from '@/api/libraries'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getPlaylists, createPlaylist, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import { BookPickerModal } from '@/components/library/BookPickerModal'
+import { useToast } from '@/hooks/useToast'
 
 export function PlaylistsPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const { activeId } = useActiveLibrary()
+  const { toast, show } = useToast()
+  const [creating, setCreating] = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.playlists(activeId ?? ''),
@@ -32,17 +38,15 @@ export function PlaylistsPage() {
         )}
       </div>
 
-      {data && (
-        <div className="toolbar2">
-          <span className="count-badge">
-            {playlists.length} {playlists.length === 1 ? 'playlist' : 'playlists'}
-          </span>
-          <div className="tb-spacer" />
-          <button className="pill">
-            <Icon name="add" /> New playlist
-          </button>
-        </div>
-      )}
+      <div className="toolbar2">
+        <span className="count-badge">
+          {playlists.length} {playlists.length === 1 ? 'playlist' : 'playlists'}
+        </span>
+        <div className="tb-spacer" />
+        <button className="pill" onClick={() => setCreating(true)} disabled={!activeId}>
+          <Icon name="add" /> New playlist
+        </button>
+      </div>
 
       {isLoading && <LoadingSpinner className="py-12" label="Loading playlists..." />}
       {isError && <ErrorState message="Could not load playlists." onRetry={refetch} />}
@@ -51,7 +55,7 @@ export function PlaylistsPage() {
         <div className="empty-state">
           <Icon name="queue_music" />
           <h3>No playlists yet</h3>
-          <p>Playlists you build in AudiobookShelf show up here.</p>
+          <p>Line up books to listen to in order. Start one with New playlist.</p>
         </div>
       )}
 
@@ -90,6 +94,31 @@ export function PlaylistsPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {creating && activeId && (
+        <BookPickerModal
+          kind="playlist"
+          libraryId={activeId}
+          mode="create"
+          onSubmit={async (books, name) => {
+            const made = await createPlaylist(
+              activeId,
+              name,
+              books.map((libraryItemId) => ({ libraryItemId })),
+            )
+            qc.invalidateQueries({ queryKey: libraryKeys.playlists(activeId) })
+            show(`Created ${name}`)
+            navigate(`/playlists/${made.id}`)
+          }}
+          onClose={() => setCreating(false)}
+        />
+      )}
+
+      {toast && (
+        <div className="p-toast">
+          <Icon name="check_circle" fill /> {toast}
         </div>
       )}
     </div>

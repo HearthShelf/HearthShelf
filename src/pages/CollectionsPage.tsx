@@ -1,17 +1,21 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { getCollections, libraryKeys } from '@/api/libraries'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getCollections, createCollection, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import { BookPickerModal } from '@/components/library/BookPickerModal'
 import { useToast } from '@/hooks/useToast'
 
 export function CollectionsPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const { activeId } = useActiveLibrary()
   const { toast, show } = useToast()
+  const [creating, setCreating] = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.collections(activeId ?? ''),
@@ -38,7 +42,8 @@ export function CollectionsPage() {
         <span className="count-badge">
           {collections.length} {collections.length === 1 ? 'collection' : 'collections'}
         </span>
-        <button className="pill" onClick={() => show('Creating collections is coming soon')}>
+        <div className="tb-spacer" />
+        <button className="pill" onClick={() => setCreating(true)} disabled={!activeId}>
           <Icon name="add" /> New collection
         </button>
       </div>
@@ -50,7 +55,7 @@ export function CollectionsPage() {
         <div className="empty-state">
           <Icon name="folder_special" />
           <h3>No collections yet</h3>
-          <p>Collections you build in AudiobookShelf show up here.</p>
+          <p>Group books into a shelf of your own. Start one with New collection.</p>
         </div>
       )}
 
@@ -90,6 +95,21 @@ export function CollectionsPage() {
             )
           })}
         </div>
+      )}
+
+      {creating && activeId && (
+        <BookPickerModal
+          kind="collection"
+          libraryId={activeId}
+          mode="create"
+          onSubmit={async (books, name) => {
+            const made = await createCollection(activeId, name, books)
+            qc.invalidateQueries({ queryKey: libraryKeys.collections(activeId) })
+            show(`Created ${name}`)
+            navigate(`/collections/${made.id}`)
+          }}
+          onClose={() => setCreating(false)}
+        />
       )}
 
       {toast && (
