@@ -31,7 +31,13 @@ export async function handleDismissals(req, res, url, ctx) {
     }
     const kind = body?.kind
     const entityId = body?.entityId
-    if ((kind !== 'series' && kind !== 'item') || typeof entityId !== 'string' || !entityId) {
+    // 'roster' entities are Audible ASINs, not ABS ids - a series-roster book
+    // the user never expects to own (ebook-only side story, print edition).
+    if (
+      (kind !== 'series' && kind !== 'item' && kind !== 'roster') ||
+      typeof entityId !== 'string' ||
+      !entityId
+    ) {
       return (json(res, 400, { error: 'invalid_dismissal' }), true)
     }
     const ok =

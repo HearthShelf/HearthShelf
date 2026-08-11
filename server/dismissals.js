@@ -11,7 +11,10 @@ function ensure() {
   return ready
 }
 
-const KINDS = new Set(['series', 'item'])
+// 'series' and 'item' are ABS ids; 'roster' is an Audible ASIN for a series
+// book the user never expects to own (ebook-only side story, print edition),
+// which has no ABS id because it is not - and may never be - in the library.
+const KINDS = new Set(['series', 'item', 'roster'])
 
 /** The user's dismissals in the shape @hearthshelf/core expects (Dismissals). */
 export async function getDismissals(serverId, userId) {
@@ -22,11 +25,13 @@ export async function getDismissals(serverId, userId) {
   })
   const seriesIds = []
   const itemIds = []
+  const rosterAsins = []
   for (const row of r.rows) {
     if (row.kind === 'series') seriesIds.push(row.entity_id)
     else if (row.kind === 'item') itemIds.push(row.entity_id)
+    else if (row.kind === 'roster') rosterAsins.push(row.entity_id)
   }
-  return { seriesIds, itemIds }
+  return { seriesIds, itemIds, rosterAsins }
 }
 
 /** Dismiss (hide) an entity. Idempotent. Returns false if kind is invalid. */
