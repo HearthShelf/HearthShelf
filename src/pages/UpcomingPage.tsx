@@ -123,10 +123,19 @@ function NextRelease({
             <span>{day}</span>
           </div>
         )}
-        <div>
-          <strong>{days ?? '—'}</strong>
-          <small>{days === 1 ? 'day away' : 'days away'}</small>
-        </div>
+        {/* Announced but unscheduled: there's no day to count to, so say that
+            rather than showing a dash where a number belongs. */}
+        {days === null ? (
+          <div>
+            <strong className="tbd">TBD</strong>
+            <small>no date yet</small>
+          </div>
+        ) : (
+          <div>
+            <strong>{days}</strong>
+            <small>{days === 1 ? 'day away' : 'days away'}</small>
+          </div>
+        )}
         <p>
           We'll let you know
           <br />
@@ -419,7 +428,7 @@ export function UpcomingPage() {
                       author={r.author}
                       cover={r.cover}
                       when={
-                        mon && day ? { top: mon, bottom: day } : { top: 'DATE', bottom: 'TBA' }
+                        mon && day ? { top: mon, bottom: day } : { top: 'DATE', bottom: 'TBD' }
                       }
                       onClick={() => setDest(toTarget(r))}
                     />

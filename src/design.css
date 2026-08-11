@@ -1623,6 +1623,13 @@
   line-height: 1;
   letter-spacing: -0.06em;
 }
+/* "TBD" sits where a day count normally goes - smaller, since letters at the
+   number's size overpower the card. */
+.up-release-clock strong.tbd {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+  color: var(--text-muted);
+}
 .up-release-clock small {
   display: block;
   margin-top: 5px;

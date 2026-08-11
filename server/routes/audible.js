@@ -72,10 +72,15 @@ function mapProduct(product) {
 
   // Precise publication instant (better for day-accurate countdowns than the
   // date-only release_date); `upcoming` is a future release relative to now.
+  //
+  // Audible's 2200-01-01 means "announced, not scheduled". That IS upcoming,
+  // but the date itself is unusable - clients treat it as no date at all and
+  // show "Date TBD" rather than counting down ~63000 days.
   const publicationDatetime = product.publication_datetime ?? undefined
   const releaseDate = product.release_date ?? undefined
+  const unscheduled = String(publicationDatetime || releaseDate || '').startsWith('2200')
   const relMs = Date.parse(publicationDatetime || releaseDate || '')
-  const upcoming = Number.isNaN(relMs) ? undefined : relMs > Date.now()
+  const upcoming = unscheduled ? true : Number.isNaN(relMs) ? undefined : relMs > Date.now()
 
   return {
     asin: product.asin,
@@ -222,22 +227,38 @@ export async function resolveSeriesAsin(name, region, ownedAuthors = []) {
   return best // { title, asin, count, authorHits } | null
 }
 
-// Audible lists some series books TWICE: the real product, plus a "phantom"
-// placeholder created when the book was first announced. Both are children of
-// the series and share a sequence, so the series reads as having duplicates -
-// one proper row, one coverless row with a mangled author ("Zogarth .").
-//
-// The phantom is identifiable on its own: it carries the sentinel release date
-// 2200-01-01 and has neither a narrator nor a runtime, none of which was known
-// at announcement. A real upcoming book, even months out, has all three. The
-// real product for the sequence is always present, so dropping it loses nothing.
-//
-// Mirror of @hearthshelf/core isPhantomRosterBook (the server runs plain .js and
-// can't import the .ts). Keep in step with src/lib/series.ts.
-function isPhantomRosterBook(book) {
+// An "announcement placeholder": Audible's stub for a book that exists but has
+// no schedule yet. Sentinel release date 2200-01-01, no narrator, no runtime -
+// none of it known when the book was announced. A real dated book, even a year
+// out, has all three.
+function isPlaceholderBook(book) {
   const rel = book.releaseDate ?? book.publicationDatetime ?? ''
   if (!String(rel).startsWith('2200')) return false
   return !book.narrator && !book.durationMinutes
+}
+
+function seqKeyOf(sequence) {
+  if (sequence == null) return ''
+  const n = parseFloat(String(sequence).replace(/[^\d.]/g, ''))
+  return Number.isFinite(n) ? String(n) : ''
+}
+
+// Audible lists some series books TWICE: the real product, plus the placeholder
+// left over from when it was announced. Both are children of the series and
+// share a sequence, so the series reads as having duplicates - one proper row,
+// one coverless row with a mangled author ("Zogarth .").
+//
+// A placeholder is dropped ONLY when a real product occupies the same sequence.
+// Standing alone it is the only record of a genuinely upcoming book (announced,
+// not yet scheduled); dropping it erased that book from the series entirely.
+//
+// Mirror of @hearthshelf/core isPhantomRosterBook (the server runs plain .js and
+// can't import the .ts). Keep in step with src/lib/series.ts.
+function isPhantomRosterBook(book, books) {
+  if (!isPlaceholderBook(book)) return false
+  const slot = seqKeyOf(book.sequence)
+  if (!slot) return false
+  return books.some((b) => b !== book && seqKeyOf(b.sequence) === slot && !isPlaceholderBook(b))
 }
 
 // Fetch the child books of a series by its ASIN, ordered by series sequence.
@@ -269,12 +290,13 @@ export async function fetchSeriesBooks(seriesAsin, region) {
     if (!prodRes.ok) return []
     const prodData = await prodRes.json()
     const products = prodData?.products ?? []
-    const mapped = products
-      .map((p) => ({
-        ...mapProduct(p),
-        sequence: seqByAsin.get(p.asin) ?? null,
-      }))
-      .filter((b) => !isPhantomRosterBook(b))
+    const all = products.map((p) => ({
+      ...mapProduct(p),
+      sequence: seqByAsin.get(p.asin) ?? null,
+    }))
+    // Filtered against the WHOLE roster: the predicate needs to know whether a
+    // placeholder is superseded by a real product at the same sequence.
+    const mapped = all.filter((b) => !isPhantomRosterBook(b, all))
     // Order by numeric sequence when available.
     mapped.sort((a, b) => (parseFloat(a.sequence) || 0) - (parseFloat(b.sequence) || 0))
     return mapped
