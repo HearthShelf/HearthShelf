@@ -167,7 +167,7 @@ export async function handleFinishedBooks(req, res, url, ctx) {
     } catch {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
-    const token = (body?.token || '').trim()
+    const token = hardcover.normalizeToken(body?.token)
     if (!token) return (json(res, 400, { error: 'token required' }), true)
     let username
     try {

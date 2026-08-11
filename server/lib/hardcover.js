@@ -41,13 +41,22 @@ async function throttle() {
   callTimes.push(Date.now())
 }
 
+// Hardcover's API page shows the token with a "Bearer " prefix already
+// attached, so accept it either way rather than sending "Bearer Bearer ...".
+export function normalizeToken(token) {
+  return String(token || '')
+    .trim()
+    .replace(/^Bearer\s+/i, '')
+    .trim()
+}
+
 async function gql(token, query, variables) {
   await throttle()
   const res = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${normalizeToken(token)}`,
     },
     body: JSON.stringify({ query, variables }),
   })
