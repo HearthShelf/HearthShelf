@@ -8,7 +8,12 @@ import {
   type HSAudibleSeriesBook,
 } from '@hearthshelf/core'
 import { useSubscriptions, useUnfollow } from '@/hooks/useSubscriptions'
-import { fetchAudibleSeriesByAsin, audibleKeys } from '@/api/audible'
+import {
+  fetchAudibleSeriesByAsin,
+  fetchAudibleSeries,
+  audibleKeys,
+  type AudibleSeriesResponse,
+} from '@/api/audible'
 import { Icon } from '@/components/common/Icon'
 import { SectionHead } from '@/components/common/SectionHead'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
@@ -29,20 +34,36 @@ function releaseDateLabel(item: {
   })
 }
 
-// The next book to expect in a followed series, resolved from the series roster
-// (a series follow stores only the ASIN, and carries no date of its own).
-// Renders nothing while loading, on a server that can't answer, or when the
-// series is fully owned with nothing announced.
-function NextInSeries({ seriesAsin }: { seriesAsin: string }) {
-  const { data } = useQuery({
-    queryKey: audibleKeys.seriesByAsin(seriesAsin),
-    queryFn: () => fetchAudibleSeriesByAsin(seriesAsin),
+// The roster for a followed series, used for both its artwork and which book is
+// next in it. A series follow stores only the ASIN and carries no date.
+//
+// Two lookups, because ?seriesAsin= is new: a server that predates it ignores
+// the parameter and answers empty, which would silently leave every series row
+// blank. So when the ASIN lookup comes back unresolved we fall back to the
+// by-name lookup that every server has always supported, and keep only a roster
+// whose ASIN actually matches this follow (a name can match two series).
+function useSeriesRoster(seriesAsin: string | undefined, seriesTitle: string) {
+  return useQuery({
+    queryKey: audibleKeys.seriesByAsin(seriesAsin ?? ''),
+    queryFn: async () => {
+      const byAsin = await fetchAudibleSeriesByAsin(seriesAsin!)
+      if (byAsin.seriesAsin) return byAsin
+      if (!seriesTitle) return byAsin
+      const byName = await fetchAudibleSeries('', seriesTitle)
+      return byName.seriesAsin === seriesAsin ? byName : byAsin
+    },
+    enabled: Boolean(seriesAsin),
     staleTime: 30 * 60 * 1000,
     retry: false,
   })
+}
 
-  if (!data?.seriesAsin) return null
-  const next: HSAudibleSeriesBook | null = nextSeriesBook(data.books, Date.now())
+// Which book is next in a followed series. Renders nothing while loading, when
+// neither lookup resolves, or when the series is fully owned with nothing
+// announced.
+function NextInSeries({ roster }: { roster: AudibleSeriesResponse | undefined }) {
+  if (!roster?.seriesAsin) return null
+  const next: HSAudibleSeriesBook | null = nextSeriesBook(roster.books, Date.now())
   if (!next) return null
 
   // "Next" is the first gap in reading order, which may already be out (a book
@@ -79,6 +100,14 @@ function FollowRow({
   const isSeries = sub.kind === 'series'
   const countdown = isSeries ? null : countdownLabel(sub, now)
   const dateLabel = isSeries ? null : releaseDateLabel(sub)
+  // A series has no cover of its own, and follows made before we stored one
+  // have none at all - borrow the first roster book's artwork so the row isn't
+  // an empty grey tile.
+  const roster = useSeriesRoster(
+    isSeries ? sub.seriesAsin : undefined,
+    sub.seriesTitle ?? sub.title,
+  ).data
+  const cover = sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
 
   // What this row says about itself, in priority order: already landed, then a
   // dated countdown, then a bare "coming soon" when the date is unknown.
@@ -93,8 +122,8 @@ function FollowRow({
   return (
     <div className={`sl-row sl-row-missing sl-row-upcoming${sub.available ? ' is-available' : ''}`}>
       <div className="sl-num">{numberLabel}</div>
-      {sub.coverArtUrl ? (
-        <img className="sl-cover" src={sub.coverArtUrl} alt="" />
+      {cover ? (
+        <img className="sl-cover" src={cover} alt="" />
       ) : (
         <div className="sl-cover" style={{ background: 'var(--c-highest)' }} />
       )}
@@ -109,7 +138,7 @@ function FollowRow({
           />
           {status}
         </div>
-        {isSeries && sub.seriesAsin && <NextInSeries seriesAsin={sub.seriesAsin} />}
+        {isSeries && <NextInSeries roster={roster} />}
       </div>
       <button
         className="pill sl-unfollow"

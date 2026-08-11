@@ -8,6 +8,10 @@ interface FollowSeriesButtonProps {
   seriesAsin: string | null | undefined
   seriesTitle: string
   author?: string
+  // Artwork to stand for the series in the Following list. A series has no cover
+  // of its own, so callers pass a representative book's - without it the row
+  // renders an empty grey tile.
+  coverArtUrl?: string
 }
 
 // Follow a whole series: every future book in it is tracked, so a new release
@@ -16,7 +20,12 @@ interface FollowSeriesButtonProps {
 // Distinct from WatchSeriesButton, which is RMAB's auto-REQUEST watch list and
 // only exists when the request backend is connected. A follow only notifies, and
 // is always available.
-export function FollowSeriesButton({ seriesAsin, seriesTitle, author }: FollowSeriesButtonProps) {
+export function FollowSeriesButton({
+  seriesAsin,
+  seriesTitle,
+  author,
+  coverArtUrl,
+}: FollowSeriesButtonProps) {
   const { seriesSub } = useFollowLookup()
   const follow = useFollow()
   const unfollow = useUnfollow()
@@ -39,6 +48,7 @@ export function FollowSeriesButton({ seriesAsin, seriesTitle, author }: FollowSe
       title: seriesTitle,
       seriesTitle,
       author,
+      coverArtUrl,
     })
   }
 

@@ -108,6 +108,10 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   // measures against released books only.
   const now = Date.now()
   const missingReleased = missing.filter((b) => !(b.upcoming ?? isUpcoming(b, now)))
+  // A series has no cover of its own. Stand it up with the first roster book
+  // that has artwork - an absolute Audible URL, so it still renders in the
+  // Following list without an ABS token to resolve it against.
+  const seriesCover = audible?.books.find((b) => b.coverArtUrl)?.coverArtUrl
   const upcomingCount = missing.length - missingReleased.length
 
   const [selectMode, setSelectMode] = useState(false)
@@ -252,6 +256,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           seriesAsin={audible?.seriesAsin}
           seriesTitle={series.name}
           author={author}
+          coverArtUrl={seriesCover}
         />
       </div>
       {heroProg}
@@ -285,6 +290,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             seriesAsin={audible?.seriesAsin}
             seriesTitle={series.name}
             author={author}
+            coverArtUrl={seriesCover}
           />
         </div>
       </div>
