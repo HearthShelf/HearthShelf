@@ -3,7 +3,12 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getLibraries, getOneSeries, libraryKeys } from '@/api/libraries'
 import { fetchAudibleSeries, audibleKeys } from '@/api/audible'
-import { missingSeriesBooks, seriesSeqFromName, seriesCompletion } from '@hearthshelf/core'
+import {
+  missingSeriesBooks,
+  seriesSeqFromName,
+  seriesCompletion,
+  isUpcoming,
+} from '@hearthshelf/core'
 import type { OwnedSeriesBook } from '@hearthshelf/core'
 import { useAuth } from '@/hooks/useAuth'
 import { usePlayer } from '@/hooks/usePlayer'
@@ -18,6 +23,7 @@ import { SectionHead } from '@/components/common/SectionHead'
 import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
 import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
+import { FollowSeriesButton } from '@/components/requests/FollowSeriesButton'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
@@ -96,6 +102,13 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     retry: false,
   })
   const missing = audible?.seriesAsin ? missingSeriesBooks(audible.books, ownedBooks) : []
+  // A book that isn't out yet isn't a gap in the collection - nobody could own
+  // it. Counting it as missing would permanently cap a fully-caught-up series
+  // below 100% and mark a phantom segment on the progress track, so completion
+  // measures against released books only.
+  const now = Date.now()
+  const missingReleased = missing.filter((b) => !(b.upcoming ?? isUpcoming(b, now)))
+  const upcomingCount = missing.length - missingReleased.length
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -143,7 +156,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   const completion = seriesCompletion({
     ownedProgressSum: sum,
     ownedCount: books.length,
-    missingCount: missing.length,
+    missingCount: missingReleased.length,
   })
   const pct = completion.pct
   // Listened hours are an owned-books figure (we have no runtime for unowned
@@ -164,6 +177,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           {done} of {completion.totalCount} finished · {listenedHours.toFixed(0)}h of{' '}
           {totalHours.toFixed(0)}h
           {completion.missingCount > 0 && ` · ${completion.missingCount} not in library`}
+          {upcomingCount > 0 && ` · ${upcomingCount} coming soon`}
         </span>
       </div>
       <div className="sp-track">
@@ -186,7 +200,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             </div>
           )
         })}
-        {missing.map((b, i) => (
+        {missingReleased.map((b, i) => (
           <div
             key={b.asin}
             className="sp-seg missing"
@@ -234,6 +248,11 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           <Icon name={allSeriesFinished ? 'remove_done' : 'done_all'} />{' '}
           {allSeriesFinished ? 'Not finished' : 'Mark finished'}
         </button>
+        <FollowSeriesButton
+          seriesAsin={audible?.seriesAsin}
+          seriesTitle={series.name}
+          author={author}
+        />
       </div>
       {heroProg}
     </div>
@@ -247,6 +266,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           {author && `${author} · `}
           {books.length} {books.length === 1 ? 'book' : 'books'} · {totalHours.toFixed(0)}h total
           {completion.missingCount > 0 && ` · ${completion.missingCount} not in library`}
+          {upcomingCount > 0 && ` · ${upcomingCount} coming soon`}
         </div>
 
         {progEl}
@@ -261,6 +281,11 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             <Icon name={allSeriesFinished ? 'remove_done' : 'done_all'} />{' '}
             {allSeriesFinished ? 'Mark series unfinished' : 'Mark series finished'}
           </button>
+          <FollowSeriesButton
+            seriesAsin={audible?.seriesAsin}
+            seriesTitle={series.name}
+            author={author}
+          />
         </div>
       </div>
 

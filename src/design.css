@@ -1384,6 +1384,35 @@
 .sl-missing-tag .ms {
   font-size: 16px;
 }
+/* Unreleased entries: not a gap in the collection, just not out yet, so they
+   read as informational rather than as something to go and fetch. */
+.sl-row-upcoming {
+  opacity: 1;
+}
+.sl-row-upcoming .sl-cover {
+  filter: none;
+}
+.sl-release {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.sl-release .ms {
+  font-size: 14px;
+}
+.sl-follow-tag {
+  color: var(--text-muted);
+}
+.sl-follow-tag.on {
+  color: var(--accent);
+}
+.sl-row-upcoming:hover .sl-follow-tag {
+  color: var(--accent);
+}
 /* Selection checkbox sitting in the leading (sl-num) grid column - overrides the
    cover-overlay .b-check defaults (absolute + hidden) to a static, visible cell. */
 .sl-check {
