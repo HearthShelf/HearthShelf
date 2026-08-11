@@ -93,7 +93,11 @@ function CollectionDetail({ collection }: { collection: ABSCollection }) {
         <div className="empty-state">
           <Icon name="auto_stories" />
           <h3>This collection is empty</h3>
-          <button className="btn-sm btn-ghost" style={{ margin: '0 auto' }} onClick={() => setAdding(true)}>
+          <button
+            className="btn-sm btn-ghost"
+            style={{ margin: '0 auto' }}
+            onClick={() => setAdding(true)}
+          >
             <Icon name="library_add" /> Add books
           </button>
         </div>

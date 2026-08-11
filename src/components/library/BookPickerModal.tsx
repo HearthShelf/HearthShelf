@@ -80,8 +80,7 @@ export function BookPickerModal({
   }
 
   const count = picked.size
-  const canSubmit =
-    !busy && count > 0 && (mode === 'add' || name.trim().length > 0)
+  const canSubmit = !busy && count > 0 && (mode === 'add' || name.trim().length > 0)
 
   const submit = async () => {
     if (!canSubmit) return

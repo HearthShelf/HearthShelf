@@ -79,7 +79,11 @@ function PlaylistDetail({ playlist }: { playlist: ABSPlaylist }) {
         <div className="empty-state">
           <Icon name="queue_music" />
           <h3>This playlist is empty</h3>
-          <button className="btn-sm btn-ghost" style={{ margin: '0 auto' }} onClick={() => setAdding(true)}>
+          <button
+            className="btn-sm btn-ghost"
+            style={{ margin: '0 auto' }}
+            onClick={() => setAdding(true)}
+          >
             <Icon name="library_add" /> Add books
           </button>
         </div>
