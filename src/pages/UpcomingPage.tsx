@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries } from '@tanstack/react-query'
 import {
   countdownLabel,
   daysUntilRelease,
@@ -14,6 +15,10 @@ import { fetchAudibleSeriesByAsin, fetchAudibleSeries, audibleKeys } from '@/api
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import {
+  UpcomingDestinationModal,
+  type UpcomingTarget,
+} from '@/components/requests/UpcomingDestinationModal'
 
 type Dated = { publicationDatetime?: string; releaseDate?: string }
 
@@ -37,10 +42,10 @@ function dayNum(item: Dated): string | null {
 // blank. So when the ASIN lookup comes back unresolved we fall back to the
 // by-name lookup that every server has always supported, and keep only a roster
 // whose ASIN actually matches this follow (a name can match two series).
-function useSeriesRoster(seriesAsin: string | undefined, seriesTitle: string) {
-  return useQuery<HSAudibleSeriesResponse>({
+function rosterQuery(seriesAsin: string | undefined, seriesTitle: string) {
+  return {
     queryKey: audibleKeys.seriesByAsin(seriesAsin ?? ''),
-    queryFn: async () => {
+    queryFn: async (): Promise<HSAudibleSeriesResponse> => {
       const byAsin = await fetchAudibleSeriesByAsin(seriesAsin!)
       if (byAsin.seriesAsin) return byAsin
       if (!seriesTitle) return byAsin
@@ -50,33 +55,32 @@ function useSeriesRoster(seriesAsin: string | undefined, seriesTitle: string) {
     enabled: Boolean(seriesAsin),
     staleTime: 30 * 60 * 1000,
     retry: false,
-  })
+  }
 }
 
 // The hero: whatever lands next, given the whole stage. Everything else on the
 // page is a list; this is the one thing the page exists to answer.
 function NextRelease({
-  sub,
-  cover,
+  release,
   onView,
   onUnfollow,
   busy,
 }: {
-  sub: HSSubscription
-  cover?: string
+  release: Release
   onView: () => void
   onUnfollow: () => void
   busy: boolean
 }) {
   const now = Date.now()
-  const days = daysUntilRelease(sub, now)
-  const mon = monthAbbr(sub)
-  const day = dayNum(sub)
+  const days = daysUntilRelease(release.dates, now)
+  const mon = monthAbbr(release.dates)
+  const day = dayNum(release.dates)
+  const fromSeries = release.sub.kind === 'series'
 
   return (
-    <article className="up-spotlight" aria-label={`Next book: ${sub.title}`}>
-      {cover ? (
-        <img className="up-hero-cover" src={cover} alt="" />
+    <article className="up-spotlight" aria-label={`Next book: ${release.title}`}>
+      {release.cover ? (
+        <img className="up-hero-cover" src={release.cover} alt="" />
       ) : (
         <div className="up-hero-cover up-cover-ph" />
       )}
@@ -86,20 +90,28 @@ function NextRelease({
           <span className="up-pulse" />
           Your next release
         </div>
-        <h2>{sub.title}</h2>
-        {sub.author && <div className="up-book-meta">{sub.author}</div>}
-        {sub.seriesTitle && (
+        <h2>{release.title}</h2>
+        {release.author && <div className="up-book-meta">{release.author}</div>}
+        {release.seriesTitle && (
           <div className="up-series-name">
-            {sub.seriesTitle}
-            {sub.sequence ? ` · Book ${sub.sequence}` : ''}
+            {release.seriesTitle}
+            {release.sequence ? ` · Book ${release.sequence}` : ''}
           </div>
         )}
         <div className="up-hero-actions">
           <button className="up-primary-btn" onClick={onView}>
             <Icon name="menu_book" /> View book
           </button>
-          <button className="up-quiet-btn" onClick={onUnfollow} disabled={busy}>
-            <Icon name="notifications_active" fill /> Following
+          {/* Says what it actually stops: a hero drawn from a series follow
+              unfollows the whole series, not this one book. */}
+          <button
+            className="up-quiet-btn"
+            onClick={onUnfollow}
+            disabled={busy}
+            title={fromSeries ? 'Stop following this series' : 'Stop following this book'}
+          >
+            <Icon name="notifications_active" fill />{' '}
+            {fromSeries ? 'Following series' : 'Following'}
           </button>
         </div>
       </div>
@@ -162,23 +174,54 @@ function UpCard({
   )
 }
 
+/** A followed series paired with whatever its roster resolved to. */
+interface ResolvedSeries {
+  sub: HSSubscription
+  next: HSAudibleSeriesBook | null
+  cover?: string
+}
+
+/** One thing with a release ahead of it, flattened from either source: a book
+ *  followed directly, or the next book of a followed series. `sub` is the
+ *  subscription it came from, so unfollowing from the hero still works. */
+interface Release {
+  key: string
+  title: string
+  author?: string
+  cover?: string
+  seriesTitle?: string
+  sequence?: string
+  asin?: string
+  dates: Dated
+  upcoming: boolean
+  sub: HSSubscription
+}
+
+function toTarget(r: Release): UpcomingTarget {
+  return {
+    title: r.title,
+    author: r.author,
+    cover: r.cover,
+    asin: r.asin,
+    seriesTitle: r.seriesTitle,
+  }
+}
+
 // A followed series, as a slim bar whose HEADLINE is the next book - the series
 // name is demoted to the label above it. Falls back to a plain "not announced"
 // state when the roster resolves with nothing left.
 function SeriesRow({
-  sub,
+  resolved,
   onUnfollow,
   busy,
   onOpen,
 }: {
-  sub: HSSubscription
+  resolved: ResolvedSeries
   onUnfollow: (id: string) => void
   busy: boolean
   onOpen: (next: HSAudibleSeriesBook | null) => void
 }) {
-  const { data: roster } = useSeriesRoster(sub.seriesAsin, sub.seriesTitle ?? sub.title)
-  const next = roster?.seriesAsin ? nextSeriesBook(roster.books, Date.now()) : null
-  const cover = sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
+  const { sub, next, cover } = resolved
   const upcoming = next ? (next.upcoming ?? false) : false
   const label = next?.sequence
     ? `${sub.seriesTitle ?? sub.title} · Book ${next.sequence}`
@@ -239,28 +282,72 @@ export function UpcomingPage() {
   const navigate = useNavigate()
   const { data: subs, isLoading, isError, refetch } = useSubscriptions()
   const unfollow = useUnfollow()
+  // A book that isn't in the library has no page of its own here, so opening
+  // one asks where to go rather than dead-ending.
+  const [dest, setDest] = useState<UpcomingTarget | null>(null)
 
   const all = subs ?? []
-  const byRelease = (a: HSSubscription, b: HSSubscription) =>
-    (releaseMs(a) ?? Infinity) - (releaseMs(b) ?? Infinity)
-
-  const books = all.filter((s) => s.kind === 'book')
-  const waiting = books.filter((s) => !s.available).sort(byRelease)
-  const landed = books.filter((s) => s.available).sort(byRelease)
   const series = all.filter((s) => s.kind === 'series')
+  const books = all.filter((s) => s.kind === 'book')
 
-  // The hero is the soonest waiting book that actually has a date - an undated
+  // Resolve every followed series' roster in ONE hook, so the count of hooks
+  // never depends on the list length (a .map() of useQuery would break the
+  // rules of hooks the moment a follow is added or removed).
+  const rosters = useQueries({
+    queries: series.map((s) => rosterQuery(s.seriesAsin, s.seriesTitle ?? s.title)),
+  })
+  const resolved: ResolvedSeries[] = series.map((sub, i) => {
+    const roster = rosters[i]?.data
+    return {
+      sub,
+      next: roster?.seriesAsin ? nextSeriesBook(roster.books, Date.now()) : null,
+      cover: sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl,
+    }
+  })
+
+  // One list of everything with a real release ahead of it, from BOTH sources:
+  // a book you followed directly, and the next book of a series you follow.
+  // Without the series half, following only series (the common case) left the
+  // page with no hero and an empty "After that".
+  const releases: Release[] = [
+    ...books
+      .filter((s) => !s.available)
+      .map((s) => ({
+        key: s.id,
+        title: s.title,
+        author: s.author,
+        cover: s.coverArtUrl,
+        seriesTitle: s.seriesTitle,
+        sequence: s.sequence ?? undefined,
+        asin: s.asin,
+        dates: s as Dated,
+        upcoming: releaseMs(s) !== null,
+        sub: s,
+      })),
+    ...resolved
+      .filter((r) => r.next && (r.next.upcoming ?? false))
+      .map((r) => ({
+        key: `${r.sub.id}:${r.next!.asin}`,
+        title: r.next!.title,
+        author: r.next!.author || r.sub.author,
+        cover: r.next!.coverArtUrl ?? r.cover,
+        seriesTitle: r.sub.seriesTitle ?? r.sub.title,
+        sequence: r.next!.sequence ?? undefined,
+        asin: r.next!.asin,
+        dates: r.next as Dated,
+        upcoming: true,
+        sub: r.sub,
+      })),
+  ].sort((a, b) => (releaseMs(a.dates) ?? Infinity) - (releaseMs(b.dates) ?? Infinity))
+
+  const landed = books
+    .filter((s) => s.available)
+    .sort((a, b) => (releaseMs(a) ?? Infinity) - (releaseMs(b) ?? Infinity))
+
+  // The hero is the soonest release that actually has a date - an undated
   // follow can't fill a countdown, so it belongs in the list instead.
-  const hero = waiting.find((s) => releaseMs(s) !== null)
-  const rest = waiting.filter((s) => s !== hero)
-
-  // The hero's cover, when the follow was saved without one.
-  const heroRoster = useSeriesRoster(
-    hero && !hero.coverArtUrl ? hero.seriesAsin : undefined,
-    hero?.seriesTitle ?? hero?.title ?? '',
-  ).data
-  const heroCover =
-    hero?.coverArtUrl ?? heroRoster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
+  const hero = releases.find((r) => releaseMs(r.dates) !== null)
+  const rest = releases.filter((r) => r !== hero)
 
   if (isLoading) return <LoadingSpinner />
   if (isError) {
@@ -273,7 +360,7 @@ export function UpcomingPage() {
 
   const busy = unfollow.isPending
   const onUnfollow = (id: string) => unfollow.mutate(id)
-  const datedCount = waiting.filter((s) => releaseMs(s) !== null).length
+  const datedRest = rest.filter((r) => releaseMs(r.dates) !== null).length
 
   return (
     <div className="page fade-in up-page">
@@ -306,11 +393,10 @@ export function UpcomingPage() {
         <>
           {hero && (
             <NextRelease
-              sub={hero}
-              cover={heroCover}
+              release={hero}
               busy={busy}
-              onView={() => hero.asin && navigate(`/upcoming/${encodeURIComponent(hero.asin)}`)}
-              onUnfollow={() => onUnfollow(hero.id)}
+              onView={() => setDest(toTarget(hero))}
+              onUnfollow={() => onUnfollow(hero.sub.id)}
             />
           )}
 
@@ -319,26 +405,23 @@ export function UpcomingPage() {
               <div className="up-section-row">
                 <h3>After that</h3>
                 <span>
-                  {datedCount - (hero ? 1 : 0)} dated release
-                  {datedCount - (hero ? 1 : 0) === 1 ? '' : 's'}
+                  {datedRest} dated release{datedRest === 1 ? '' : 's'}
                 </span>
               </div>
               <div className="up-card-list">
-                {rest.map((s) => {
-                  const mon = monthAbbr(s)
-                  const day = dayNum(s)
+                {rest.map((r) => {
+                  const mon = monthAbbr(r.dates)
+                  const day = dayNum(r.dates)
                   return (
                     <UpCard
-                      key={s.id}
-                      title={s.title}
-                      author={s.author}
-                      cover={s.coverArtUrl}
+                      key={r.key}
+                      title={r.title}
+                      author={r.author}
+                      cover={r.cover}
                       when={
-                        mon && day
-                          ? { top: mon, bottom: day }
-                          : { top: 'DATE', bottom: 'TBA' }
+                        mon && day ? { top: mon, bottom: day } : { top: 'DATE', bottom: 'TBA' }
                       }
-                      onClick={() => s.asin && navigate(`/upcoming/${encodeURIComponent(s.asin)}`)}
+                      onClick={() => setDest(toTarget(r))}
                     />
                   )
                 })}
@@ -361,7 +444,15 @@ export function UpcomingPage() {
                     cover={s.coverArtUrl}
                     arrived
                     when={{ top: 'OUT', bottom: 'NOW' }}
-                    onClick={() => s.asin && navigate(`/upcoming/${encodeURIComponent(s.asin)}`)}
+                    onClick={() =>
+                      setDest({
+                        title: s.title,
+                        author: s.author,
+                        cover: s.coverArtUrl,
+                        asin: s.asin,
+                        seriesTitle: s.seriesTitle,
+                      })
+                    }
                   />
                 ))}
               </div>
@@ -375,15 +466,21 @@ export function UpcomingPage() {
                 <span>New books are tracked automatically</span>
               </div>
               <div className="up-series-list">
-                {series.map((s) => (
+                {resolved.map((r) => (
                   <SeriesRow
-                    key={s.id}
-                    sub={s}
+                    key={r.sub.id}
+                    resolved={r}
                     busy={busy}
                     onUnfollow={onUnfollow}
-                    onOpen={(next) => {
-                      if (next?.asin) navigate(`/upcoming/${encodeURIComponent(next.asin)}`)
-                    }}
+                    onOpen={(next) =>
+                      setDest({
+                        title: next?.title ?? r.sub.seriesTitle ?? r.sub.title,
+                        author: next?.author ?? r.sub.author,
+                        cover: next?.coverArtUrl ?? r.cover,
+                        asin: next?.asin,
+                        seriesTitle: r.sub.seriesTitle ?? r.sub.title,
+                      })
+                    }
                   />
                 ))}
               </div>
@@ -391,6 +488,8 @@ export function UpcomingPage() {
           )}
         </>
       )}
+
+      {dest && <UpcomingDestinationModal item={dest} onClose={() => setDest(null)} />}
     </div>
   )
 }

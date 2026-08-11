@@ -23,6 +23,7 @@ export const audibleKeys = {
   // Keyed by the Audible series ASIN, for callers that hold only that (a series
   // follow, which stores the ASIN rather than an ABS series id).
   seriesByAsin: (seriesAsin: string) => ['audible', 'series-asin', seriesAsin] as const,
+  product: (asin: string) => ['audible', 'product', asin] as const,
 }
 
 export async function searchAudible(query: string, page = 1): Promise<AudibleSearchResponse> {
@@ -76,6 +77,23 @@ export async function fetchAudibleSeriesByAsin(
     return (await res.json()) as AudibleSeriesResponse
   } catch {
     return empty
+  }
+}
+
+// One Audible product by ASIN. Backs the upcoming-book page, which renders a
+// book the library does not have (so ABS knows nothing about it). null on any
+// failure or an unknown ASIN, so the page can show a not-found state.
+export async function fetchAudibleProduct(asin: string): Promise<HSAudibleSearchResult | null> {
+  if (!asin) return null
+  const token = useAuthStore.getState().token
+  try {
+    const res = await fetch(`/hs/audible/product?asin=${encodeURIComponent(asin)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return null
+    return (await res.json()) as HSAudibleSearchResult
+  } catch {
+    return null
   }
 }
 
