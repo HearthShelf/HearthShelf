@@ -2,39 +2,34 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   countdownLabel,
+  daysUntilRelease,
   releaseMs,
   nextSeriesBook,
   type HSSubscription,
   type HSAudibleSeriesBook,
+  type HSAudibleSeriesResponse,
 } from '@hearthshelf/core'
 import { useSubscriptions, useUnfollow } from '@/hooks/useSubscriptions'
-import {
-  fetchAudibleSeriesByAsin,
-  fetchAudibleSeries,
-  audibleKeys,
-  type AudibleSeriesResponse,
-} from '@/api/audible'
+import { fetchAudibleSeriesByAsin, fetchAudibleSeries, audibleKeys } from '@/api/audible'
 import { Icon } from '@/components/common/Icon'
-import { SectionHead } from '@/components/common/SectionHead'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 
-// Takes the release fields alone, so it serves both a subscription and a roster
-// book (the "next in series" line).
-function releaseDateLabel(item: {
-  publicationDatetime?: string
-  releaseDate?: string
-}): string | null {
+type Dated = { publicationDatetime?: string; releaseDate?: string }
+
+function monthAbbr(item: Dated): string | null {
   const ms = releaseMs(item)
   if (ms === null) return null
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short' }).toUpperCase()
 }
 
-// The roster for a followed series, used for both its artwork and which book is
+function dayNum(item: Dated): string | null {
+  const ms = releaseMs(item)
+  if (ms === null) return null
+  return String(new Date(ms).getDate())
+}
+
+// The roster for a followed series, used for its artwork and for which book is
 // next in it. A series follow stores only the ASIN and carries no date.
 //
 // Two lookups, because ?seriesAsin= is new: a server that predates it ignores
@@ -43,7 +38,7 @@ function releaseDateLabel(item: {
 // by-name lookup that every server has always supported, and keep only a roster
 // whose ASIN actually matches this follow (a name can match two series).
 function useSeriesRoster(seriesAsin: string | undefined, seriesTitle: string) {
-  return useQuery({
+  return useQuery<HSAudibleSeriesResponse>({
     queryKey: audibleKeys.seriesByAsin(seriesAsin ?? ''),
     queryFn: async () => {
       const byAsin = await fetchAudibleSeriesByAsin(seriesAsin!)
@@ -58,111 +53,214 @@ function useSeriesRoster(seriesAsin: string | undefined, seriesTitle: string) {
   })
 }
 
-// Which book is next in a followed series. Renders nothing while loading, when
-// neither lookup resolves, or when the series is fully owned with nothing
-// announced.
-function NextInSeries({ roster }: { roster: AudibleSeriesResponse | undefined }) {
-  if (!roster?.seriesAsin) return null
-  const next: HSAudibleSeriesBook | null = nextSeriesBook(roster.books, Date.now())
-  if (!next) return null
-
-  // "Next" is the first gap in reading order, which may already be out (a book
-  // you haven't picked up) or still unreleased - say which.
-  const now = Date.now()
-  const upcoming = next.upcoming ?? false
-  const countdown = upcoming ? countdownLabel(next, now) : null
-  const when = upcoming
-    ? `coming ${releaseDateLabel(next) ?? 'soon'}${countdown ? ` · ${countdown}` : ''}`
-    : 'out now, not in your library'
-
-  return (
-    <div className="sl-release">
-      <Icon name="arrow_forward" />
-      Next: {next.title} · {when}
-    </div>
-  )
-}
-
-// One followed book or series. The unfollow button never navigates.
-function FollowRow({
+// The hero: whatever lands next, given the whole stage. Everything else on the
+// page is a list; this is the one thing the page exists to answer.
+function NextRelease({
   sub,
-  now,
+  cover,
+  onView,
   onUnfollow,
   busy,
-  numberLabel,
 }: {
   sub: HSSubscription
-  now: number
-  onUnfollow: (id: string) => void
+  cover?: string
+  onView: () => void
+  onUnfollow: () => void
   busy: boolean
-  numberLabel: React.ReactNode
 }) {
-  const isSeries = sub.kind === 'series'
-  const countdown = isSeries ? null : countdownLabel(sub, now)
-  const dateLabel = isSeries ? null : releaseDateLabel(sub)
-  // A series has no cover of its own, and follows made before we stored one
-  // have none at all - borrow the first roster book's artwork so the row isn't
-  // an empty grey tile.
-  const roster = useSeriesRoster(
-    isSeries ? sub.seriesAsin : undefined,
-    sub.seriesTitle ?? sub.title,
-  ).data
-  const cover = sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
-
-  // What this row says about itself, in priority order: already landed, then a
-  // dated countdown, then a bare "coming soon" when the date is unknown.
-  let status: string
-  if (isSeries) status = 'Every new book tracked automatically'
-  else if (sub.available) status = 'Available now - in your library'
-  else if (dateLabel) status = `Coming ${dateLabel}${countdown ? ` · ${countdown}` : ''}`
-  else status = 'Coming soon'
-
-  const meta = [sub.author, !isSeries ? sub.seriesTitle : null].filter(Boolean).join(' · ')
+  const now = Date.now()
+  const days = daysUntilRelease(sub, now)
+  const mon = monthAbbr(sub)
+  const day = dayNum(sub)
 
   return (
-    <div className={`sl-row sl-row-missing sl-row-upcoming${sub.available ? ' is-available' : ''}`}>
-      <div className="sl-num">{numberLabel}</div>
+    <article className="up-spotlight" aria-label={`Next book: ${sub.title}`}>
       {cover ? (
-        <img className="sl-cover" src={cover} alt="" />
+        <img className="up-hero-cover" src={cover} alt="" />
       ) : (
-        <div className="sl-cover" style={{ background: 'var(--c-highest)' }} />
+        <div className="up-hero-cover up-cover-ph" />
       )}
-      <div className="sl-meta">
-        <div className="sl-title">{sub.title}</div>
-        {meta && <div className="sl-sub">{meta}</div>}
-        <div className="sl-release">
-          <Icon
-            name={
-              sub.available ? 'check_circle' : isSeries ? 'auto_awesome_motion' : 'event_upcoming'
-            }
-          />
-          {status}
+
+      <div className="up-hero-copy">
+        <div className="up-next-label">
+          <span className="up-pulse" />
+          Your next release
         </div>
-        {isSeries && <NextInSeries roster={roster} />}
+        <h2>{sub.title}</h2>
+        {sub.author && <div className="up-book-meta">{sub.author}</div>}
+        {sub.seriesTitle && (
+          <div className="up-series-name">
+            {sub.seriesTitle}
+            {sub.sequence ? ` · Book ${sub.sequence}` : ''}
+          </div>
+        )}
+        <div className="up-hero-actions">
+          <button className="up-primary-btn" onClick={onView}>
+            <Icon name="menu_book" /> View book
+          </button>
+          <button className="up-quiet-btn" onClick={onUnfollow} disabled={busy}>
+            <Icon name="notifications_active" fill /> Following
+          </button>
+        </div>
       </div>
+
+      <div className="up-release-clock">
+        {mon && day && (
+          <div className="up-calendar">
+            <b>{mon}</b>
+            <span>{day}</span>
+          </div>
+        )}
+        <div>
+          <strong>{days ?? '—'}</strong>
+          <small>{days === 1 ? 'day away' : 'days away'}</small>
+        </div>
+        <p>
+          We'll let you know
+          <br />
+          the moment it arrives.
+        </p>
+      </div>
+    </article>
+  )
+}
+
+// A dated release that isn't the hero, and arrived books. Compact card: mini
+// cover, title + author, and the date on its own rail.
+function UpCard({
+  title,
+  author,
+  cover,
+  when,
+  arrived,
+  onClick,
+}: {
+  title: string
+  author?: string
+  cover?: string
+  when: { top: string; bottom: string }
+  arrived?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <article className={'up-card' + (arrived ? ' arrived' : '')} onClick={onClick}>
+      {cover ? (
+        <img className="up-mini-cover" src={cover} alt="" />
+      ) : (
+        <div className="up-mini-cover up-cover-ph" />
+      )}
+      <div className="up-card-meta">
+        <h4>{title}</h4>
+        <p>{author || ' '}</p>
+      </div>
+      <time>
+        {when.top}
+        <br />
+        {when.bottom}
+      </time>
+    </article>
+  )
+}
+
+// A followed series, as a slim bar whose HEADLINE is the next book - the series
+// name is demoted to the label above it. Falls back to a plain "not announced"
+// state when the roster resolves with nothing left.
+function SeriesRow({
+  sub,
+  onUnfollow,
+  busy,
+  onOpen,
+}: {
+  sub: HSSubscription
+  onUnfollow: (id: string) => void
+  busy: boolean
+  onOpen: (next: HSAudibleSeriesBook | null) => void
+}) {
+  const { data: roster } = useSeriesRoster(sub.seriesAsin, sub.seriesTitle ?? sub.title)
+  const next = roster?.seriesAsin ? nextSeriesBook(roster.books, Date.now()) : null
+  const cover = sub.coverArtUrl ?? roster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
+  const upcoming = next ? (next.upcoming ?? false) : false
+  const label = next?.sequence
+    ? `${sub.seriesTitle ?? sub.title} · Book ${next.sequence}`
+    : (sub.seriesTitle ?? sub.title)
+
+  return (
+    <div className="up-series-row" onClick={() => onOpen(next)}>
+      {cover ? (
+        <img className="up-series-cover" src={cover} alt="" />
+      ) : (
+        <div className="up-series-cover up-cover-ph" />
+      )}
+      <div className="up-series-meta">
+        <div className="up-series-label">{label}</div>
+        {next ? (
+          <div className="up-series-next">{next.title}</div>
+        ) : (
+          <div className="up-series-next quiet">Next book not announced yet</div>
+        )}
+      </div>
+      {next && (
+        <span className={'up-date-pill' + (upcoming ? '' : ' out')}>
+          {upcoming ? (
+            <>
+              <Icon name="bolt" fill /> {countdownLabel(next, Date.now()) ?? 'Coming soon'}
+            </>
+          ) : (
+            <>
+              <Icon name="inventory_2" /> Out now
+            </>
+          )}
+        </span>
+      )}
       <button
-        className="pill sl-unfollow"
+        className="up-row-btn"
+        title="Stop following this series"
         disabled={busy}
-        title={isSeries ? 'Stop following this series' : 'Stop following this book'}
-        onClick={() => onUnfollow(sub.id)}
+        onClick={(e) => {
+          e.stopPropagation()
+          onUnfollow(sub.id)
+        }}
       >
-        <Icon name="notifications_off" /> Unfollow
+        <Icon name="notifications_off" />
       </button>
+      <Icon name="chevron_right" />
     </div>
   )
 }
 
-// Everything the listener is following: upcoming books with a countdown, books
-// that have already landed, and whole series being tracked - each showing which
-// book is next in it.
+// Everything the listener is following. The single soonest dated book is the
+// hero; the rest of the dated ones, the books that already landed, and the
+// series being tracked follow as lists.
 //
-// The Home countdown banner only ever shows the single soonest book inside the
-// reader's countdown window, so without this page a follow further out (or a
-// series follow, which never has its own date) is invisible after you make it.
+// The Home countdown banner only ever shows one book inside a 14-day window, so
+// without this page a follow further out - or a series follow, which has no date
+// of its own - is invisible after you make it.
 export function UpcomingPage() {
   const navigate = useNavigate()
   const { data: subs, isLoading, isError, refetch } = useSubscriptions()
   const unfollow = useUnfollow()
+
+  const all = subs ?? []
+  const byRelease = (a: HSSubscription, b: HSSubscription) =>
+    (releaseMs(a) ?? Infinity) - (releaseMs(b) ?? Infinity)
+
+  const books = all.filter((s) => s.kind === 'book')
+  const waiting = books.filter((s) => !s.available).sort(byRelease)
+  const landed = books.filter((s) => s.available).sort(byRelease)
+  const series = all.filter((s) => s.kind === 'series')
+
+  // The hero is the soonest waiting book that actually has a date - an undated
+  // follow can't fill a countdown, so it belongs in the list instead.
+  const hero = waiting.find((s) => releaseMs(s) !== null)
+  const rest = waiting.filter((s) => s !== hero)
+
+  // The hero's cover, when the follow was saved without one.
+  const heroRoster = useSeriesRoster(
+    hero && !hero.coverArtUrl ? hero.seriesAsin : undefined,
+    hero?.seriesTitle ?? hero?.title ?? '',
+  ).data
+  const heroCover =
+    hero?.coverArtUrl ?? heroRoster?.books.find((b) => b.coverArtUrl)?.coverArtUrl
 
   if (isLoading) return <LoadingSpinner />
   if (isError) {
@@ -173,32 +271,24 @@ export function UpcomingPage() {
     )
   }
 
-  const all = subs ?? []
-  const now = Date.now()
-  const byRelease = (a: HSSubscription, b: HSSubscription) =>
-    (releaseMs(a) ?? Infinity) - (releaseMs(b) ?? Infinity)
-
-  const books = all.filter((s) => s.kind === 'book')
-  // Soonest first; a landed book is no longer a countdown, so it moves to its
-  // own group rather than sitting at the top with a stale "0 days".
-  const waiting = books.filter((s) => !s.available).sort(byRelease)
-  const landed = books.filter((s) => s.available).sort(byRelease)
-  const series = all.filter((s) => s.kind === 'series')
-
   const busy = unfollow.isPending
   const onUnfollow = (id: string) => unfollow.mutate(id)
+  const datedCount = waiting.filter((s) => releaseMs(s) !== null).length
 
   return (
-    <div className="page fade-in">
-      <div className="page-head">
-        <div className="eyebrow">HearthShelf</div>
-        <h1 className="title-xl">Upcoming</h1>
-        <p className="page-sub">
-          {all.length > 0
-            ? 'Books and series you follow. We tell you the moment one arrives.'
-            : 'Follow a book or a series and it shows up here.'}
-        </p>
-      </div>
+    <div className="page fade-in up-page">
+      <header className="up-page-heading">
+        <div>
+          <div className="eyebrow">HearthShelf</div>
+          <h1 className="up-h1">Upcoming</h1>
+          <p>The books you're waiting for, in the order they arrive.</p>
+        </div>
+        {all.length > 0 && (
+          <div className="up-following-count">
+            <b>{all.length}</b> book{all.length === 1 ? '' : 's'} &amp; series followed
+          </div>
+        )}
+      </header>
 
       {all.length === 0 ? (
         <div className="empty-state">
@@ -214,58 +304,90 @@ export function UpcomingPage() {
         </div>
       ) : (
         <>
-          {waiting.length > 0 && (
-            <div className="section">
-              <SectionHead icon="event_upcoming" title="Counting down" />
-              <div className="series-list">
-                {waiting.map((s, i) => (
-                  <FollowRow
-                    key={s.id}
-                    sub={s}
-                    now={now}
-                    busy={busy}
-                    onUnfollow={onUnfollow}
-                    numberLabel={i + 1}
-                  />
-                ))}
+          {hero && (
+            <NextRelease
+              sub={hero}
+              cover={heroCover}
+              busy={busy}
+              onView={() => hero.asin && navigate(`/upcoming/${encodeURIComponent(hero.asin)}`)}
+              onUnfollow={() => onUnfollow(hero.id)}
+            />
+          )}
+
+          {rest.length > 0 && (
+            <>
+              <div className="up-section-row">
+                <h3>After that</h3>
+                <span>
+                  {datedCount - (hero ? 1 : 0)} dated release
+                  {datedCount - (hero ? 1 : 0) === 1 ? '' : 's'}
+                </span>
               </div>
-            </div>
+              <div className="up-card-list">
+                {rest.map((s) => {
+                  const mon = monthAbbr(s)
+                  const day = dayNum(s)
+                  return (
+                    <UpCard
+                      key={s.id}
+                      title={s.title}
+                      author={s.author}
+                      cover={s.coverArtUrl}
+                      when={
+                        mon && day
+                          ? { top: mon, bottom: day }
+                          : { top: 'DATE', bottom: 'TBA' }
+                      }
+                      onClick={() => s.asin && navigate(`/upcoming/${encodeURIComponent(s.asin)}`)}
+                    />
+                  )
+                })}
+              </div>
+            </>
           )}
 
           {landed.length > 0 && (
-            <div className="section">
-              <SectionHead icon="check_circle" title="Arrived" />
-              <div className="series-list">
+            <>
+              <div className="up-section-row">
+                <h3>Arrived</h3>
+                <span>In your library now</span>
+              </div>
+              <div className="up-card-list">
                 {landed.map((s) => (
-                  <FollowRow
+                  <UpCard
                     key={s.id}
-                    sub={s}
-                    now={now}
-                    busy={busy}
-                    onUnfollow={onUnfollow}
-                    numberLabel={<Icon name="check_circle" fill />}
+                    title={s.title}
+                    author={s.author}
+                    cover={s.coverArtUrl}
+                    arrived
+                    when={{ top: 'OUT', bottom: 'NOW' }}
+                    onClick={() => s.asin && navigate(`/upcoming/${encodeURIComponent(s.asin)}`)}
                   />
                 ))}
               </div>
-            </div>
+            </>
           )}
 
           {series.length > 0 && (
-            <div className="section">
-              <SectionHead icon="auto_awesome_motion" title="Series you follow" />
-              <div className="series-list">
+            <>
+              <div className="up-section-row">
+                <h3>Series you follow</h3>
+                <span>New books are tracked automatically</span>
+              </div>
+              <div className="up-series-list">
                 {series.map((s) => (
-                  <FollowRow
+                  <SeriesRow
                     key={s.id}
                     sub={s}
-                    now={now}
                     busy={busy}
                     onUnfollow={onUnfollow}
-                    numberLabel={<Icon name="auto_awesome_motion" />}
+                    onOpen={(next) => {
+                      if (next?.asin) navigate(`/upcoming/${encodeURIComponent(next.asin)}`)
+                    }}
                   />
                 ))}
               </div>
-            </div>
+            </>
           )}
         </>
       )}
