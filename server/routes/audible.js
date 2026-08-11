@@ -14,7 +14,12 @@
 
 import { json } from '../lib/http.js'
 import { getIntegrations } from '../integrations.js'
-import { getSeriesRoster, getSeriesRosterById, saveSeriesRoster } from '../lib/seriesRosterStore.js'
+import {
+  getSeriesRoster,
+  getSeriesRosterById,
+  getSeriesRosterByAsin,
+  saveSeriesRoster,
+} from '../lib/seriesRosterStore.js'
 import { getOwnedSeriesBooks } from '../lib/absdb.js'
 import { stampOwned } from '../lib/seriesOwned.js'
 
@@ -410,6 +415,25 @@ export async function handleAudible(req, res, url, ctx) {
   if (p === '/hs/audible/series') {
     const name = (url.searchParams.get('q') ?? '').trim()
     const seriesId = (url.searchParams.get('seriesId') ?? '').trim()
+    // A caller holding only the Audible series ASIN (a series subscription -
+    // the follow stores the ASIN, not an ABS series id) can ask by it directly.
+    // Precise, and it needs no live Audible call when the sweep has run.
+    const bySeriesAsin = (url.searchParams.get('seriesAsin') ?? '').trim()
+    if (bySeriesAsin) {
+      const roster = await getSeriesRosterByAsin(bySeriesAsin)
+      if (!roster) {
+        return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+      }
+      return (
+        json(res, 200, {
+          name: roster.name,
+          seriesAsin: roster.seriesAsin,
+          seriesTitle: roster.seriesTitle,
+          books: await refreshStoredRoster(roster),
+        }),
+        true
+      )
+    }
     if (name.length < 2 && !seriesId) {
       return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
     }

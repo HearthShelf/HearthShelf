@@ -20,6 +20,9 @@ export const audibleKeys = {
   // Keyed by ABS series id, not name - two distinct series can share a name, and
   // a name-only key made them collide in the cache.
   series: (seriesId: string, name: string) => ['audible', 'series', seriesId, name] as const,
+  // Keyed by the Audible series ASIN, for callers that hold only that (a series
+  // follow, which stores the ASIN rather than an ABS series id).
+  seriesByAsin: (seriesAsin: string) => ['audible', 'series-asin', seriesAsin] as const,
 }
 
 export async function searchAudible(query: string, page = 1): Promise<AudibleSearchResponse> {
@@ -49,6 +52,31 @@ export async function fetchAudibleSeries(
   })
   if (!res.ok) throw new Error(`Audible series ${res.status}`)
   return res.json() as Promise<AudibleSeriesResponse>
+}
+
+// Fetch a series' roster by its Audible series ASIN. What a series follow holds
+// is the ASIN, not an ABS series id, so this is how a "following" list learns
+// which book is next in a series being tracked.
+//
+// Served from the precomputed roster only (no live Audible resolve), so a series
+// the nightly sweep hasn't reached returns an unresolved result and the caller
+// quietly shows the follow without a next-book line.
+export async function fetchAudibleSeriesByAsin(
+  seriesAsin: string,
+): Promise<AudibleSeriesResponse> {
+  const empty: AudibleSeriesResponse = { name: '', seriesAsin: null, books: [] }
+  if (!seriesAsin) return empty
+  const token = useAuthStore.getState().token
+  try {
+    const params = new URLSearchParams({ seriesAsin })
+    const res = await fetch(`/hs/audible/series?${params.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return empty
+    return (await res.json()) as AudibleSeriesResponse
+  } catch {
+    return empty
+  }
 }
 
 // A plain Audible store link for a result, used by the "Buy on Audible" action

@@ -30,6 +30,7 @@ function groupForPath(path: string): string {
   if (path.startsWith('/questgiver')) return 'questgiver'
   if (path.startsWith('/discover')) return 'discover'
   if (path.startsWith('/requests')) return 'requests'
+  if (path.startsWith('/upcoming')) return 'upcoming'
   if (path.startsWith('/stats')) return 'stats'
   if (path.startsWith('/finished')) return 'finished'
   if (path.startsWith('/sessions')) return 'sessions'
@@ -176,6 +177,9 @@ export function Sidebar() {
             {discoverEnabled && (
               <Item id="discover" icon="explore" label="Discover" to="/discover" />
             )}
+            {/* Not gated on the request backend: following only notifies, and
+                works on every server. */}
+            <Item id="upcoming" icon="event_upcoming" label="Upcoming" to="/upcoming" />
             {rmabEnabled && (
               <Item id="requests" icon="cloud_download" label="Requests" to="/requests" />
             )}

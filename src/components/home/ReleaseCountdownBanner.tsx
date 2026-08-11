@@ -8,12 +8,14 @@
  * "coming soon" means.
  */
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { bannerSubscriptions, countdownLabel } from '@hearthshelf/core'
 import { getSubscriptions, subscriptionKeys } from '@/api/subscriptions'
 import { useSettingsStore } from '@/store/settingsStore'
 import { Icon } from '@/components/common/Icon'
 
 export function ReleaseCountdownBanner() {
+  const navigate = useNavigate()
   const windowDays = useSettingsStore((s) => s.notifyCountdownWindowDays)
 
   const { data: subscriptions } = useQuery({
@@ -37,7 +39,16 @@ export function ReleaseCountdownBanner() {
   const extra = upcoming.length - 1
 
   return (
-    <div className="rc-banner">
+    <div
+      className="rc-banner is-link"
+      role="link"
+      tabIndex={0}
+      title="See everything you're following"
+      onClick={() => navigate('/upcoming')}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') navigate('/upcoming')
+      }}
+    >
       {soonest.coverArtUrl ? (
         <img className="rc-cover" src={soonest.coverArtUrl} alt="" />
       ) : (

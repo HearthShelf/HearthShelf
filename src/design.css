@@ -1413,6 +1413,17 @@
 .sl-row-upcoming:hover .sl-follow-tag {
   color: var(--accent);
 }
+/* Following-list rows: the unfollow control stays quiet until row hover. */
+.sl-unfollow {
+  white-space: nowrap;
+  opacity: 0.7;
+}
+.sl-row:hover .sl-unfollow {
+  opacity: 1;
+}
+.sl-row-upcoming.is-available .sl-release {
+  color: var(--accent);
+}
 /* Selection checkbox sitting in the leading (sl-num) grid column - overrides the
    cover-overlay .b-check defaults (absolute + hidden) to a static, visible cell. */
 .sl-check {
@@ -11703,6 +11714,21 @@ select.fld {
   border-radius: var(--r-card);
   border: 1px solid var(--primary);
   background: color-mix(in oklab, var(--primary) 10%, transparent);
+}
+
+/* The banner leads to the full following list, so it reads as a control. */
+.rc-banner.is-link {
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.rc-banner.is-link:hover {
+  background: color-mix(in oklab, var(--primary) 16%, transparent);
+}
+.rc-banner.is-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .rc-cover {
