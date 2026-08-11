@@ -217,6 +217,24 @@ export async function resolveSeriesAsin(name, region, ownedAuthors = []) {
   return best // { title, asin, count, authorHits } | null
 }
 
+// Audible lists some series books TWICE: the real product, plus a "phantom"
+// placeholder created when the book was first announced. Both are children of
+// the series and share a sequence, so the series reads as having duplicates -
+// one proper row, one coverless row with a mangled author ("Zogarth .").
+//
+// The phantom is identifiable on its own: it carries the sentinel release date
+// 2200-01-01 and has neither a narrator nor a runtime, none of which was known
+// at announcement. A real upcoming book, even months out, has all three. The
+// real product for the sequence is always present, so dropping it loses nothing.
+//
+// Mirror of @hearthshelf/core isPhantomRosterBook (the server runs plain .js and
+// can't import the .ts). Keep in step with src/lib/series.ts.
+function isPhantomRosterBook(book) {
+  const rel = book.releaseDate ?? book.publicationDatetime ?? ''
+  if (!String(rel).startsWith('2200')) return false
+  return !book.narrator && !book.durationMinutes
+}
+
 // Fetch the child books of a series by its ASIN, ordered by series sequence.
 export async function fetchSeriesBooks(seriesAsin, region) {
   const base = apiBase(region)
@@ -246,10 +264,12 @@ export async function fetchSeriesBooks(seriesAsin, region) {
     if (!prodRes.ok) return []
     const prodData = await prodRes.json()
     const products = prodData?.products ?? []
-    const mapped = products.map((p) => ({
-      ...mapProduct(p),
-      sequence: seqByAsin.get(p.asin) ?? null,
-    }))
+    const mapped = products
+      .map((p) => ({
+        ...mapProduct(p),
+        sequence: seqByAsin.get(p.asin) ?? null,
+      }))
+      .filter((b) => !isPhantomRosterBook(b))
     // Order by numeric sequence when available.
     mapped.sort((a, b) => (parseFloat(a.sequence) || 0) - (parseFloat(b.sequence) || 0))
     return mapped
