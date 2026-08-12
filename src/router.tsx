@@ -57,6 +57,14 @@ export const router = createBrowserRouter([
     element: <OidcLandPage />,
   },
   {
+    // Same landing under ABS's default ROUTER_BASE_PATH. A stock ABS only
+    // accepts a callback beneath '/audiobookshelf', so that is where it sends
+    // the browser back to; our nginx serves the SPA there too (it is not an
+    // ABS-proxied prefix), so the same page handles it.
+    path: '/audiobookshelf/oidc-land',
+    element: <OidcLandPage />,
+  },
+  {
     path: '/onboarding',
     element: <OnboardingPage />,
     errorElement: <ErrorPage />,
