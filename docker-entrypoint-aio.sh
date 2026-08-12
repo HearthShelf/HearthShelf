@@ -30,6 +30,14 @@ fi
 # Shared bits both the HTTP and HTTPS server blocks include.
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
 
+# Normalize ABS_SERVER_URL (strip trailing slashes) - see docker-entrypoint.sh.
+# A trailing slash makes proxy_pass illegal inside the regex location and nginx
+# refuses to start.
+while [ "${ABS_SERVER_URL}" != "${ABS_SERVER_URL%/}" ]; do
+  ABS_SERVER_URL="${ABS_SERVER_URL%/}"
+done
+export ABS_SERVER_URL
+
 # SNI name for upstream TLS - see docker-entrypoint.sh. AIO's ABS is local http,
 # so proxy_ssl_* is inert here, but the shared abs_proxy.conf references the var
 # and envsubst would otherwise blank it out.

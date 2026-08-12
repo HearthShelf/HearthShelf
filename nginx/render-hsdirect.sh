@@ -33,6 +33,14 @@ fi
 
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
 
+# Normalize ABS_SERVER_URL (strip trailing slashes) - a trailing slash makes
+# proxy_pass illegal inside a regex location and nginx refuses to start. Done
+# here too because the backend calls this script directly when a cert lands.
+while [ "${ABS_SERVER_URL}" != "${ABS_SERVER_URL%/}" ]; do
+  ABS_SERVER_URL="${ABS_SERVER_URL%/}"
+done
+export ABS_SERVER_URL
+
 # SNI name for upstream TLS (see abs_proxy.conf). Derived here too because this
 # script re-renders the proxy fragment independently of the entrypoint.
 ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
