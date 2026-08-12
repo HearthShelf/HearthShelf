@@ -24,11 +24,19 @@ export ABS_SERVER_URL
 ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
 export ABS_SERVER_HOST
 
+# Scheme the BROWSER uses, taken from PUBLIC_URL. When TLS terminates upstream
+# (Cloudflare, a reverse proxy) nginx's own $scheme is "http" even though the
+# user is on https, and ABS would then hand the identity provider an http://
+# OIDC callback. Falls back to nginx's $scheme when PUBLIC_URL is unset.
+PUBLIC_SCHEME="$(printf '%s' "${PUBLIC_URL}" | sed -n 's#^\([a-z][a-z0-9+.-]*\)://.*#\1#p')"
+[ -n "${PUBLIC_SCHEME}" ] || PUBLIC_SCHEME='$scheme'
+export PUBLIC_SCHEME
+
 envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
   < /etc/nginx/templates/default.conf.template \
   > /etc/nginx/conf.d/default.conf
 
-envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST}' \
+envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST} ${PUBLIC_SCHEME}' \
   < /etc/nginx/templates/abs_proxy.conf.template \
   > /etc/nginx/abs_proxy.conf
 

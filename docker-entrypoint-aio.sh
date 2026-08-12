@@ -44,7 +44,12 @@ export ABS_SERVER_URL
 ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
 export ABS_SERVER_HOST
 
-envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST}' \
+# Browser-facing scheme from PUBLIC_URL - see docker-entrypoint.sh.
+PUBLIC_SCHEME="$(printf '%s' "${PUBLIC_URL}" | sed -n 's#^\([a-z][a-z0-9+.-]*\)://.*#\1#p')"
+[ -n "${PUBLIC_SCHEME}" ] || PUBLIC_SCHEME='$scheme'
+export PUBLIC_SCHEME
+
+envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST} ${PUBLIC_SCHEME}' \
   < /etc/nginx/templates/abs_proxy.conf.template \
   > /etc/nginx/abs_proxy.conf
 cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf
