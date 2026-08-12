@@ -527,15 +527,21 @@ const SCHEMA = [
      updated_at       INTEGER NOT NULL,
      PRIMARY KEY (server_id, user_id)
    )`,
-  // Anonymous usage telemetry opt-in (Home Assistant style). One instance-wide
-  // row, admin-owned. enabled ships OFF by default - the box phones nothing home
-  // until an admin turns it on. telemetry_id is a random per-install handle sent
-  // WITH the counts and deliberately NOT the server_id, so the reports the
-  // control plane aggregates can't be tied back to this paired server's identity.
+  // Anonymous usage telemetry (Home Assistant style). One instance-wide row,
+  // admin-owned. A NEW install starts enabled and the onboarding wizard offers a
+  // one-click decline before anything is sent (see lib/telemetry.js). telemetry_id
+  // is a random per-install handle sent WITH the counts and deliberately NOT the
+  // server_id, so reports can't be tied back to this paired server's identity.
+  //
+  // `chosen` records that an admin actually answered, which is what separates a
+  // deliberate "no" from a box that was never asked. Rows created before this
+  // column existed default to chosen=0: they were never offered the choice (the
+  // old default was simply off), so the wizard may still ask them once.
   `CREATE TABLE IF NOT EXISTS telemetry_config (
      id           INTEGER PRIMARY KEY CHECK (id = 1),
      enabled      INTEGER NOT NULL DEFAULT 0,
      telemetry_id TEXT,
+     chosen       INTEGER NOT NULL DEFAULT 0,
      updated_at   INTEGER NOT NULL
    )`,
   // Import/merge engine reports (see docs/data-lifecycle/merge-engine.md). A
@@ -719,6 +725,11 @@ const MIGRATIONS = [
   `ALTER TABLE hosted_user_keys ADD COLUMN synced_username TEXT`,
   `ALTER TABLE server_identity ADD COLUMN server_name TEXT`,
   `ALTER TABLE ai_config ADD COLUMN discover_enabled INTEGER NOT NULL DEFAULT 1`,
+  // Telemetry moved from opt-in to opt-out. `chosen` marks that an admin actually
+  // answered. Existing rows get 0 - their enabled=0 came from the OLD default, not
+  // from a decision, so the wizard may ask them once rather than assuming a "no"
+  // they never gave. An admin who has answered is never re-prompted or flipped.
+  `ALTER TABLE telemetry_config ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0`,
   // Community social controls (see docs/social.md). Listening-now presence is
   // more sensitive than a reading list, so its default ships OFF; notes and
   // clubs are admin kill-switches, on by default.

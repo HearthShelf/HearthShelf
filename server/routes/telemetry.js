@@ -1,11 +1,12 @@
-// Anonymous telemetry opt-in. Mounted at /hs/telemetry.
+// Anonymous telemetry opt-out. Mounted at /hs/telemetry.
 //
-//   GET /hs/telemetry          -> { enabled, canEdit, payloadPreview }
-//   PUT /hs/telemetry { enabled } (admin only) -> { enabled, canEdit }
+//   GET /hs/telemetry          -> { enabled, chosen, canEdit, payloadPreview }
+//   PUT /hs/telemetry { enabled } (admin only) -> { enabled, chosen, canEdit }
 //
 // Admin-owned, instance-wide. GET returns a preview of EXACTLY what a report
-// would send so the Config UI can show the user before they opt in. The box only
-// phones home when enabled (see lib/telemetry.js reportTelemetry).
+// would send so the UI can show the user what they are agreeing to. `chosen` is
+// false until an admin answers, which is how the onboarding wizard knows whether
+// to ask. The box only phones home when enabled (lib/telemetry.js reportTelemetry).
 
 import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
@@ -24,7 +25,15 @@ export async function handleTelemetry(req, res, url, ctx) {
   if (req.method === 'GET') {
     const cfg = await getTelemetryConfig()
     const payloadPreview = await previewPayload()
-    return (json(res, 200, { enabled: cfg.enabled, canEdit: isAdmin(ctx), payloadPreview }), true)
+    return (
+      json(res, 200, {
+        enabled: cfg.enabled,
+        chosen: cfg.chosen,
+        canEdit: isAdmin(ctx),
+        payloadPreview,
+      }),
+      true
+    )
   }
 
   if (req.method === 'PUT') {
@@ -40,7 +49,7 @@ export async function handleTelemetry(req, res, url, ctx) {
     // Send an immediate report when just enabled, so stats reflect the opt-in
     // without waiting for the weekly tick. Best-effort; never blocks the response.
     if (next.enabled) void reportTelemetry()
-    return (json(res, 200, { enabled: next.enabled, canEdit: true }), true)
+    return (json(res, 200, { enabled: next.enabled, chosen: true, canEdit: true }), true)
   }
 
   return (json(res, 405, { error: 'method_not_allowed' }), true)

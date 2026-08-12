@@ -1,7 +1,11 @@
-// Anonymous, opt-in usage telemetry (Home Assistant style).
+// Anonymous, opt-OUT usage telemetry (Home Assistant style).
 //
-// OFF by default: nothing is sent until an admin turns it on in Config. When on,
-// the box sends COARSE, non-identifying counts - bucketed user/library sizes plus
+// ON by default for a new install, and the onboarding wizard says so plainly with
+// a one-click way to decline before anything is ever sent. An existing box keeps
+// whatever its admin already chose - the default only decides what a row that has
+// never been written starts as, so flipping it never overrides a real choice.
+//
+// The box sends COARSE, non-identifying counts - bucketed user/library sizes plus
 // lifetime activity totals (quests given/accepted, books finished, club books
 // finished) - keyed by a RANDOM per-install telemetry_id that is deliberately NOT
 // the server_id. The control plane aggregates these into the public
@@ -18,6 +22,7 @@ import { db, initDb, getServerId } from '../db.js'
 import { getMode } from './context.js'
 import { getHostedConfig } from './hosted.js'
 import { getLibraryBookCount } from './absdb.js'
+import { getProvisioning } from './provisioning.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
@@ -40,36 +45,52 @@ function ensure() {
 
 // --- config (opt-in state + the anonymous handle) --------------------------
 
-// Read the telemetry config, creating the row (disabled, no handle) on first
-// access. The handle is only minted when the admin opts in, so a box that never
-// opts in never even generates one.
+// Read the telemetry config, creating the row on first access with the opt-out
+// default (enabled) and a fresh anonymous handle.
+//
+// Only a row that has NEVER been written takes the default. Once an admin uses
+// the toggle - in the wizard or in Config - their choice is stored and this
+// function just reads it back, so a box that opted out stays opted out.
 export async function getTelemetryConfig() {
   await ensure()
-  const r = await db.execute('SELECT enabled, telemetry_id FROM telemetry_config WHERE id = 1')
+  const r = await db.execute(
+    'SELECT enabled, telemetry_id, chosen FROM telemetry_config WHERE id = 1',
+  )
   const row = r.rows[0]
   if (!row) {
+    const id = crypto.randomUUID().replace(/-/g, '')
     await db.execute({
-      sql: `INSERT INTO telemetry_config (id, enabled, telemetry_id, updated_at) VALUES (1, 0, NULL, ?)`,
-      args: [Date.now()],
+      sql: `INSERT INTO telemetry_config (id, enabled, telemetry_id, chosen, updated_at)
+            VALUES (1, 1, ?, 0, ?)`,
+      args: [id, Date.now()],
     })
-    return { enabled: false, telemetryId: null }
+    return { enabled: true, telemetryId: id, chosen: false }
   }
-  return { enabled: Boolean(row.enabled), telemetryId: row.telemetry_id ?? null }
+  return {
+    enabled: Boolean(row.enabled),
+    telemetryId: row.telemetry_id ?? null,
+    chosen: Boolean(row.chosen),
+  }
 }
 
 // Turn telemetry on or off. Enabling mints a fresh random telemetry_id if none
 // exists yet. Disabling keeps the handle row but stops reporting (so re-enabling
 // later reuses the same anonymous id rather than looking like a new install).
+//
+// This is the only way `chosen` becomes true: reaching it means an admin actually
+// answered, in the wizard or in Config. That is what stops the wizard asking
+// again, and what guarantees a future default change can never overrule them.
 export async function setTelemetryEnabled(enabled) {
   await ensure()
   const cur = await getTelemetryConfig()
   let id = cur.telemetryId
   if (enabled && !id) id = crypto.randomUUID().replace(/-/g, '')
   await db.execute({
-    sql: `UPDATE telemetry_config SET enabled = ?, telemetry_id = ?, updated_at = ? WHERE id = 1`,
+    sql: `UPDATE telemetry_config SET enabled = ?, telemetry_id = ?, chosen = 1, updated_at = ?
+          WHERE id = 1`,
     args: [enabled ? 1 : 0, id, Date.now()],
   })
-  return { enabled: Boolean(enabled), telemetryId: id }
+  return { enabled: Boolean(enabled), telemetryId: id, chosen: true }
 }
 
 // --- payload ---------------------------------------------------------------
@@ -195,6 +216,13 @@ async function controlPlaneBase() {
 export async function reportTelemetry() {
   const cfg = await getTelemetryConfig()
   if (!cfg.enabled || !cfg.telemetryId) return
+  // Enabled-by-default only takes effect once the admin has actually been asked.
+  // Until then the box stays silent: an install that has not finished onboarding
+  // must never phone home before its owner has had the chance to decline.
+  if (!cfg.chosen) {
+    const prov = await getProvisioning().catch(() => null)
+    if (!prov?.onboarded) return
+  }
   try {
     const payload = await buildPayload(cfg.telemetryId)
     const base = await controlPlaneBase()

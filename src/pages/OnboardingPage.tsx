@@ -23,6 +23,7 @@ import {
   type ReachabilityResult,
 } from '@/api/hosted'
 import { useAuth } from '@/hooks/useAuth'
+import { setTelemetryEnabled } from '@/api/telemetry'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Icon } from '@/components/common/Icon'
 import { ReachabilityHelp } from '@/components/hosted/ReachabilityHelp'
@@ -176,6 +177,9 @@ export function OnboardingPage() {
   // default (opt-out) when the wizard finishes. On Slim we never silently touch
   // a foreign ABS's settings - we only recommend it (see the connect step card).
   const [enableBackups, setEnableBackups] = useState(true)
+  // Anonymous usage stats. Opt-OUT: checked by default, and the admin's answer is
+  // recorded either way when onboarding finishes, so this is never asked again.
+  const [shareStats, setShareStats] = useState(true)
 
   // ----- pairing / verify step -----
   const [pairCode, setPairCode] = useState<string | null>(null)
@@ -404,6 +408,7 @@ export function OnboardingPage() {
       })
       setPairCode(result.code)
       await applyBackupOptIn()
+      await applyStatsChoice()
       await markOnboarded()
       await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
       setStep('pairing')
@@ -426,6 +431,18 @@ export function OnboardingPage() {
       await updateServerSettings({ backupSchedule: '30 1 * * *', backupsToKeep: 2 })
     } catch {
       // non-fatal; the admin can turn backups on later from Config > Backups
+    }
+  }
+
+  // Record the anonymous-stats answer. Always written, whichever way the box was
+  // left, so the stored choice reflects a real decision rather than a default -
+  // that is what stops the toggle being re-asked and what protects the admin from
+  // any future change to the default. Best-effort: never blocks finishing.
+  async function applyStatsChoice() {
+    try {
+      await setTelemetryEnabled(shareStats)
+    } catch {
+      // non-fatal; it stays at the default and can be changed in Config
     }
   }
 
@@ -453,6 +470,7 @@ export function OnboardingPage() {
     setBusy(true)
     try {
       await applyBackupOptIn()
+      await applyStatsChoice()
       await markOnboarded()
       await queryClient.invalidateQueries({ queryKey: ['runtime-config'] })
       navigate('/', { replace: true })
@@ -1093,6 +1111,24 @@ export function OnboardingPage() {
             </p>
           </div>
         )}
+
+        {/* Anonymous usage stats: opt-OUT, stated plainly and declinable here
+            before anything is ever sent. */}
+        <label className="flex items-start gap-3 rounded-md border px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={shareStats}
+            onChange={(e) => setShareStats(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium">Share anonymous usage stats</span>
+            <span className="block text-muted-foreground">
+              Sends a version number and rough size counts so I can see what to support. No names,
+              emails, book titles, or addresses - ever. You can turn it off any time in Settings.
+            </span>
+          </span>
+        </label>
 
         {connect && busy && pairingProgress && (
           <p className="text-center text-sm text-muted-foreground">{pairingProgress}</p>
