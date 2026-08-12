@@ -361,11 +361,14 @@ export async function handleHosted(req, res, url, _ctx) {
 
   // Reset the service credential: mint a fresh DURABLE ABS API key and store it.
   // Prefer minting AS the service root (selfHeal, using the stored service
-  // password) over minting from the caller's admin token - ABS forbids a non-root
-  // admin from creating an API key for the root service account (403), so the
-  // caller path fails for any operator who isn't root (i.e. almost everyone). We
-  // fall back to the caller's token only if self-heal can't run (no/invalid
-  // service password), which still works when the caller IS root.
+  // password) - that keeps the credential on the undeletable service account.
+  // Only AIO has that password, because only AIO created the service account.
+  //
+  // On slim the admin brings their own ABS, so selfHeal can't run and
+  // remintServiceKey falls back to minting against the CALLER's own admin
+  // account, which ABS always permits. (Minting for the root user requires the
+  // caller to BE root - ApiKeyController - which is why the old service-root-only
+  // path returned 403 and left slim boxes reporting "Service account is broken".)
   if (p === '/hs/hosted/service-credential/reset' && req.method === 'POST') {
     const adminToken = await requireAbsAdmin(req)
     if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)

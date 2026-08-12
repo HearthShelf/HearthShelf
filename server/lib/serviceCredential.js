@@ -126,20 +126,56 @@ async function findServiceUserId(adminToken) {
   }
 }
 
-// Mint a durable API key for the service root and persist it as the admin
-// credential. Requires a working admin token to authenticate the mint (the
-// caller supplies one: a fresh service-root login, or an operator's admin token
-// from the Fix UI). Returns the new key, or null if minting failed.
+// Mint a durable API key and persist it as the admin credential. Requires a
+// working admin token to authenticate the mint (the caller supplies one: a fresh
+// service-root login, or an operator's admin token from the Fix UI). Returns the
+// new key, or null if minting failed.
+//
+// Whose key it is depends on what the caller is allowed to create. ABS refuses
+// (403) to create an API key for a ROOT user unless the caller is itself root
+// (ApiKeyController: `if (user.type === 'root' && !req.user.isRoot)`). On AIO we
+// own the service root and log in as it, so the preferred target works. On slim
+// the admin runs their own ABS: HearthShelf never created a service account and
+// does not know the real root's password, so minting for root always 403s and
+// pairing used to fail with "Service account is broken".
+//
+// So: try the service account first (durable, undeletable, what AIO wants), and
+// fall back to minting for the CALLER's own admin account, which ABS always
+// permits. That key is a real durable API key with admin rights - the only
+// tradeoff is that it dies if that admin is deleted, which getServiceToken()
+// already reports as a recoverable broken state.
 export async function remintServiceKey(adminToken) {
+  const me = await whoAmI(adminToken)
+  if (!isAdminUser(me)) return null
+
   const svcId = await findServiceUserId(adminToken)
-  if (!svcId) return null
-  const key = await mintApiKeyFor(adminToken, svcId, `hearthshelf-service:${svcId}`)
-  if (!key) return null
-  // Confirm the freshly minted key actually authenticates before we store it, so
-  // we never persist a dud.
-  if (!isAdminUser(await whoAmI(key))) return null
-  await setHostedConfig({ absAdminToken: key, adminCredStatus: 'valid' })
-  return key
+  const callerId = me?.id ? String(me.id) : null
+
+  // Only attempt the service/root target when the caller could actually succeed:
+  // either it IS that user, or it is root itself.
+  const canMintForService =
+    svcId && (svcId === callerId || me?.type === 'root')
+
+  const targets = []
+  if (canMintForService) targets.push({ id: svcId, label: 'service account' })
+  if (callerId && callerId !== svcId) targets.push({ id: callerId, label: 'admin account' })
+
+  for (const target of targets) {
+    const key = await mintApiKeyFor(adminToken, target.id, `hearthshelf-service:${target.id}`)
+    // Confirm the freshly minted key actually authenticates before we store it,
+    // so we never persist a dud.
+    if (key && isAdminUser(await whoAmI(key))) {
+      await setHostedConfig({ absAdminToken: key, adminCredStatus: 'valid' })
+      if (target.label === 'admin account') {
+        appLog.info(
+          'hosted',
+          `minted the admin credential against the signed-in admin account (${me?.username ?? target.id}); this server has no HearthShelf-owned service account`,
+        )
+      }
+      return key
+    }
+  }
+  return null
 }
 
 // Try to automatically recover a working credential from the stored service
@@ -253,10 +289,19 @@ export async function getCredentialHealth() {
   }
 
   // Stored credential is dead (or absent). Can we re-mint from the service pw?
+  // Only AIO has one: it created the service account and kept the password.
   const prov = await getProvisioning().catch(() => null)
   const sessionToken = await serviceLogin(prov?.servicePassword)
   const canSelfHeal = Boolean(sessionToken && isAdminUser(await whoAmI(sessionToken)))
-  const state = canSelfHeal ? 'stale' : 'broken'
+
+  // On slim there is no HearthShelf-owned service account, so the absence of a
+  // service password is normal - not a fault. An admin signing in can always
+  // re-mint against their own account (remintServiceKey falls back to that), so
+  // report 'stale' (recoverable, the UI offers Reset) rather than 'broken'
+  // (dead end). Only call it broken when we hold a credential that no longer
+  // works AND cannot be re-minted any other way.
+  const recoverableByAdmin = !prov?.servicePassword
+  const state = canSelfHeal || recoverableByAdmin ? 'stale' : 'broken'
   if (cfg?.adminCredStatus !== state) {
     await setHostedConfig({ adminCredStatus: state }).catch(() => {})
   }
