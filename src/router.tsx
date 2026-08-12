@@ -9,6 +9,7 @@ import { BookDetailPage } from '@/pages/BookDetailPage'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { SeriesDetailPage } from '@/pages/SeriesDetailPage'
 import { ConnectLandPage } from '@/pages/ConnectLandPage'
+import { OidcLandPage } from '@/pages/OidcLandPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { UploadPage } from '@/pages/UploadPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -47,6 +48,13 @@ export const router = createBrowserRouter([
     // signed-in user back here with a control-plane grant in the fragment.
     path: '/connect-land',
     element: <ConnectLandPage />,
+  },
+  {
+    // ABS OpenID (self-hosted SSO) landing: ABS redirects back here with the
+    // token after the provider authenticates the user. Must stay same-origin
+    // with ABS - see OIDC_CALLBACK_PATH in src/api/auth.ts.
+    path: '/oidc-land',
+    element: <OidcLandPage />,
   },
   {
     path: '/onboarding',

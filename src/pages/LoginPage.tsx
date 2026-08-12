@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/useAuth'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
+import { absRequest } from '@/api/client'
+import { openIdInitUrl } from '@/api/auth'
+import type { ABSStatusResponse } from '@/api/types'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +43,23 @@ export function LoginPage() {
         // this against the server before honoring it.
         `&return=${encodeURIComponent(window.location.origin)}`
       : null
+
+  // ABS OpenID, for self-hosted boxes. /status is unauthenticated, so this is
+  // safe to call on the login page; it tells us whether the admin configured an
+  // identity provider and what to label the button.
+  const { data: status } = useQuery({
+    queryKey: ['server-status'],
+    queryFn: () => absRequest<ABSStatusResponse>('/status'),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Show ABS SSO only on an UNPAIRED box. A paired box gets the hosted button
+  // above instead: two SSO buttons side by side is the ambiguity that got the
+  // ABS one pulled in the first place, and on a paired box the hosted flow is
+  // the one that mints the per-user token we expect.
+  const openIdEnabled =
+    !hostedSsoUrl && (status?.authMethods?.includes('openid') ?? false)
+  const openIdLabel = status?.authFormData?.authOpenIDButtonText || 'Sign in with OpenID'
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -115,6 +136,23 @@ export function LoginPage() {
                 }}
               >
                 Sign in with HearthShelf
+              </Button>
+            </div>
+          )}
+
+          {/* ABS OpenID for self-hosted boxes. Full navigation (not fetch): ABS
+              needs to set its own session cookies and 302 out to the provider. */}
+          {openIdEnabled && (
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  window.location.href = openIdInitUrl()
+                }}
+              >
+                {openIdLabel}
               </Button>
             </div>
           )}
