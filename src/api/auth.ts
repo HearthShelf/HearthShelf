@@ -32,46 +32,21 @@ export function authorize(): Promise<ABSAuthResponse> {
 // address the user came in on - LAN IP, domain, or connect domain - with
 // nothing to configure. An absolute URL would hard-code one origin.
 //
-// The base path is the wrinkle. A stock ABS defaults to ROUTER_BASE_PATH
-// '/audiobookshelf', while our AIO image runs it at the root (''). ABS does not
-// report which one it uses - /status has no such field - so we cannot compute
-// the right prefix up front, and guessing wrong is a hard 400.
+// The base path decides the callback. A stock ABS defaults ROUTER_BASE_PATH to
+// '/audiobookshelf' and requires the callback beneath it; our AIO image runs ABS
+// at the root (''), where the check is `startsWith('/')` and so accepts anything.
+// The prefixed path therefore satisfies BOTH, and is what we always send - no
+// discovery needed, and ABS exposes no way to ask anyway.
 //
-// So we PROBE: ask ABS to start the flow with the bare path, and if it refuses,
-// retry under '/audiobookshelf'. ABS only validates the callback as a STRING;
-// the browser then loads that path from OUR nginx, which serves the SPA at both
-// (neither is an ABS-proxied prefix, so both hit the SPA fallback). The React
-// route is registered at /oidc-land and matches either way.
-export const OIDC_CALLBACK_PATH = '/oidc-land'
+// Do NOT try to discover it by calling /auth/openid twice. Every call makes ABS
+// mint a fresh PKCE verifier and state into its server-side session, so probing
+// and then navigating leaves the session holding the SECOND state while the
+// provider returns with the first. ABS rejects the callback and the user lands
+// back on the login page with no error. That is exactly what a probe-based
+// version of this function did.
+export const OIDC_CALLBACK_PATH = '/audiobookshelf/oidc-land'
 
-// Base paths to try, in order. '' covers AIO and any ABS run at the root;
-// '/audiobookshelf' is the stock ABS default.
-const OIDC_BASE_PATHS = ['', '/audiobookshelf'] as const
-
-function initUrlFor(basePath: string): string {
-  const params = new URLSearchParams({ callback: `${basePath}${OIDC_CALLBACK_PATH}` })
+export function openIdInitUrl(): string {
+  const params = new URLSearchParams({ callback: OIDC_CALLBACK_PATH })
   return `/abs-api/auth/openid?${params.toString()}`
-}
-
-// Resolve the initiation URL ABS will actually accept.
-//
-// Probed with redirect: 'manual' so the browser does NOT follow the 302 to the
-// identity provider - we only want to know whether ABS accepted the callback.
-// An opaqueredirect response (or any non-400) means accepted; the caller then
-// full-navigates there for real, so ABS can set its session cookies.
-export async function resolveOpenIdInitUrl(): Promise<string> {
-  for (const basePath of OIDC_BASE_PATHS) {
-    const url = initUrlFor(basePath)
-    try {
-      const res = await fetch(url, { redirect: 'manual', credentials: 'same-origin' })
-      // opaqueredirect = ABS issued its 302 to the provider: this one is good.
-      if (res.type === 'opaqueredirect' || res.status === 0 || res.ok) return url
-      if (res.status !== 400) return url
-    } catch {
-      // Network failure tells us nothing about the callback; try the next.
-    }
-  }
-  // Everything rejected: fall back to the bare path so the user still gets a
-  // real ABS error rather than a dead button.
-  return initUrlFor('')
 }

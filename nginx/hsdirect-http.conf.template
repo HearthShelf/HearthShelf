@@ -34,6 +34,12 @@ server {
         include /etc/nginx/abs_proxy.conf;
     }
 
+    # ABS's OIDC callback under its router base path - see default.conf.
+    location ~ ^/audiobookshelf/auth/ {
+        proxy_pass ${ABS_SERVER_URL};
+        include /etc/nginx/abs_proxy.conf;
+    }
+
     location = /login    { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
     location = /logout   { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }
     location = /status   { proxy_pass ${ABS_SERVER_URL}; include /etc/nginx/abs_proxy.conf; }

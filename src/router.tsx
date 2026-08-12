@@ -50,17 +50,11 @@ export const router = createBrowserRouter([
     element: <ConnectLandPage />,
   },
   {
-    // ABS OpenID (self-hosted SSO) landing: ABS redirects back here with the
-    // token after the provider authenticates the user. Must stay same-origin
-    // with ABS - see OIDC_CALLBACK_PATH in src/api/auth.ts.
-    path: '/oidc-land',
-    element: <OidcLandPage />,
-  },
-  {
-    // Same landing under ABS's default ROUTER_BASE_PATH. A stock ABS only
-    // accepts a callback beneath '/audiobookshelf', so that is where it sends
-    // the browser back to; our nginx serves the SPA there too (it is not an
-    // ABS-proxied prefix), so the same page handles it.
+    // ABS OpenID (self-hosted SSO) landing. The path carries ABS's default
+    // router base path because a stock ABS only accepts a callback beneath it,
+    // and an ABS at the root accepts it too - see OIDC_CALLBACK_PATH in
+    // src/api/auth.ts. Only /audiobookshelf/auth/ is proxied to ABS, so this
+    // page still comes from the SPA.
     path: '/audiobookshelf/oidc-land',
     element: <OidcLandPage />,
   },

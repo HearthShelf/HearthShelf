@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/hooks/useAuth'
 import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
 import { absRequest } from '@/api/client'
-import { resolveOpenIdInitUrl } from '@/api/auth'
+import { openIdInitUrl } from '@/api/auth'
 import type { ABSStatusResponse } from '@/api/types'
 import { Wordmark } from '@/components/common/Wordmark'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,6 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [startingOpenId, setStartingOpenId] = useState(false)
 
   const { data: runtime } = useRuntimeConfig()
 
@@ -61,19 +60,6 @@ export function LoginPage() {
   const openIdEnabled =
     !hostedSsoUrl && (status?.authMethods?.includes('openid') ?? false)
   const openIdLabel = status?.authFormData?.authOpenIDButtonText || 'Sign in with OpenID'
-
-  // Ask ABS which callback path it accepts, then full-navigate (not fetch) so
-  // ABS can set its session cookies and 302 out to the identity provider.
-  async function startOpenId() {
-    setError(null)
-    setStartingOpenId(true)
-    try {
-      window.location.href = await resolveOpenIdInitUrl()
-    } catch {
-      setError('Could not start single sign-on. Please try again.')
-      setStartingOpenId(false)
-    }
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -162,10 +148,11 @@ export function LoginPage() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                disabled={startingOpenId}
-                onClick={() => void startOpenId()}
+                onClick={() => {
+                  window.location.href = openIdInitUrl()
+                }}
               >
-                {startingOpenId ? 'Redirecting...' : openIdLabel}
+                {openIdLabel}
               </Button>
             </div>
           )}
