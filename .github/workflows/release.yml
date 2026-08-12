@@ -63,6 +63,10 @@ jobs:
           sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # The version the image reports at runtime (/hs/runtime, telemetry).
+          # This job only runs on a version tag, so ref_name IS the version.
+          build-args: |
+            HS_BUILD_VERSION=${{ github.ref_name }}
           cache-from: type=gha,scope=${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
 

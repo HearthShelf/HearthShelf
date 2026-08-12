@@ -32,7 +32,13 @@ const MAX_RESTORE_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 // This HearthShelf backend's version, read once from server/package.json so the
 // Config UI can show what the box is running. Falls back to null if unreadable.
+// The version this build IS. CI bakes HS_BUILD_VERSION into the image; the
+// package.json read is only a fallback for a local checkout outside Docker.
+// (server/package.json is private and never bumped on release, so relying on it
+// made every deployed box report the same stale version - see lib/telemetry.js.)
 const HS_VERSION = (() => {
+  const fromEnv = (process.env.HS_BUILD_VERSION || '').trim()
+  if (fromEnv) return fromEnv
   try {
     const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url))
     return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || null

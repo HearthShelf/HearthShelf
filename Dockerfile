@@ -60,6 +60,15 @@ COPY server/ /app/server/
 COPY --from=server-deps /app/server/node_modules /app/server/node_modules
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
+
+# The version this image actually IS. server/package.json is a private manifest
+# that nobody bumps on release, so reading the version from it made every box
+# report the same stale number forever. CI passes the real one here: a release
+# tag (2.2.0) for a release build, or "<last-tag>+canary.<sha>" for canary, so a
+# canary can be compared against the release it was cut from.
+ARG HS_BUILD_VERSION=0.0.0-dev
+ENV HS_BUILD_VERSION=$HS_BUILD_VERSION
+
 EXPOSE 80
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
@@ -168,6 +177,10 @@ RUN set -e; \
 
 COPY docker-entrypoint-aio.sh /docker-entrypoint-aio.sh
 RUN chmod +x /docker-entrypoint-aio.sh
+
+# The version this image actually IS - see the slim stage for why.
+ARG HS_BUILD_VERSION=0.0.0-dev
+ENV HS_BUILD_VERSION=$HS_BUILD_VERSION
 # Single ingress port :80 - before a cert, plain HTTP. After hs.direct provisions
 # a cert, a stream TLS-detect demux serves BOTH plain-HTTP LAN access AND
 # connect-domain HTTPS on this same port (Plex-style; we don't take over 443).

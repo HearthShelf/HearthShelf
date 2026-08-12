@@ -26,7 +26,14 @@ import { getProvisioning } from './provisioning.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
 
+// The version this build IS. HS_BUILD_VERSION is baked into the image by CI and
+// is the only value that tracks releases: server/package.json is a private
+// manifest nobody bumps, so reading it made every box report the same stale
+// number no matter what was deployed. Fall back to it only for a local checkout
+// running outside Docker.
 const HS_VERSION = (() => {
+  const fromEnv = (process.env.HS_BUILD_VERSION || '').trim()
+  if (fromEnv) return fromEnv
   try {
     const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url))
     return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || null
