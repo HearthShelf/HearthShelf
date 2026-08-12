@@ -29,7 +29,14 @@ fi
 
 # Shared bits both the HTTP and HTTPS server blocks include.
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
-envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' \
+
+# SNI name for upstream TLS - see docker-entrypoint.sh. AIO's ABS is local http,
+# so proxy_ssl_* is inert here, but the shared abs_proxy.conf references the var
+# and envsubst would otherwise blank it out.
+ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
+export ABS_SERVER_HOST
+
+envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST}' \
   < /etc/nginx/templates/abs_proxy.conf.template \
   > /etc/nginx/abs_proxy.conf
 cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf

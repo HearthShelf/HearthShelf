@@ -6,11 +6,18 @@ set -e
 # HS_APP_ORIGIN (the hosted SPA origin) drives cross-origin CORS on the ABS
 # locations; empty in self-hosted mode, which disables those CORS headers.
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
+
+# Hostname (no scheme, no port, no path) from ABS_SERVER_URL, used as the SNI
+# name on upstream TLS. Without it nginx sends no SNI and any ABS behind a
+# cert-by-SNI host (Cloudflare, most reverse proxies) 502s the whole app.
+ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
+export ABS_SERVER_HOST
+
 envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HS_APP_ORIGIN}' \
   < /etc/nginx/templates/default.conf.template \
   > /etc/nginx/conf.d/default.conf
 
-envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' \
+envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST}' \
   < /etc/nginx/templates/abs_proxy.conf.template \
   > /etc/nginx/abs_proxy.conf
 

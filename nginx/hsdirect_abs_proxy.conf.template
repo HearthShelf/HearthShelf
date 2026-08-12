@@ -18,6 +18,10 @@ proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Host ${HSDIRECT_PUBLIC_HOST};
 proxy_set_header X-Forwarded-Proto https;
 
+# Upstream TLS SNI - see abs_proxy.conf for why this is required.
+proxy_ssl_server_name on;
+proxy_ssl_name ${ABS_SERVER_HOST};
+
 proxy_http_version 1.1;
 proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection $connection_upgrade;

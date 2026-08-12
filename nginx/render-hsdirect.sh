@@ -33,6 +33,11 @@ fi
 
 export HS_APP_ORIGIN="${HS_APP_ORIGIN:-https://app.hearthshelf.com}"
 
+# SNI name for upstream TLS (see abs_proxy.conf). Derived here too because this
+# script re-renders the proxy fragment independently of the entrypoint.
+ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"
+export ABS_SERVER_HOST
+
 if [ -f /config/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}" ] && [ -n "${HSDIRECT_PUBLIC_HOST:-}" ]; then
   # CERT PRESENT: serve BOTH protocols on the one port via a stream TLS-detect
   # demux (Plex-style). plain HTTP -> LAN server (:8081); TLS -> connect-domain
@@ -41,7 +46,7 @@ if [ -f /config/hsdirect/tls/fullchain.pem ] && [ -n "${HSDIRECT_STABLE_HOST:-}"
   echo "[render-hsdirect] cert present: TLS-demux on the WebUI port (LAN HTTP + connect HTTPS, ABS host=${HSDIRECT_PUBLIC_HOST})"
 
   # Shared ABS proxy fragment, Host forced to the reachable public host:port.
-  envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST}' \
+  envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST} ${ABS_SERVER_HOST}' \
     < /etc/nginx/templates/hsdirect_abs_proxy.conf.template \
     > /etc/nginx/hsdirect_abs_proxy.conf
 
