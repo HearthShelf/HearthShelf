@@ -147,13 +147,16 @@ RUN set -e; \
            PUBLIC_URL=https://1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HSDIRECT_PUBLIC_HOST=1-2-3-4.deadbeef.d.hearthshelf.com:9277 \
            HS_APP_ORIGIN=https://app.hearthshelf.com; \
+    ABS_SERVER_HOST="$(printf '%s' "${ABS_SERVER_URL}" | sed -e 's#^[a-z]*://##' -e 's#/.*$##' -e 's#:[0-9]*$##')"; \
+    PUBLIC_SCHEME="$(printf '%s' "${PUBLIC_URL}" | sed -n 's#^\([a-z][a-z0-9+.-]*\)://.*#\1#p')"; \
+    export ABS_SERVER_HOST PUBLIC_SCHEME; \
     mkdir -p /config/hsdirect/tls; \
     openssl req -x509 -newkey rsa:2048 -nodes -keyout /config/hsdirect/tls/server.key \
       -out /config/hsdirect/tls/fullchain.pem -days 1 -subj "/CN=test" >/dev/null 2>&1; \
     envsubst '${HS_APP_ORIGIN}' < /etc/nginx/templates/cors-map.conf.template > /etc/nginx/conf.d/cors-map.conf; \
     cp /etc/nginx/templates/upgrade-map.conf /etc/nginx/conf.d/upgrade-map.conf; \
-    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL}' < /etc/nginx/templates/abs_proxy.conf.template > /etc/nginx/abs_proxy.conf; \
-    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
+    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${ABS_SERVER_HOST} ${PUBLIC_SCHEME}' < /etc/nginx/templates/abs_proxy.conf.template > /etc/nginx/abs_proxy.conf; \
+    envsubst '${ABS_SERVER_URL} ${PUBLIC_URL} ${HSDIRECT_PUBLIC_HOST} ${ABS_SERVER_HOST}' < /etc/nginx/templates/hsdirect_abs_proxy.conf.template > /etc/nginx/hsdirect_abs_proxy.conf; \
     envsubst '${ABS_SERVER_URL}' < /etc/nginx/templates/hsdirect-http.conf.template > /etc/nginx/hsdirect-http.conf; \
     envsubst '${ABS_SERVER_URL} ${HSDIRECT_PUBLIC_HOST}' < /etc/nginx/templates/hsdirect-ssl.conf.template > /etc/nginx/hsdirect-ssl.conf; \
     cp /etc/nginx/templates/aio-nginx.conf.template /etc/nginx/nginx.conf; \
