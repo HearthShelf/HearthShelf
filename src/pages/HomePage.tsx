@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   continueSeriesShelf,
+  ignoredItemIds,
   isGeneratedRecShelf,
   GENERAL_REC_SECTIONS,
   type HomeSectionId,
@@ -250,7 +251,7 @@ export function HomePage() {
   const dismissedItemSet = useMemo(() => new Set(dismissedItems), [dismissedItems])
 
   // Continue-Series is built from @hearthshelf/core (real series ids per tile,
-  // which the "Hide this series" action needs), off the /series endpoint - not
+  // which the "Ignore series" action needs), off the /series endpoint - not
   // ABS's own continue-series row (whose minified items carry only a name).
   const { data: seriesData } = useQuery({
     queryKey: ['home-series', activeId ?? ''],
@@ -266,6 +267,15 @@ export function HomePage() {
       itemIds: dismissedItems,
     })
   }, [seriesData, progressById, dismissedSeries, dismissedItems])
+
+  // Books belonging to an ignored series. The taste engine sees only the
+  // minified item shape (a seriesName string, no series id), so it cannot test
+  // the ignore list itself - resolve it here, off the same /series result
+  // Continue-Series already uses, and hand it down as a flat id set.
+  const ignoredIds = useMemo(
+    () => ignoredItemIds(seriesData?.results ?? [], { seriesIds: dismissedSeries, itemIds: [] }),
+    [seriesData, dismissedSeries],
+  )
 
   const inProgress = progress?.libraryItems ?? []
   const hero = inProgress[0]
@@ -299,12 +309,13 @@ export function HomePage() {
   const recBySection = useMemo(() => {
     const map = new Map<HomeSectionId, DiscoverShelf[]>()
     if (!discoverEnabled || !hasLib) return map
-    const { shelves } = buildDiscoverShelves(libItems, progressById)
+    const { shelves } = buildDiscoverShelves(libItems, progressById, ignoredIds)
     const ranked = rankDiscoverShelves(shelves, libById, {
       questGiverPicks,
       feedback: feedback ?? {},
       ratings: ratings ?? {},
       progressById,
+      ignoredIds,
     })
     let generated = 0
     for (const s of ranked) {
@@ -328,19 +339,25 @@ export function HomePage() {
     feedback,
     ratings,
     recShelfCount,
+    ignoredIds,
   ])
 
   // The monthly AI shelf resolved to owned items, not-interested filtered out.
+  // The shelf is cached per month, so it can still name a book from a series
+  // ignored since it was generated - drop those here too.
   const aiPreview = useMemo(() => {
     if (!discoverEnabled || !monthly || monthly.engine === 'none') return null
     const fb = feedback ?? {}
     const items = monthly.picks
       .map((p) => libById.get(p.id))
-      .filter((it): it is ABSLibraryItem => Boolean(it) && fb[it!.id]?.vote !== 'not_interested')
+      .filter(
+        (it): it is ABSLibraryItem =>
+          Boolean(it) && fb[it!.id]?.vote !== 'not_interested' && !ignoredIds.has(it!.id),
+      )
       .slice(0, 12)
     if (items.length === 0) return null
     return { intro: monthly.intro?.trim() || 'Your shelf this month', items }
-  }, [discoverEnabled, monthly, libById, feedback])
+  }, [discoverEnabled, monthly, libById, feedback, ignoredIds])
 
   // ABS shelves we keep, indexed by the Home section id they render as. Order
   // comes from the arrangement now, not a fixed rank - so this is a lookup, not

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getAllLibraryItems, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
+import { useIgnoredItemIds } from '@/hooks/useIgnoredItemIds'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { useQuestGiverEnabled } from '@/hooks/useQuestGiver'
 import {
@@ -44,9 +45,12 @@ export function DiscoverPage() {
       ),
     [items],
   )
+  // Books in series the user ignored. Ignore means "no interest", so they drop
+  // out of every row here while staying in the library and in search.
+  const ignoredIds = useIgnoredItemIds()
   const { shelves: baseShelves, profile } = useMemo(
-    () => buildDiscoverShelves(items, progressById),
-    [items, progressById],
+    () => buildDiscoverShelves(items, progressById, ignoredIds),
+    [items, progressById, ignoredIds],
   )
 
   const hasItems = items.length > 0
@@ -72,20 +76,25 @@ export function DiscoverPage() {
         feedback: fbMap,
         ratings: ratingMap,
         progressById,
+        ignoredIds,
       }),
-    [baseShelves, byId, questGiverPicks, fbMap, ratingMap, progressById],
+    [baseShelves, byId, questGiverPicks, fbMap, ratingMap, progressById, ignoredIds],
   )
 
-  // AI-shelf picks resolved to owned items, with not_interested hidden.
+  // AI-shelf picks resolved to owned items, with not_interested hidden. The
+  // shelf is cached per month, so it can still name a book from a series
+  // ignored since it was generated - drop those here too.
   const aiPicks = useMemo(() => {
     if (!monthly || monthly.engine === 'none') return []
     return monthly.picks
       .map((p) => ({ item: byId.get(p.id), reason: p.reason }))
-      .filter((x) => x.item && fbMap[x.item.id]?.vote !== 'not_interested') as {
+      .filter(
+        (x) => x.item && fbMap[x.item.id]?.vote !== 'not_interested' && !ignoredIds.has(x.item.id),
+      ) as {
       item: NonNullable<ReturnType<typeof byId.get>>
       reason: string
     }[]
-  }, [monthly, byId, fbMap])
+  }, [monthly, byId, fbMap, ignoredIds])
 
   // Popular-on-this-server resolved to owned, unstarted-or-any items.
   const popularItems = useMemo(() => {

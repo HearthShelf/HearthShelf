@@ -13,6 +13,7 @@ import {
   type PopularItem,
 } from '@/api/discover'
 import { buildDiscoverSummary, discoverCandidates } from '@/lib/discover'
+import { useIgnoredItemIds } from '@/hooks/useIgnoredItemIds'
 
 // The month's AI-curated shelf. Long staleTime - it only changes once a month, so
 // there's no value refetching within a session.
@@ -22,7 +23,13 @@ export function useMonthlyShelf(
   enabled: boolean,
 ) {
   const summary = useMemo(() => buildDiscoverSummary(items, progressById), [items, progressById])
-  const candidates = useMemo(() => discoverCandidates(items, progressById), [items, progressById])
+  // Books in ignored series never reach the prompt, so the month's shelf cannot
+  // come back recommending a series the listener has no interest in.
+  const ignoredIds = useIgnoredItemIds(enabled)
+  const candidates = useMemo(
+    () => discoverCandidates(items, progressById, ignoredIds),
+    [items, progressById, ignoredIds],
+  )
   return useQuery<MonthlyShelf>({
     queryKey: [...discoverKeys.monthly, summary, candidates.length],
     queryFn: () => getMonthlyShelf(summary, candidates),
