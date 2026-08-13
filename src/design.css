@@ -4218,6 +4218,179 @@
   border-radius: 8px;
 }
 
+/* ---- User profile --------------------------------------------------- */
+/* Leaderboard rows link into a listener's profile. The chevron only asserts
+   itself on hover/focus so the ranked list stays calm at rest. */
+.ml-row.is-link {
+  grid-template-columns: 22px 46px 1fr auto auto;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+.ml-row.is-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.ml-go {
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+.ml-row.is-link:hover .ml-go,
+.ml-row.is-link:focus-visible .ml-go {
+  opacity: 1;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+}
+.profile-you {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.profile-hero {
+  margin-bottom: var(--s6);
+}
+.profile-hero-title {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 6px 0 2px;
+  cursor: pointer;
+}
+.profile-hero-title:hover {
+  color: var(--primary);
+}
+.profile-hero-prog {
+  margin-top: var(--s5);
+  max-width: 420px;
+}
+.profile-hero-prog-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+.profile-hero-ago {
+  margin-top: var(--s4);
+}
+
+/* "Listening now" presence marker. The dot pulses to read as live without
+   needing a second of copy. */
+.live-dot-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex: none;
+  animation: live-pulse 2s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+}
+
+/* Me-vs-them comparison bars. (Distinct from .compare-grid above, which is an
+   unrelated two-column layout.) */
+.compare-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  padding-left: 120px;
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+.compare-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.compare-bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  min-width: 0;
+}
+.compare-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.compare-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c-highest);
+  overflow: hidden;
+  min-width: 0;
+}
+.compare-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--text-faint);
+}
+.compare-side.me .compare-bar > i {
+  background: var(--primary);
+}
+.compare-val {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .compare-head {
+    padding-left: 0;
+  }
+  .compare-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .profile-hero-title {
+    font-size: 18px;
+    line-height: 1.2;
+    margin: 4px 0 2px;
+  }
+  .profile-hero-prog {
+    margin-top: 10px;
+  }
+}
+
 .ml-meta {
   min-width: 0;
 }

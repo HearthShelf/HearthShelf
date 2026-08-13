@@ -24,6 +24,7 @@ import { SessionsPage } from '@/pages/SessionsPage'
 import { AuthorDetailPage } from '@/pages/AuthorDetailPage'
 import { NarratorsPage } from '@/pages/NarratorsPage'
 import { StatsPage } from '@/pages/StatsPage'
+import { UserProfilePage } from '@/pages/UserProfilePage'
 import { FinishedBooksPage } from '@/pages/FinishedBooksPage'
 import { UpcomingPage } from '@/pages/UpcomingPage'
 import { UpcomingDetailPage } from '@/pages/UpcomingDetailPage'
@@ -88,6 +89,7 @@ export const router = createBrowserRouter([
       { path: 'playlists', element: <PlaylistsPage /> },
       { path: 'playlists/:playlistId', element: <PlaylistDetailPage /> },
       { path: 'stats', element: <StatsPage /> },
+      { path: 'u/:userId', element: <UserProfilePage /> },
       { path: 'finished', element: <FinishedBooksPage /> },
       { path: 'upcoming', element: <UpcomingPage /> },
       { path: 'upcoming/:asin', element: <UpcomingDetailPage /> },

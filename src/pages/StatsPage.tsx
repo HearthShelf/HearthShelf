@@ -257,8 +257,9 @@ export function StatsPage() {
             )}
             <div className="ml-list">
               {lbEntries.map((e) => (
-                <div
-                  className={'ml-row' + (e.isMe ? ' hot' : '')}
+                <Link
+                  to={`/u/${e.userId}`}
+                  className={'ml-row is-link' + (e.isMe ? ' hot' : '')}
                   key={e.userId}
                   data-cv={tintFor(e.username)}
                 >
@@ -275,7 +276,8 @@ export function StatsPage() {
                     {e.booksFinished}
                     <small>{e.booksFinished === 1 ? 'book' : 'books'}</small>
                   </span>
-                </div>
+                  <Icon name="chevron_right" className="ml-go" />
+                </Link>
               ))}
             </div>
             <div

@@ -12,6 +12,7 @@ import type {
   HSFinishedByResponse,
   HSListeningNowResponse,
   HSListeningNowUser,
+  HSProfileResponse,
   LeaderboardWindow,
 } from '@hearthshelf/core'
 
@@ -34,7 +35,51 @@ export const socialKeys = {
   finishedCount: (id: string) => ['social', 'finished-count', id] as const,
   finishedBy: (id: string) => ['social', 'finished-by', id] as const,
   listeningNow: (id: string) => ['social', 'listening-now', id] as const,
+  profile: (userId: string) => ['social', 'profile', userId] as const,
   communityConfig: ['social', 'community-config'] as const,
+}
+
+/**
+ * Why this doesn't use sFetch or collapse to a single "unavailable" value like
+ * everything else in this module: the profile page has to tell three states
+ * apart.
+ *   - 'ok'          - render the profile.
+ *   - 'not-shared'  - the server 403'd; this user isn't on the visibility
+ *                     roster. A real answer ("they keep their activity
+ *                     private"), not a failure.
+ *   - 'unavailable' - ABS's db isn't mapped / older server / network failure.
+ *                     Hide the feature.
+ * sFetch throws on any non-ok status, which would erase the 403, and folding
+ * "not shared" into "unavailable" would make a deliberate privacy choice look
+ * like a broken page.
+ */
+export type ProfileResult =
+  | { status: 'ok'; profile: HSProfileResponse }
+  | { status: 'not-shared' }
+  | { status: 'unavailable' }
+
+export async function getProfile(userId: string): Promise<ProfileResult> {
+  if (!userId) return { status: 'unavailable' }
+  const token = useAuthStore.getState().token
+  try {
+    const tz = -new Date().getTimezoneOffset()
+    const res = await fetch(
+      `/hs/social/profile?userId=${encodeURIComponent(userId)}&tz=${tz}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      },
+    )
+    if (res.status === 403) return { status: 'not-shared' }
+    if (!res.ok) return { status: 'unavailable' }
+    const data = (await res.json()) as HSProfileResponse
+    if (!data || data.available !== true) return { status: 'unavailable' }
+    return { status: 'ok', profile: data }
+  } catch {
+    return { status: 'unavailable' }
+  }
 }
 
 // Instance-wide community config. `defaultShare` is the server's default for
