@@ -18,6 +18,7 @@
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@libsql/client'
+import { appLog } from './appLog.js'
 
 const ABS_DB_PATH = process.env.HS_ABS_DB_PATH || '/config/absdatabase.sqlite'
 
@@ -900,9 +901,18 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
         args: [userId],
       })
       const row = res.rows[0]
-      if (!row) return null
+      if (!row) {
+        // Not an error - the user may genuinely have no book sessions. Logged
+        // because "Nothing playing" for someone with recorded hours is the
+        // symptom we keep chasing, and this says which layer came up empty.
+        appLog.info('absdb', `currentListen: no resolvable book session for user ${userId}`)
+        return null
+      }
       const libraryItemId = row.libraryItemId == null ? '' : String(row.libraryItemId)
-      if (!libraryItemId) return null
+      if (!libraryItemId) {
+        appLog.warn('absdb', `currentListen: session resolved to an empty item id for user ${userId}`)
+        return null
+      }
 
       // Title/author/progress for the hero. A missing item (deleted since the
       // session) still returns the session shell; the UI falls back to a
@@ -945,7 +955,12 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
         lastListenedAt: Number.isNaN(updatedMs) ? null : updatedMs,
         isLive,
       }
-    } catch {
+    } catch (err) {
+      // NEVER swallow this silently. A bare `catch { return null }` here made
+      // the profile hero read "Nothing playing" for a user with hundreds of
+      // recorded hours, and hid the real SQL error through several rounds of
+      // fixes. The feature still degrades (returns null) - but it says why.
+      appLog.error('absdb', `currentListen failed for user ${userId}: ${err?.message ?? err}`)
       return null
     }
   })
@@ -1017,7 +1032,8 @@ export async function getUserFinishedBooks(userId, limit = PROFILE_FINISHED_CAP)
           finishedAt: Number.isNaN(ms) ? null : ms,
         }
       })
-    } catch {
+    } catch (err) {
+      appLog.error('absdb', `finishedBooks failed for user ${userId}: ${err?.message ?? err}`)
       return []
     }
   })
@@ -1340,11 +1356,23 @@ async function probeListenFormat(c) {
       LIMIT 1
     `)
     const sample = res.rows[0]?.updatedAt
-    if (sample == null) return (listenFormat = false)
+    if (sample == null) {
+      appLog.info('absdb', 'listen-format probe: no playbackSessions.updatedAt to sample')
+      return (listenFormat = false)
+    }
     const text = String(sample)
     // Must lead with YYYY-MM-DD then a 'T' or ' ' separator then HH:MM:SS.
     const m = /^\d{4}-\d{2}-\d{2}([T ])\d{2}:\d{2}:\d{2}/.exec(text)
-    if (!m) return (listenFormat = false)
+    if (!m) {
+      // Presence (listening-now) can't window without this; the profile hero
+      // still works, it just can't report isLive. Log the actual shape so the
+      // regex can be widened rather than guessed at.
+      appLog.warn(
+        'absdb',
+        `listen-format probe: unrecognised updatedAt shape ${JSON.stringify(text.slice(0, 40))}`,
+      )
+      return (listenFormat = false)
+    }
     const sep = m[1] // 'T' (ISO) or ' ' (space-separated)
     listenFormat = (date) => {
       // 'YYYY-MM-DDTHH:MM:SS' in UTC; the fractional/zone tail is irrelevant to a
@@ -1416,7 +1444,8 @@ export async function getActiveListeners(libraryItemIds = [], cutoffMs = 3 * 60 
         })
       }
       return out
-    } catch {
+    } catch (err) {
+      appLog.error('absdb', `activeListeners failed: ${err?.message ?? err}`)
       return []
     }
   })
