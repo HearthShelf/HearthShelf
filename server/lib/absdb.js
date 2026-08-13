@@ -854,9 +854,18 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
   if (!c) return null
   const bucket = Math.floor(Date.now() / CACHE_TTL_MS)
   return cached(`currentListen:${bucket}:${userId}:${cutoffMs}`, async () => {
+    // NOTE: the date-format probe is deliberately NOT a gate here. It's only
+    // needed to decide isLive; failing it must still return the last listen
+    // (with isLive false), or a box whose updatedAt text we can't parse would
+    // show every profile as "Nothing playing" forever - and the probe result is
+    // cached process-wide, so one odd sample would poison every user.
     const fmt = await probeListenFormat(c)
-    if (!fmt) return null
     try {
+      // json_valid() guards every json_extract: SQLite raises "malformed JSON"
+      // and aborts the WHOLE query if any scanned row has non-JSON extraData
+      // (an empty string is enough). One bad legacy row would otherwise hide
+      // this user's listening entirely. Rows that fail json_valid fall through
+      // to the mediaId hop, which doesn't need extraData at all.
       const res = await c.execute({
         sql: `
           SELECT libraryItemId, updatedAt FROM (
@@ -864,13 +873,17 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
                    ps.updatedAt AS updatedAt
             FROM playbackSessions ps
             WHERE ps.userId = ? AND ps.mediaItemType = 'book'
+              AND json_valid(ps.extraData)
               AND json_extract(ps.extraData, '$.libraryItemId') IS NOT NULL
             UNION ALL
             SELECT li.id AS libraryItemId, ps.updatedAt AS updatedAt
             FROM playbackSessions ps
             JOIN libraryItems li ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
             WHERE ps.userId = ? AND ps.mediaItemType = 'book'
-              AND json_extract(ps.extraData, '$.libraryItemId') IS NULL
+              AND (
+                NOT json_valid(ps.extraData)
+                OR json_extract(ps.extraData, '$.libraryItemId') IS NULL
+              )
           )
           WHERE libraryItemId IS NOT NULL
           ORDER BY updatedAt DESC
@@ -902,7 +915,16 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
       })
       const m = meta.rows[0] || {}
       const updatedMs = row.updatedAt != null ? Date.parse(String(row.updatedAt)) : NaN
-      const cutoff = fmt(new Date(Date.now() - cutoffMs))
+      // Prefer a real parsed timestamp for the liveness check; fall back to the
+      // lexicographic compare (in the column's own textual shape) only when the
+      // text didn't parse. If neither works, isLive is simply false - we still
+      // show the book as their last listen.
+      let isLive = false
+      if (!Number.isNaN(updatedMs)) {
+        isLive = Date.now() - updatedMs <= cutoffMs
+      } else if (fmt && row.updatedAt != null) {
+        isLive = String(row.updatedAt) >= fmt(new Date(Date.now() - cutoffMs))
+      }
       return {
         libraryItemId,
         title: m.title == null ? '' : String(m.title),
@@ -913,8 +935,7 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
         progress: Number(m.progress) || 0,
         isFinished: Number(m.isFinished) === 1,
         lastListenedAt: Number.isNaN(updatedMs) ? null : updatedMs,
-        // Lexicographic compare in the SAME textual shape the column stores.
-        isLive: row.updatedAt != null && String(row.updatedAt) >= cutoff,
+        isLive,
       }
     } catch {
       return null
@@ -1361,6 +1382,7 @@ export async function getActiveListeners(libraryItemIds = [], cutoffMs = 3 * 60 
               AND ps.updatedAt >= ?
               AND u.type != 'guest'
               AND u.isActive = 1
+              AND json_valid(ps.extraData)
               AND json_extract(ps.extraData, '$.libraryItemId') IN (${placeholders})
             UNION
             SELECT li.id AS libraryItemId, u.id AS userId, u.username AS username
