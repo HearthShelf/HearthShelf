@@ -8,6 +8,7 @@
 // package would host the single copy); the seam that makes that possible is the
 // data-source hook, not the page.
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ABSLogEntry, ABSLoggerData, HSAppLogResponse } from '@hearthshelf/core'
 import { Icon } from '@/components/common/Icon'
@@ -23,19 +24,32 @@ const LEVEL_LABEL: Record<number, string> = {
   5: 'FATAL',
 }
 
+// Trim the date off an ISO-ish timestamp so the column stays narrow - the log is
+// one day's worth, and the header already says which. Falls back to the raw
+// value for anything that isn't the expected shape.
+function clockOf(timestamp: string): string {
+  const m = /\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(timestamp)
+  return m ? m[0] : timestamp
+}
+
 function LogView({ logs, className }: { logs: ABSLogEntry[]; className?: string }) {
   return (
     <div className={'log-box' + (className ? ' ' + className : '')}>
-      {logs.map((l, i) => (
-        <div className="log-line" key={i}>
-          <span style={{ color: 'var(--text-faint)' }}>{l.timestamp}</span>{' '}
-          {l.level != null && (
-            <span style={{ color: 'var(--text-muted)' }}>[{LEVEL_LABEL[l.level] ?? l.level}]</span>
-          )}{' '}
-          {l.source && <span style={{ color: 'var(--text-muted)' }}>[{l.source}]</span>}{' '}
-          {l.message}
-        </div>
-      ))}
+      {logs.map((l, i) => {
+        const level = l.level != null ? (LEVEL_LABEL[l.level] ?? String(l.level)) : ''
+        return (
+          <div className="log-line" key={i}>
+            <span className="ts" title={l.timestamp}>
+              {clockOf(l.timestamp)}
+            </span>
+            <span className={'lv ' + level.toLowerCase()}>{level}</span>
+            <span className="src" title={l.source ?? undefined}>
+              {l.source ?? ''}
+            </span>
+            <span className="msg">{l.message}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -110,29 +124,37 @@ export function ConfigLogs() {
         </>
       )}
 
-      {enlarged && (
-        <div className="modal-scrim open" onClick={() => setEnlarged(false)}>
-          <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <Icon name="terminal" />
-              <h2>Server log · {logs.length} lines</h2>
-              <button
-                className="btn-sm btn-ghost"
-                disabled={!logs.length}
-                onClick={() => downloadLogs(logs)}
-              >
-                <Icon name="download" /> Download
-              </button>
-              <button className="modal-nav-btn" onClick={() => setEnlarged(false)}>
-                <Icon name="close" />
-              </button>
+      {/* Portalled to <body> deliberately. This page renders inside
+          .page.config-wrap.fade-in, whose `animation: fadeIn ... both` leaves a
+          transform applied for good - and a transformed ancestor becomes the
+          containing block for position:fixed. Rendered inline, the scrim would
+          size to .config-wrap's 1180px max-width instead of the viewport and
+          the enlarged log would sit off-screen. */}
+      {enlarged &&
+        createPortal(
+          <div className="modal-scrim open" onClick={() => setEnlarged(false)}>
+            <div className="modal modal-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <Icon name="terminal" />
+                <h2>Server log · {logs.length} lines</h2>
+                <button
+                  className="btn-sm btn-ghost"
+                  disabled={!logs.length}
+                  onClick={() => downloadLogs(logs)}
+                >
+                  <Icon name="download" /> Download
+                </button>
+                <button className="modal-nav-btn" onClick={() => setEnlarged(false)}>
+                  <Icon name="close" />
+                </button>
+              </div>
+              <div className="modal-body">
+                <LogView logs={logs} className="log-box-fill" />
+              </div>
             </div>
-            <div className="modal-body">
-              <LogView logs={logs} className="log-box-fill" />
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

@@ -6547,21 +6547,44 @@
   padding: var(--s3) 0;
 }
 
+/* Columns, not a text blob: time / level / source / message. The message is the
+   only flexible column, so a long line wraps under itself instead of shoving
+   the timestamp column out of alignment. */
 .log-line {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 46px minmax(0, 14ch) minmax(0, 1fr);
   gap: 12px;
   padding: 1px 0;
+  align-items: baseline;
 }
 
 .log-line .ts {
   color: var(--text-faint);
-  flex: none;
+  white-space: nowrap;
 }
 
 .log-line .lv {
-  flex: none;
-  width: 48px;
   font-weight: 600;
+}
+
+/* The [Source.js:123] column. Truncates rather than widening the grid; the
+   full value is in the title attribute. */
+.log-line .src {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Narrow viewports can't hold four columns; stack to time+level over the
+   message and drop the source column. */
+@media (max-width: 860px) {
+  .log-line {
+    grid-template-columns: auto 46px minmax(0, 1fr);
+  }
+  .log-line .src {
+    display: none;
+  }
 }
 
 .log-line .lv.info {
@@ -6586,6 +6609,11 @@
 
 .log-line .msg {
   color: var(--text);
+  /* Wrap long messages inside the column, and break mid-token when a single
+     unbroken run (a long path, a model list) would otherwise force the grid
+     wider than the box. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .heatmap {
@@ -6786,6 +6814,18 @@
 
 .modal-scrim.open {
   opacity: 1;
+}
+
+/* Oversized modal for content that wants room (the enlarged server log). Wide
+   but always inside the viewport - the base .modal is a fixed 800px, which a
+   long log line could push past the screen edge. Sizes are relative to the
+   scrim's content box (it already applies 24px of padding), so this uses
+   100%/vh-minus-padding rather than 100vw. */
+.modal-xl {
+  width: min(1400px, 100%);
+  max-width: 100%;
+  height: min(900px, calc(100vh - 48px));
+  max-height: 100%;
 }
 
 .modal {
