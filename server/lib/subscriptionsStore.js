@@ -21,6 +21,7 @@ function rowToSub(row) {
     kind: String(row.kind),
     asin: row.asin == null ? undefined : String(row.asin),
     seriesAsin: row.series_asin == null ? undefined : String(row.series_asin),
+    absSeriesId: row.abs_series_id == null ? undefined : String(row.abs_series_id),
     title: String(row.title),
     author: row.author == null ? undefined : String(row.author),
     seriesTitle: row.series_title == null ? undefined : String(row.series_title),
@@ -64,14 +65,15 @@ export async function saveSubscription(serverId, userId, sub) {
   await db.execute({
     sql: `
       INSERT INTO subscriptions
-        (server_id, user_id, id, kind, asin, series_asin, title, author,
-         series_title, sequence, cover_art_url, narrator, duration_min,
+        (server_id, user_id, id, kind, asin, series_asin, abs_series_id, title,
+         author, series_title, sequence, cover_art_url, narrator, duration_min,
          release_date, publication_datetime, available, available_at,
          notified_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, '{}', ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, '{}', ?)
       ON CONFLICT (server_id, user_id, id) DO UPDATE SET
         kind = excluded.kind, asin = excluded.asin,
-        series_asin = excluded.series_asin, title = excluded.title,
+        series_asin = excluded.series_asin,
+        abs_series_id = excluded.abs_series_id, title = excluded.title,
         author = excluded.author, series_title = excluded.series_title,
         sequence = excluded.sequence, cover_art_url = excluded.cover_art_url,
         narrator = excluded.narrator, duration_min = excluded.duration_min,
@@ -85,6 +87,7 @@ export async function saveSubscription(serverId, userId, sub) {
       sub.kind,
       sub.asin ?? null,
       sub.seriesAsin ?? null,
+      sub.absSeriesId ?? null,
       sub.title,
       sub.author ?? null,
       sub.seriesTitle ?? null,

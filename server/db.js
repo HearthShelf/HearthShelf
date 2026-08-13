@@ -679,6 +679,7 @@ const SCHEMA = [
      kind          TEXT NOT NULL,             -- 'book' | 'series'
      asin          TEXT,                      -- book subs: the awaited product
      series_asin   TEXT,                      -- series subs + parent series of a book sub
+     abs_series_id TEXT,                      -- ABS series, when followed from the library
      title         TEXT NOT NULL,
      author        TEXT,
      series_title  TEXT,
@@ -795,6 +796,10 @@ const MIGRATIONS = [
   // a long-lived ABS token. See server/lib/serverIdentity.js.
   `ALTER TABLE server_identity ADD COLUMN identity_private_key TEXT`,
   `ALTER TABLE server_identity ADD COLUMN identity_public_key TEXT`,
+  // The ABS series a series follow came from, when it was made from a library or
+  // series page. Existing follows stay NULL - they were keyed only by Audible
+  // series ASIN, so the library can't match them by id until they're re-followed.
+  `ALTER TABLE subscriptions ADD COLUMN abs_series_id TEXT`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is
