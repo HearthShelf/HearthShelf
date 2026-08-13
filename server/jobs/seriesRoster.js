@@ -12,6 +12,8 @@
 import { getAllSeries, getOwnedSeriesBooks, absDbAvailable } from '../lib/absdb.js'
 import { resolveSeriesAsin, fetchSeriesBooks, currentRegion } from '../routes/audible.js'
 import { saveSeriesRoster } from '../lib/seriesRosterStore.js'
+import { backfillAbsSeriesIds } from '../lib/subscriptionsStore.js'
+import { getServerId } from '../db.js'
 import { stampOwned } from '../lib/seriesOwned.js'
 
 // Do the owned books in one series come from authors with nothing in common?
@@ -148,5 +150,30 @@ export async function runSeriesRoster(logger, signal) {
     if (PACING_MS > 0 && i < seriesList.length) await between(PACING_MS, signal)
   }
 
-  return `Resolved ${resolved}, unresolved ${unresolved} of ${seriesList.length} series`
+  // Now that the ASIN <-> ABS-series map is fresh, link any series follows that
+  // predate abs_series_id (or were made from an Audible search). Follows are
+  // stored per user but the mapping is library-wide, so one pass covers all of
+  // them - nobody has to unfollow and re-follow to be found by the library's
+  // Following filter. Best-effort: a failure here must not fail the sweep.
+  let linkNote = ''
+  try {
+    const serverId = await getServerId()
+    const { linked, remaining, ambiguous } = await backfillAbsSeriesIds(serverId)
+    if (linked > 0) logger.info(`Linked ${linked} existing series follow(s) to their library series`)
+    if (remaining > 0) {
+      logger.info(
+        `${remaining} follow(s) still unlinked - their series is not in this library or has no Audible match yet`,
+      )
+    }
+    if (ambiguous > 0) {
+      logger.warn(
+        `${ambiguous} Audible series map to more than one library series; their follows were left unlinked rather than guessed`,
+      )
+    }
+    if (linked > 0 || remaining > 0) linkNote = `, linked ${linked} follow(s)`
+  } catch (err) {
+    logger.warn(`Could not link existing follows: ${String(err?.message ?? err)}`)
+  }
+
+  return `Resolved ${resolved}, unresolved ${unresolved} of ${seriesList.length} series${linkNote}`
 }

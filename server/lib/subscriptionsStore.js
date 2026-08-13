@@ -102,6 +102,65 @@ export async function saveSubscription(serverId, userId, sub) {
   })
 }
 
+/**
+ * Link existing series follows to their ABS series.
+ *
+ * A follow records the Audible series ASIN; `abs_series_id` was added later, so
+ * every follow made before it - and any made from an Audible search, where no
+ * ABS series is in hand - has it NULL. The series-roster job already resolves
+ * (ABS series id <-> Audible series ASIN) for the whole library, so those rows
+ * can be filled in from it rather than asking people to unfollow and re-follow.
+ *
+ * Only fills NULLs, so a value recorded at follow time always wins. Skips ASINs
+ * that resolve to more than one ABS series (two library series can legitimately
+ * map to the same Audible series - e.g. a split/re-issued series - and guessing
+ * would bind the follow to the wrong one). Returns counts for the job summary.
+ */
+export async function backfillAbsSeriesIds(serverId) {
+  const pending = await db.execute({
+    sql: `SELECT COUNT(*) AS n FROM subscriptions
+          WHERE server_id = ? AND kind = 'series'
+            AND abs_series_id IS NULL AND series_asin IS NOT NULL`,
+    args: [serverId],
+  })
+  const before = Number(pending.rows[0]?.n) || 0
+  if (before === 0) return { linked: 0, remaining: 0, ambiguous: 0 }
+
+  // ASINs mapping to several ABS series - deliberately left alone.
+  const dupes = await db.execute({
+    sql: `SELECT COUNT(*) AS n FROM (
+            SELECT series_asin FROM series_roster
+            WHERE server_id = ? AND series_asin IS NOT NULL
+            GROUP BY lower(series_asin) HAVING COUNT(*) > 1)`,
+    args: [serverId],
+  })
+  const ambiguous = Number(dupes.rows[0]?.n) || 0
+
+  await db.execute({
+    sql: `
+      UPDATE subscriptions SET abs_series_id = (
+        SELECT r.series_id FROM series_roster r
+        WHERE r.server_id = subscriptions.server_id
+          AND lower(r.series_asin) = lower(subscriptions.series_asin)
+        GROUP BY lower(r.series_asin)
+        HAVING COUNT(*) = 1
+      )
+      WHERE server_id = ? AND kind = 'series'
+        AND abs_series_id IS NULL AND series_asin IS NOT NULL
+    `,
+    args: [serverId],
+  })
+
+  const left = await db.execute({
+    sql: `SELECT COUNT(*) AS n FROM subscriptions
+          WHERE server_id = ? AND kind = 'series'
+            AND abs_series_id IS NULL AND series_asin IS NOT NULL`,
+    args: [serverId],
+  })
+  const remaining = Number(left.rows[0]?.n) || 0
+  return { linked: before - remaining, remaining, ambiguous }
+}
+
 export async function deleteSubscription(serverId, userId, id) {
   await db.execute({
     sql: `DELETE FROM subscriptions WHERE server_id = ? AND user_id = ? AND id = ?`,

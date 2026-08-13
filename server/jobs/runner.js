@@ -8,6 +8,7 @@
 import crypto from 'node:crypto'
 import { db, getServerId } from '../db.js'
 import { JOBS } from './registry.js'
+import { backfillAbsSeriesIds } from '../lib/subscriptionsStore.js'
 
 // Per-job mutex: a scheduled tick and a manual "run now" (or two clicks) must
 // never overlap. Value is the in-flight run id.
@@ -218,6 +219,23 @@ export function nextCronRun(cron, from = new Date()) {
 // Timers are unref()'d so they never keep the process alive. Jobs do NOT run
 // immediately on boot; the first run is on schedule or a manual click.
 export function startJobs() {
+  // Link series follows to their ABS series once at boot, from the roster the
+  // series-roster job already built. Pure SQL over existing rows (no Audible
+  // calls), so it is cheap and safe to run every start - and an upgrade heals
+  // straight away instead of waiting for tonight's sweep. The job re-runs it
+  // after each sweep to catch newly resolved series.
+  void (async () => {
+    try {
+      const serverId = await getServerId()
+      const { linked } = await backfillAbsSeriesIds(serverId)
+      if (linked > 0) {
+        console.log(`[jobs] Linked ${linked} existing series follow(s) to their library series`)
+      }
+    } catch {
+      // Best-effort: the nightly series-roster job retries this.
+    }
+  })()
+
   const cronJobs = JOBS.filter((j) => typeof j.cronSchedule === 'function')
 
   for (const job of JOBS) {
