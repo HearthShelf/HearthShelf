@@ -193,9 +193,15 @@ export async function handleSocial(req, res, url, ctx) {
     if (!target) return (json(res, 404, { error: 'user_not_found' }), true)
 
     // Mark the overlap server-side so the UI can render "you both finished this"
-    // without shipping the caller's whole library twice.
+    // without shipping the caller's whole library twice. On your OWN profile the
+    // list IS your finishes, so every entry is trivially yours - we skip the
+    // redundant second read above and mark them all rather than leaving the flag
+    // false (which read as "you've finished none of your own books").
     const mine = new Set((myFinished ?? []).map((b) => b.libraryItemId))
-    const finishedOut = (finished ?? []).map((b) => ({ ...b, alsoMine: mine.has(b.libraryItemId) }))
+    const finishedOut = (finished ?? []).map((b) => ({
+      ...b,
+      alsoMine: isMe || mine.has(b.libraryItemId),
+    }))
     const sharedCount = finishedOut.filter((b) => b.alsoMine).length
 
     const username = rows.find((r) => r.userId === targetUserId)?.username || ''
