@@ -211,10 +211,10 @@ function HiddenFromShelves() {
   return (
     <div className="set-row set-row-stack">
       <div className="sr-meta">
-        <div className="sr-t">Hidden from shelves</div>
+        <div className="sr-t">Ignored</div>
         <div className="sr-d">
-          Series and books you hid from your Auto queue and Continue shelves. Restore to bring them
-          back.
+          Series you ignored and books you set aside. They stay in your library - they just stop
+          being suggested. Restore to have them recommended again.
         </div>
       </div>
       <div className="rule-list">
@@ -223,7 +223,7 @@ function HiddenFromShelves() {
             <Icon name={r.kind === 'series' ? 'collections_bookmark' : 'menu_book'} />
             <div className="rule-meta" style={{ flex: 1 }}>
               <div className="rule-t">
-                {labels[r.id] ?? (r.kind === 'series' ? 'Hidden series' : 'Hidden book')}
+                {labels[r.id] ?? (r.kind === 'series' ? 'Ignored series' : 'Book set aside')}
               </div>
             </div>
             <button className="btn-ghost" onClick={() => void restore(r.kind, r.id)}>

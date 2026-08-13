@@ -24,6 +24,7 @@ import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
 import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
 import { FollowSeriesButton } from '@/components/requests/FollowSeriesButton'
+import { IgnoreSeriesButton } from '@/components/requests/IgnoreSeriesButton'
 import { useDismissalsStore } from '@/store/dismissalsStore'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
@@ -270,6 +271,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           author={author}
           coverArtUrl={seriesCover}
         />
+        <IgnoreSeriesButton seriesId={series.id} seriesName={series.name} />
       </div>
       {heroProg}
     </div>
@@ -304,6 +306,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             author={author}
             coverArtUrl={seriesCover}
           />
+          <IgnoreSeriesButton seriesId={series.id} seriesName={series.name} />
         </div>
       </div>
 

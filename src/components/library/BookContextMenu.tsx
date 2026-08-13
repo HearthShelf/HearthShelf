@@ -90,27 +90,29 @@ export function BookContextMenu({
       .catch(() => {})
   }
 
-  // Hide a series (Continue-Series) or this book (Continue-Listening) from Auto
-  // sources. Reversible via Settings > Queue > Hidden from shelves.
-  const hideFromShelves = async () => {
+  // Ignore a series (Continue-Series) or set this book aside (Continue-
+  // Listening). An ignored series stops being suggested anywhere - Auto queue,
+  // Continue Series, Discover, QuestGiver - but stays in the library and in
+  // search. Reversible here, on the series page, or in Settings > Queue.
+  const ignoreFromShelves = async () => {
     if (source === 'series') {
       const sid = resolvedSeriesId
       const sname = seriesName ?? mSeriesName ?? 'series'
       if (!sid) return
       try {
         await dismiss('series', sid, sname)
-        onToast?.(`Hid "${sname}" - restore in Settings`)
+        onToast?.(`Ignoring "${sname}" - still in your library`)
         repullQueue()
       } catch {
-        onToast?.('Could not hide that')
+        onToast?.('Could not ignore that')
       }
     } else {
       try {
         await dismiss('item', item.id, mTitle ?? 'book')
-        onToast?.(`Hid "${mTitle}" - restore in Settings`)
+        onToast?.(`Set "${mTitle}" aside - restore in Settings`)
         repullQueue()
       } catch {
-        onToast?.('Could not hide that')
+        onToast?.('Could not set that aside')
       }
     }
   }
@@ -258,9 +260,9 @@ export function BookContextMenu({
       )}
 
       {((source === 'series' && resolvedSeriesId) || source === 'listening') && (
-        <button className="mp-item" onClick={act(() => void hideFromShelves())}>
+        <button className="mp-item" onClick={act(() => void ignoreFromShelves())}>
           <Icon name="visibility_off" />
-          {source === 'series' ? 'Hide this series' : 'Not right now'}
+          {source === 'series' ? 'Ignore series' : 'Not right now'}
         </button>
       )}
 
