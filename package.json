@@ -17,7 +17,7 @@
     "@types/papaparse": "^5.5.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "epubjs": "0.4.2",
+    "epubjs": "0.3.93",
     "lucide-react": "^1.30.0",
     "papaparse": "^5.5.4",
     "radix-ui": "^1.6.7",
@@ -30,8 +30,7 @@
     "zustand": "^5.0.14"
   },
   "overrides": {
-    "@xmldom/xmldom": "0.9.10",
-    "xmldom": "npm:@xmldom/xmldom@0.9.10"
+    "@xmldom/xmldom": "0.9.10"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
