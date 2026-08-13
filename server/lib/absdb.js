@@ -861,35 +861,43 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
     // cached process-wide, so one odd sample would poison every user.
     const fmt = await probeListenFormat(c)
     try {
-      // json_valid() guards every json_extract: SQLite raises "malformed JSON"
-      // and aborts the WHOLE query if any scanned row has non-JSON extraData
-      // (an empty string is enough). One bad legacy row would otherwise hide
-      // this user's listening entirely. Rows that fail json_valid fall through
-      // to the mediaId hop, which doesn't need extraData at all.
+      // Resolving a session to a library item, robustly. Two traps here, both
+      // of which silently emptied this query before:
+      //
+      // 1. json_extract() raises "malformed JSON" and aborts the WHOLE query if
+      //    ANY scanned row has non-JSON extraData (an empty string is enough).
+      //    A `json_valid(e) AND json_extract(e, ...)` guard does NOT save you:
+      //    SQLite doesn't promise to short-circuit AND/OR, and in practice it
+      //    still evaluates the extract. CASE WHEN *does* guarantee order, so
+      //    every json_extract here is wrapped in one.
+      // 2. json_valid(NULL) is NULL, not 0 - so `NOT json_valid(e)` is NULL for
+      //    a NULL extraData, and a NULL predicate is not true, which dropped
+      //    every legacy row. Compare with `IS NOT 1` instead of NOT.
+      //
+      // One coalesced expression resolves the item both ways, so a row is never
+      // matched by neither branch: prefer extraData.libraryItemId when it's
+      // safely readable, else hop through libraryItems.mediaId.
       const res = await c.execute({
         sql: `
           SELECT libraryItemId, updatedAt FROM (
-            SELECT json_extract(ps.extraData, '$.libraryItemId') AS libraryItemId,
-                   ps.updatedAt AS updatedAt
+            SELECT
+              COALESCE(
+                CASE WHEN json_valid(ps.extraData) = 1
+                     THEN json_extract(ps.extraData, '$.libraryItemId')
+                END,
+                li.id
+              ) AS libraryItemId,
+              ps.updatedAt AS updatedAt
             FROM playbackSessions ps
+            LEFT JOIN libraryItems li
+              ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
             WHERE ps.userId = ? AND ps.mediaItemType = 'book'
-              AND json_valid(ps.extraData)
-              AND json_extract(ps.extraData, '$.libraryItemId') IS NOT NULL
-            UNION ALL
-            SELECT li.id AS libraryItemId, ps.updatedAt AS updatedAt
-            FROM playbackSessions ps
-            JOIN libraryItems li ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
-            WHERE ps.userId = ? AND ps.mediaItemType = 'book'
-              AND (
-                NOT json_valid(ps.extraData)
-                OR json_extract(ps.extraData, '$.libraryItemId') IS NULL
-              )
           )
           WHERE libraryItemId IS NOT NULL
           ORDER BY updatedAt DESC
           LIMIT 1
         `,
-        args: [userId, userId],
+        args: [userId],
       })
       const row = res.rows[0]
       if (!row) return null
@@ -1367,36 +1375,35 @@ export async function getActiveListeners(libraryItemIds = [], cutoffMs = 3 * 60 
     const cutoff = fmt(new Date(Date.now() - cutoffMs))
     try {
       const placeholders = ids.map(() => '?').join(', ')
-      // Resolve each session's library item two ways and union: the direct
-      // extraData.libraryItemId, and (for older sessions without it) the
-      // mediaId hop through libraryItems. Only book sessions, eligible users,
-      // and rows updated since the cutoff.
+      // Resolve each session's library item, preferring extraData.libraryItemId
+      // and falling back to the libraryItems.mediaId hop. The CASE WHEN around
+      // json_extract is load-bearing: a bare `json_valid(e) AND json_extract(e)`
+      // still aborts the whole query with "malformed JSON" on a bad row, since
+      // SQLite doesn't promise to short-circuit AND. Filtering on the resolved
+      // id (not per-branch) also means a row can't slip through both branches.
       const res = await c.execute({
         sql: `
           SELECT DISTINCT libraryItemId, userId, username FROM (
-            SELECT json_extract(ps.extraData, '$.libraryItemId') AS libraryItemId,
-                   u.id AS userId, u.username AS username
+            SELECT
+              COALESCE(
+                CASE WHEN json_valid(ps.extraData) = 1
+                     THEN json_extract(ps.extraData, '$.libraryItemId')
+                END,
+                li.id
+              ) AS libraryItemId,
+              u.id AS userId, u.username AS username
             FROM playbackSessions ps
             JOIN users u ON u.id = ps.userId
+            LEFT JOIN libraryItems li
+              ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
             WHERE ps.mediaItemType = 'book'
               AND ps.updatedAt >= ?
               AND u.type != 'guest'
               AND u.isActive = 1
-              AND json_valid(ps.extraData)
-              AND json_extract(ps.extraData, '$.libraryItemId') IN (${placeholders})
-            UNION
-            SELECT li.id AS libraryItemId, u.id AS userId, u.username AS username
-            FROM playbackSessions ps
-            JOIN users u ON u.id = ps.userId
-            JOIN libraryItems li ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
-            WHERE ps.mediaItemType = 'book'
-              AND ps.updatedAt >= ?
-              AND u.type != 'guest'
-              AND u.isActive = 1
-              AND li.id IN (${placeholders})
           )
+          WHERE libraryItemId IN (${placeholders})
         `,
-        args: [cutoff, ...ids, cutoff, ...ids],
+        args: [cutoff, ...ids],
       })
       const out = []
       for (const row of res.rows) {
