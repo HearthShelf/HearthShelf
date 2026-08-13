@@ -21,6 +21,8 @@ import {
   getActiveListeners,
   getUserCompareStats,
   getServerAggregateStats,
+  getUserCurrentListen,
+  getUserFinishedBooks,
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
@@ -127,6 +129,92 @@ export async function handleSocial(req, res, url, ctx) {
       return (json(res, 200, { available: true, byItem }), true)
     }
     return (json(res, 405, { error: 'method_not_allowed' }), true)
+  }
+
+  // Profile: everything one user's profile page shows, in a single round trip -
+  // their compare-shaped totals, what they're listening to (or last listened
+  // to), and the books they've finished.
+  //
+  // THREE independent privacy gates, because the two share settings mean
+  // different things and a user may have opted into one but not the other:
+  //   1. Roster gate (shareReadBooks / defaultShare) - may the caller see this
+  //      user AT ALL? Same roster the leaderboard and compare use; 403 if not.
+  //      Without this, a profile URL would be a way to look up a user who has
+  //      opted out of being listed.
+  //   2. shareReadBooks   -> `finished` (their finished-books list).
+  //   3. shareCurrentlyListening -> `listening` (the now/last-listened hero).
+  // Each gated section comes back null/[] with a matching `*Shared: false` flag
+  // so the UI can say "not shared" instead of "nothing here". The caller always
+  // sees their own profile in full.
+  if (req.method === 'GET' && p === '/hs/social/profile') {
+    if (!(await absDbAvailable())) {
+      return (json(res, 200, { available: false }), true)
+    }
+    const targetUserId = url.searchParams.get('userId') || ''
+    if (!targetUserId) return (json(res, 400, { error: 'missing_userId' }), true)
+
+    const tz = Number.parseInt(url.searchParams.get('tz') ?? '', 10)
+    const now = callerNow(Number.isNaN(tz) ? undefined : tz)
+    const yearStart = `${now.getUTCFullYear()}-01-01`
+
+    const [rows, explicitRead, explicitListening, community] = await Promise.all([
+      getLeaderboard({ window: 'all' }),
+      getExplicitSharePrefs(ctx.serverId, 'shareReadBooks'),
+      getExplicitSharePrefs(ctx.serverId, 'shareCurrentlyListening'),
+      getCommunityConfig(),
+    ])
+
+    // Gate 1: the visibility roster. Reuses the leaderboard resolution so a user
+    // hidden from the leaderboard is equally unreachable by direct profile URL.
+    const onRoster = shares(targetUserId, explicitRead, community.defaultShare, ctx.userId)
+    if (!onRoster) return (json(res, 403, { error: 'not_shareable' }), true)
+
+    const isMe = targetUserId === ctx.userId
+    // Gates 2 and 3, resolved independently against their own setting.
+    const readShared = shares(targetUserId, explicitRead, community.defaultShare, ctx.userId)
+    const listeningShared = shares(
+      targetUserId,
+      explicitListening,
+      community.defaultShareListening,
+      ctx.userId,
+    )
+
+    const [me, target, listening, finished, myFinished] = await Promise.all([
+      getUserCompareStats(ctx.userId, yearStart),
+      getUserCompareStats(targetUserId, yearStart),
+      listeningShared ? getUserCurrentListen(targetUserId, LISTENING_CUTOFF_MS) : null,
+      readShared ? getUserFinishedBooks(targetUserId) : [],
+      // The caller's own finishes, so the client can mark which of the target's
+      // books they've both read without a second round trip. Never privacy-gated
+      // (it's the caller's own data); skipped when the target's list is hidden,
+      // since there'd be nothing to intersect with.
+      readShared && !isMe ? getUserFinishedBooks(ctx.userId) : [],
+    ])
+    if (!target) return (json(res, 404, { error: 'user_not_found' }), true)
+
+    // Mark the overlap server-side so the UI can render "you both finished this"
+    // without shipping the caller's whole library twice.
+    const mine = new Set((myFinished ?? []).map((b) => b.libraryItemId))
+    const finishedOut = (finished ?? []).map((b) => ({ ...b, alsoMine: mine.has(b.libraryItemId) }))
+    const sharedCount = finishedOut.filter((b) => b.alsoMine).length
+
+    const username = rows.find((r) => r.userId === targetUserId)?.username || ''
+    return (
+      json(res, 200, {
+        available: true,
+        userId: targetUserId,
+        username,
+        isMe,
+        me,
+        target,
+        readShared,
+        listeningShared,
+        listening: listening ?? null,
+        finished: finishedOut,
+        sharedCount,
+      }),
+      true
+    )
   }
 
   // Compare: the caller's own totals alongside a comparison target - the whole

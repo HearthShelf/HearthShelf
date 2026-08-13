@@ -833,6 +833,167 @@ export async function getUserCompareStats(userId, yearStart = null) {
   })
 }
 
+// --- Profile (for /hs/social/profile) ---------------------------------------
+//
+// One user's most recent book session, resolved to a real library item so the
+// profile can render it as a hero. Derived from playbackSessions.updatedAt (the
+// same server-sync-driven column getActiveListeners trusts - never
+// mediaProgresses.updatedAt, which a client can set arbitrarily). `isLive` is
+// true when that session updated within cutoffMs, so one query answers both
+// "listening right now" and "last listened to". The item is resolved the same
+// two ways as getActiveListeners: extraData.libraryItemId, falling back to the
+// libraryItems.mediaId hop for older rows. Progress comes from mediaProgresses
+// for that item, so the hero can show how far along they are.
+//
+// Identity-neutral: the ROUTE decides whether the caller may see this (the
+// shareCurrentlyListening gate). null when the db isn't mounted, the user has no
+// book session, or the date-format probe fails.
+export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
+  if (!userId) return null
+  const c = await ensureClient()
+  if (!c) return null
+  const bucket = Math.floor(Date.now() / CACHE_TTL_MS)
+  return cached(`currentListen:${bucket}:${userId}:${cutoffMs}`, async () => {
+    const fmt = await probeListenFormat(c)
+    if (!fmt) return null
+    try {
+      const res = await c.execute({
+        sql: `
+          SELECT libraryItemId, updatedAt FROM (
+            SELECT json_extract(ps.extraData, '$.libraryItemId') AS libraryItemId,
+                   ps.updatedAt AS updatedAt
+            FROM playbackSessions ps
+            WHERE ps.userId = ? AND ps.mediaItemType = 'book'
+              AND json_extract(ps.extraData, '$.libraryItemId') IS NOT NULL
+            UNION ALL
+            SELECT li.id AS libraryItemId, ps.updatedAt AS updatedAt
+            FROM playbackSessions ps
+            JOIN libraryItems li ON li.mediaId = ps.mediaItemId AND li.mediaType = 'book'
+            WHERE ps.userId = ? AND ps.mediaItemType = 'book'
+              AND json_extract(ps.extraData, '$.libraryItemId') IS NULL
+          )
+          WHERE libraryItemId IS NOT NULL
+          ORDER BY updatedAt DESC
+          LIMIT 1
+        `,
+        args: [userId, userId],
+      })
+      const row = res.rows[0]
+      if (!row) return null
+      const libraryItemId = row.libraryItemId == null ? '' : String(row.libraryItemId)
+      if (!libraryItemId) return null
+
+      // Title/author/progress for the hero. A missing item (deleted since the
+      // session) still returns the session shell; the UI falls back to a
+      // typeset cover.
+      const meta = await c.execute({
+        sql: `
+          SELECT b.title AS title, b.narrators AS narrators, b.duration AS duration,
+                 mp.currentTime AS currentTime, mp.progress AS progress,
+                 mp.isFinished AS isFinished
+          FROM libraryItems li
+          JOIN books b ON b.id = li.mediaId
+          LEFT JOIN mediaProgresses mp
+            ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book' AND mp.userId = ?
+          WHERE li.id = ? AND li.mediaType = 'book'
+          LIMIT 1
+        `,
+        args: [userId, libraryItemId],
+      })
+      const m = meta.rows[0] || {}
+      const updatedMs = row.updatedAt != null ? Date.parse(String(row.updatedAt)) : NaN
+      const cutoff = fmt(new Date(Date.now() - cutoffMs))
+      return {
+        libraryItemId,
+        title: m.title == null ? '' : String(m.title),
+        author: await getItemAuthorName(c, libraryItemId),
+        narrator: parseFirstJsonName(m.narrators),
+        durationSec: Number(m.duration) || 0,
+        currentTimeSec: Number(m.currentTime) || 0,
+        progress: Number(m.progress) || 0,
+        isFinished: Number(m.isFinished) === 1,
+        lastListenedAt: Number.isNaN(updatedMs) ? null : updatedMs,
+        // Lexicographic compare in the SAME textual shape the column stores.
+        isLive: row.updatedAt != null && String(row.updatedAt) >= cutoff,
+      }
+    } catch {
+      return null
+    }
+  })
+}
+
+// ABS stores books.narrators as a JSON array of plain strings. Return the first
+// name, or '' when absent/unparseable.
+function parseFirstJsonName(raw) {
+  if (raw == null) return ''
+  try {
+    const arr = JSON.parse(String(raw))
+    return Array.isArray(arr) && arr.length ? String(arr[0] ?? '') : ''
+  } catch {
+    return ''
+  }
+}
+
+// Primary author name for a library item, via ABS's bookAuthors join table.
+// '' when the item has no author row.
+async function getItemAuthorName(c, libraryItemId) {
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT a.name AS name
+        FROM libraryItems li
+        JOIN bookAuthors ba ON ba.bookId = li.mediaId
+        JOIN authors a ON a.id = ba.authorId
+        WHERE li.id = ?
+        LIMIT 1
+      `,
+      args: [libraryItemId],
+    })
+    return res.rows[0]?.name == null ? '' : String(res.rows[0].name)
+  } catch {
+    return ''
+  }
+}
+
+// Every book a user has finished, newest finish first, resolved to library
+// items so the profile can render covers and link through. Identity-neutral -
+// the ROUTE gates this behind shareReadBooks. Capped so a heavy reader can't
+// produce an unbounded response. [] on any failure or when the db isn't mounted.
+const PROFILE_FINISHED_CAP = 500
+export async function getUserFinishedBooks(userId, limit = PROFILE_FINISHED_CAP) {
+  if (!userId) return []
+  const c = await ensureClient()
+  if (!c) return []
+  const cap = Math.min(Math.max(Number(limit) || PROFILE_FINISHED_CAP, 1), PROFILE_FINISHED_CAP)
+  return cached(`profileFinished:${userId}:${cap}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `
+          SELECT li.id AS libraryItemId, b.title AS title, mp.finishedAt AS finishedAt
+          FROM mediaProgresses mp
+          JOIN libraryItems li
+            ON li.mediaId = mp.mediaItemId AND li.mediaType = 'book'
+          JOIN books b ON b.id = li.mediaId
+          WHERE mp.userId = ? AND mp.isFinished = 1 AND mp.mediaItemType = 'book'
+          ORDER BY mp.finishedAt DESC
+          LIMIT ?
+        `,
+        args: [userId, cap],
+      })
+      return res.rows.map((row) => {
+        const ms = row.finishedAt != null ? Date.parse(String(row.finishedAt)) : NaN
+        return {
+          libraryItemId: String(row.libraryItemId),
+          title: row.title == null ? '' : String(row.title),
+          finishedAt: Number.isNaN(ms) ? null : ms,
+        }
+      })
+    } catch {
+      return []
+    }
+  })
+}
+
 // Server-wide per-user AVERAGES over eligible (non-guest, active) users: mean
 // books finished, seconds listened, avg-per-active-day, and (with `yearStart`)
 // books finished this year. No identity is leaked, so this is available whenever
