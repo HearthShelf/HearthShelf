@@ -919,8 +919,9 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
       // typeset cover.
       const meta = await c.execute({
         sql: `
-          SELECT b.title AS title, b.narrators AS narrators, b.duration AS duration,
-                 mp.currentTime AS currentTime, mp.progress AS progress,
+          SELECT b.title AS title, b.narrators AS narrators,
+                 b.duration AS bookDuration,
+                 mp.currentTime AS currentTime, mp.duration AS progressDuration,
                  mp.isFinished AS isFinished
           FROM libraryItems li
           JOIN books b ON b.id = li.mediaId
@@ -943,15 +944,27 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
       } else if (fmt && row.updatedAt != null) {
         isLive = String(row.updatedAt) >= fmt(new Date(Date.now() - cutoffMs))
       }
+      // mediaProgresses has NO `progress` column - ABS stores currentTime and a
+      // per-user duration and derives the fraction. Prefer the progress row's
+      // own duration (what ABS measured this user against); fall back to the
+      // book's when the row is missing (never listened, or progress not synced).
+      const currentTimeSec = Number(m.currentTime) || 0
+      const durationSec = Number(m.progressDuration) || Number(m.bookDuration) || 0
+      const isFinished = Number(m.isFinished) === 1
+      const progress = isFinished
+        ? 1
+        : durationSec > 0
+          ? Math.min(Math.max(currentTimeSec / durationSec, 0), 1)
+          : 0
       return {
         libraryItemId,
         title: m.title == null ? '' : String(m.title),
         author: await getItemAuthorName(c, libraryItemId),
         narrator: parseFirstJsonName(m.narrators),
-        durationSec: Number(m.duration) || 0,
-        currentTimeSec: Number(m.currentTime) || 0,
-        progress: Number(m.progress) || 0,
-        isFinished: Number(m.isFinished) === 1,
+        durationSec,
+        currentTimeSec,
+        progress,
+        isFinished,
         lastListenedAt: Number.isNaN(updatedMs) ? null : updatedMs,
         isLive,
       }
