@@ -40,6 +40,14 @@ services:
       - abs-config:/config
       - abs-metadata:/metadata
       - abs-audiobooks:/audiobooks
+    # Cap what `docker logs` keeps on the host. Without this, Docker's json-file
+    # log grows until the disk fills - this container is chatty (ABS + the
+    # HearthShelf backend + nginx all share one stdout). 30 MB ceiling.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     restart: unless-stopped
 
 volumes:

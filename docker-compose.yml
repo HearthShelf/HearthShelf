@@ -42,6 +42,13 @@ services:
       # read-only - HearthShelf never writes to ABS's database. Remove this line
       # (and HS_ABS_DB_PATH above) to disable the leaderboard.
       - abs-config:/abs-config:ro
+    # Cap what `docker logs` keeps on the host - without this, Docker's json-file
+    # log grows until the disk fills. 30 MB ceiling.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     restart: unless-stopped
 
   abs:
@@ -54,6 +61,11 @@ services:
       - abs-audiobooks:/audiobooks
     networks:
       - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     restart: unless-stopped
 
 networks:
