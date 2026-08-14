@@ -23,6 +23,7 @@ import {
   getServerAggregateStats,
   getUserCurrentListen,
   getUserFinishedBooks,
+  getYearsInReviewForUser,
 } from '../lib/absdb.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { getCommunityConfig, setCommunityConfig } from '../community.js'
@@ -179,7 +180,7 @@ export async function handleSocial(req, res, url, ctx) {
       ctx.userId,
     )
 
-    const [me, target, listening, finished, myFinished] = await Promise.all([
+    const [me, target, listening, finished, myFinished, yearsInReview] = await Promise.all([
       getUserCompareStats(ctx.userId, yearStart),
       getUserCompareStats(targetUserId, yearStart),
       listeningShared ? getUserCurrentListen(targetUserId, LISTENING_CUTOFF_MS) : null,
@@ -189,6 +190,9 @@ export async function handleSocial(req, res, url, ctx) {
       // (it's the caller's own data); skipped when the target's list is hidden,
       // since there'd be nothing to intersect with.
       readShared && !isMe ? getUserFinishedBooks(ctx.userId) : [],
+      // Same gate as `finished`: a per-year recap of someone's reading is the
+      // same data shareReadBooks protects, just aggregated.
+      readShared ? getYearsInReviewForUser(targetUserId) : [],
     ])
     if (!target) return (json(res, 404, { error: 'user_not_found' }), true)
 
@@ -218,6 +222,7 @@ export async function handleSocial(req, res, url, ctx) {
         listening: listening ?? null,
         finished: finishedOut,
         sharedCount,
+        yearsInReview: yearsInReview ?? [],
       }),
       true
     )

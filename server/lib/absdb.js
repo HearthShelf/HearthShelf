@@ -586,6 +586,153 @@ export async function getTopFinishedNarratorForUser(userId) {
   })
 }
 
+// A user's year in review over their FINISHED books: how many, how long, the
+// longest and shortest, the author and narrator they spent the most books on,
+// and their series activity. One pass over the year's finishes, assembled in
+// JS - narrators are JSON so they can't be grouped in SQL anyway, and the row
+// count here is a single year of one user's reading.
+//
+// `years` comes back newest-first so a caller can render the most recent first.
+// Identity-neutral: the ROUTE gates this behind shareReadBooks, exactly like
+// getUserFinishedBooks.
+//
+// Note ABS overwrites finishedAt on a re-finish and keeps no completion history
+// (see the comment on getDailyFinished), so a re-read counts only toward the
+// year of its most recent finish.
+export async function getYearsInReviewForUser(userId) {
+  if (!userId) return []
+  const c = await ensureClient()
+  if (!c) return []
+  return cached(`yearsInReview:${userId}`, async () => {
+    try {
+      const res = await c.execute({
+        sql: `
+          SELECT mp.finishedAt AS finishedAt, b.id AS bookId, b.title AS title,
+                 b.duration AS dur, b.narrators AS narrators,
+                 (SELECT a.name FROM authors a
+                    JOIN bookAuthors ba ON ba.authorId = a.id
+                   WHERE ba.bookId = b.id LIMIT 1) AS author,
+                 (SELECT s.name FROM series s
+                    JOIN bookSeries bs ON bs.seriesId = s.id
+                   WHERE bs.bookId = b.id LIMIT 1) AS series
+          FROM mediaProgresses mp
+          JOIN books b ON b.id = mp.mediaItemId
+          WHERE mp.userId = ? AND mp.isFinished = 1 AND mp.mediaItemType = 'book'
+            AND mp.finishedAt IS NOT NULL
+        `,
+        args: [userId],
+      })
+
+      // Bucket by the year prefix of the stored text. Lexicographic, never
+      // datetime() - finishedAt is Sequelize DATE-as-text in one of two shapes
+      // and both start with YYYY (see the note on getUserCompareStats).
+      const byYear = new Map()
+      for (const row of res.rows) {
+        const raw = row.finishedAt == null ? '' : String(row.finishedAt)
+        const year = raw.slice(0, 4)
+        if (!/^\d{4}$/.test(year)) continue
+        let y = byYear.get(year)
+        if (!y) {
+          y = { books: 0, seconds: 0, longest: null, shortest: null,
+                authors: new Map(), narrators: new Map(), series: new Map() }
+          byYear.set(year, y)
+        }
+        y.books += 1
+
+        const dur = Number(row.dur) || 0
+        const title = row.title == null ? '' : String(row.title)
+        if (dur > 0) {
+          y.seconds += dur
+          const entry = { title, durationSec: dur }
+          if (!y.longest || dur > y.longest.durationSec) y.longest = entry
+          if (!y.shortest || dur < y.shortest.durationSec) y.shortest = entry
+        }
+
+        const author = row.author == null ? '' : String(row.author)
+        if (author) y.authors.set(author, (y.authors.get(author) || 0) + 1)
+
+        // books.narrators is a JSON string array; a book with several narrators
+        // counts toward each, matching getTopFinishedNarratorForUser.
+        if (row.narrators != null) {
+          try {
+            const list =
+              typeof row.narrators === 'string' ? JSON.parse(row.narrators) : row.narrators
+            if (Array.isArray(list)) {
+              for (const name of list) {
+                if (typeof name === 'string' && name) {
+                  y.narrators.set(name, (y.narrators.get(name) || 0) + 1)
+                }
+              }
+            }
+          } catch {
+            // A malformed narrators blob shouldn't drop the whole year.
+          }
+        }
+
+        const series = row.series == null ? '' : String(row.series)
+        if (series) {
+          const s = y.series.get(series) || { books: 0, seconds: 0 }
+          s.books += 1
+          s.seconds += dur
+          y.series.set(series, s)
+        }
+      }
+
+      // Which series a year STARTED: first seen in that year, reading forward
+      // from the oldest, so a series carried over from an earlier year doesn't
+      // count again.
+      const seenSeries = new Set()
+      const startedByYear = new Map()
+      for (const year of [...byYear.keys()].sort()) {
+        let started = 0
+        for (const name of byYear.get(year).series.keys()) {
+          if (!seenSeries.has(name)) {
+            seenSeries.add(name)
+            started += 1
+          }
+        }
+        startedByYear.set(year, started)
+      }
+
+      const topOf = (map, key) => {
+        let best = null
+        for (const [name, v] of map) {
+          const count = key ? v[key] : v
+          if (!best || count > best.count) best = { name, count }
+        }
+        return best
+      }
+
+      return [...byYear.entries()]
+        .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+        .map(([year, y]) => {
+          let topBooks = null
+          let topTime = null
+          for (const [name, v] of y.series) {
+            if (!topBooks || v.books > topBooks.count) topBooks = { name, count: v.books }
+            if (!topTime || v.seconds > topTime.seconds) {
+              topTime = { name, seconds: Math.round(v.seconds) }
+            }
+          }
+          return {
+            year: Number(year),
+            books: y.books,
+            seconds: Math.round(y.seconds),
+            longest: y.longest,
+            shortest: y.shortest,
+            topAuthor: topOf(y.authors),
+            topNarrator: topOf(y.narrators),
+            topSeriesByBooks: topBooks,
+            topSeriesByTime: topTime,
+            seriesStarted: startedByYear.get(year) || 0,
+          }
+        })
+    } catch {
+      return []
+    }
+  })
+}
+
 // Resolve a book by its media id (books.id, = mediaProgresses.mediaItemId) to its
 // title + canonical length + owning library-item id, for the "most re-read"
 // highlight badge (bookCompletionsStore stores only the media id). libraryItemId
