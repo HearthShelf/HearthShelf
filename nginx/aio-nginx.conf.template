@@ -54,7 +54,12 @@ stream {
         proxy_pass $backend;
         # Hand the real client IP to the internal servers via PROXY protocol.
         proxy_protocol on;
-        access_log /var/log/nginx/access.log demux;
+        # Its own file, not access.log: this is one line per TCP connection in a
+        # different format, and interleaving it with the http request lines made
+        # both harder to read. docker-entrypoint-aio.sh deliberately does NOT
+        # tail this one into container stdout - read it with `docker exec` when
+        # debugging connect-domain TLS routing.
+        access_log /var/log/nginx/demux.log demux;
     }
 }
 

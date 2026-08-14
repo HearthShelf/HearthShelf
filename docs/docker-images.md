@@ -67,16 +67,35 @@ recover your existing root password, so sign in with your existing ABS account.
 
 ### Viewing nginx's logs
 
-`access.log`/`error.log` are plain files in this image, not symlinks to
+nginx writes three plain files in this image, not symlinks to
 `/dev/stdout`/`/dev/stderr` - nginx opens them for real (not just a syntax check)
 every time the backend validates a re-rendered config after a connect-domain cert
 lands, and a symlink into Docker's stdio pipe could fail that open with `ENXIO`
-depending on the pipe's state. `docker-entrypoint-aio.sh` tails both files into
-the container's own stdout, so `docker compose -f docker-compose.aio.yml logs -f`
-still shows nginx's lines alongside ABS and the HearthShelf backend. To read them
-directly instead:
+depending on the pipe's state.
+
+| File | Holds |
+| --- | --- |
+| `access.log` | HTTP requests (method, path, status) |
+| `error.log` | nginx errors |
+| `demux.log` | one line per TCP connection from the L4 demux - which connections were TLS vs plaintext, for debugging connect-domain routing |
+
+`docker-entrypoint-aio.sh` tails `access.log` and `error.log` into the container's
+own stdout, so `docker compose -f docker-compose.aio.yml logs -f` shows nginx's
+lines alongside ABS and the HearthShelf backend. `demux.log` is deliberately left
+out of that - it's one line per connection and only useful when something is wrong
+with TLS routing. To read any of them directly:
 
 ```bash
-docker exec <container> tail -f /var/log/nginx/access.log
-docker exec <container> tail -f /var/log/nginx/error.log
+docker exec <container> tail -f /var/log/nginx/demux.log
 ```
+
+#### Log size
+
+`/var/log/nginx` is not on a volume, so nothing would reclaim it. The entrypoint
+trims each of the three files once it passes `HS_NGINX_LOG_MAX_BYTES` (default
+`10485760`, 10 MB), keeping one previous generation as `<name>.log.1` - so the
+ceiling is 20 MB per file, 60 MB in total. Set the env var to raise or lower it.
+
+Separately, both compose files cap what Docker itself keeps on the host
+(`max-size: 10m`, `max-file: 3` - a 30 MB ceiling per service). Remove the
+`logging:` block to go back to Docker's unbounded default.

@@ -142,11 +142,13 @@ RUN chmod +x /usr/local/bin/render-hsdirect.sh
 # device) can fail with ENXIO depending on the read end's state - this hit us in
 # production, deterministically failing the reload that swaps in a fresh connect-
 # domain cert after pairing (server/lib/hsdirect.js calls `nginx -t` from Node).
-# Point both logs at plain files instead so nginx never touches a pipe-backed path.
-# `docker logs` no longer shows nginx's own access/error lines; see docs/docker-images.md
-# for how to read them from the volume-backed log files.
+# Point the logs at plain files instead so nginx never touches a pipe-backed path.
+# demux.log is the stream block's L4 connection log, split out of access.log so the
+# two formats stop interleaving. These files are NOT on a volume, so the entrypoint
+# size-caps them (HS_NGINX_LOG_MAX_BYTES) to keep the container's writable layer
+# bounded; see docs/docker-images.md for how to read them.
 RUN rm -f /var/log/nginx/access.log /var/log/nginx/error.log && \
-    touch /var/log/nginx/access.log /var/log/nginx/error.log
+    touch /var/log/nginx/access.log /var/log/nginx/error.log /var/log/nginx/demux.log
 
 # Validate the cert-present demux config AT BUILD TIME so a structural error fails
 # the image build (caught in CI) instead of bricking a running box. We render the

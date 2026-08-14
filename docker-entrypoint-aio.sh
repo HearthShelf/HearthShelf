@@ -106,12 +106,33 @@ QG_PORT=8080 node /app/server/index.js &
 HS_PID=$!
 
 # --- nginx ---
-# access.log/error.log are plain files in this image (not symlinks to
-# /dev/stdout|stderr - see the Dockerfile comment for why), so nginx's own lines
-# no longer reach `docker logs` on their own. Tail them into this script's stdout
-# so they still show up there; see docs/docker-images.md for viewing them directly.
+# nginx's logs are plain files in this image (not symlinks to /dev/stdout|stderr -
+# see the Dockerfile comment for why), so its lines no longer reach `docker logs`
+# on their own. Tail the two that are worth having there; demux.log (one line per
+# TCP connection, only useful when debugging connect-domain TLS routing) stays on
+# disk. See docs/docker-images.md for viewing any of them directly.
 tail -F /var/log/nginx/access.log /var/log/nginx/error.log 2>/dev/null &
 TAIL_PID=$!
+
+# Nothing rotates these files - /var/log/nginx is not on a volume, so left alone
+# they grow in the container's writable layer forever. Trim each one past the cap,
+# keeping a single previous generation as .1 (so the ceiling is 2x the cap per
+# file). This is logrotate's copytruncate strategy, chosen over `nginx -s reopen`
+# on purpose: reopen re-parses the config and re-opens the log files, which is the
+# exact operation whose ENXIO failure mode the Dockerfile comment documents.
+# Truncation needs no signal at all - nginx opens its logs O_APPEND, so writes
+# resume at offset 0 with no sparse gap, and `tail -F` picks the file back up.
+HS_NGINX_LOG_MAX_BYTES="${HS_NGINX_LOG_MAX_BYTES:-10485760}"
+(
+  while sleep 300; do
+    for f in /var/log/nginx/access.log /var/log/nginx/error.log /var/log/nginx/demux.log; do
+      sz=$(stat -c %s "$f" 2>/dev/null || echo 0)
+      [ "$sz" -gt "$HS_NGINX_LOG_MAX_BYTES" ] || continue
+      cp "$f" "$f.1" 2>/dev/null && : > "$f"
+    done
+  done
+) &
+TRIM_PID=$!
 echo "[aio] starting nginx on :80"
 nginx -g 'daemon off;' &
 NGINX_PID=$!
@@ -119,10 +140,11 @@ NGINX_PID=$!
 # Supervise: if any process exits, stop the others and exit non-zero so Docker
 # restarts the whole container (simplest correct behavior for a single-box app).
 # `wait -n` isn't reliable in busybox ash, so poll each PID with `kill -0`.
-# TAIL_PID is just a log forwarder, not a supervised service - it's cleaned up on
-# exit but never itself triggers a restart of the other three.
+# TAIL_PID and TRIM_PID are housekeeping (a log forwarder and the log trimmer),
+# not supervised services - they're cleaned up on exit but never themselves
+# trigger a restart of the other three.
 term() {
-  kill "$ABS_PID" "$HS_PID" "$NGINX_PID" "$TAIL_PID" 2>/dev/null || true
+  kill "$ABS_PID" "$HS_PID" "$NGINX_PID" "$TAIL_PID" "$TRIM_PID" 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap 'term; exit 0' TERM INT
