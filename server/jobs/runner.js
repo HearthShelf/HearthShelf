@@ -39,6 +39,51 @@ export async function cancelJob(jobId) {
   return runId
 }
 
+// How many finished runs to keep per job. Everything older is deleted after each
+// run, so job_runs/job_run_logs stay bounded no matter how long a server has been
+// up - they live in the same database the nightly backup snapshots. 25 covers the
+// 20 runs the admin panel shows (routes/jobs.js) with headroom.
+const KEEP_RUNS = Math.max(5, Number(process.env.HS_JOB_RUN_HISTORY) || 25)
+
+// Per-run ceiling on log lines. The per-job cap above bounds how many runs are
+// kept, but not how much a single runaway run can write; the panel only ever
+// reads the first 1000 lines anyway.
+const MAX_LINES_PER_RUN = 5000
+
+// Delete this job's runs beyond the newest KEEP_RUNS, and their log lines. There
+// is no FK cascade, so the log rows go first - otherwise the second delete
+// removes the ids the first one needs. 'running' rows are excluded so a sweep
+// triggered by one job can never prune another job's in-flight run.
+async function pruneJobRuns(serverId, jobId) {
+  const keepArgs = [serverId, jobId, KEEP_RUNS]
+  await db.batch(
+    [
+      {
+        // LIMIT -1 OFFSET n is SQLite for "everything past the newest n".
+        sql: `
+          DELETE FROM job_run_logs WHERE run_id IN (
+            SELECT id FROM job_runs
+            WHERE server_id = ? AND job_id = ? AND status != 'running'
+            ORDER BY started_at DESC LIMIT -1 OFFSET ?
+          )
+        `,
+        args: keepArgs,
+      },
+      {
+        sql: `
+          DELETE FROM job_runs WHERE id IN (
+            SELECT id FROM job_runs
+            WHERE server_id = ? AND job_id = ? AND status != 'running'
+            ORDER BY started_at DESC LIMIT -1 OFFSET ?
+          )
+        `,
+        args: keepArgs,
+      },
+    ],
+    'write',
+  )
+}
+
 // A logger handed to each job's run(). Buffers lines and flushes them to
 // job_run_logs; also lets the job report progress counts onto the run row.
 function makeLogger(runId) {
@@ -46,12 +91,17 @@ function makeLogger(runId) {
   let processed = 0
   let total = 0
   const write = (level, message) => {
+    if (seq > MAX_LINES_PER_RUN) return
     const n = seq++
+    const text =
+      n === MAX_LINES_PER_RUN
+        ? `Log truncated at ${MAX_LINES_PER_RUN} lines`
+        : String(message).slice(0, 2000)
     // Fire-and-forget: a logging failure must never sink the job.
     void db
       .execute({
         sql: `INSERT INTO job_run_logs (run_id, seq, at, level, message) VALUES (?, ?, ?, ?, ?)`,
-        args: [runId, n, Date.now(), level, String(message).slice(0, 2000)],
+        args: [runId, n, Date.now(), n === MAX_LINES_PER_RUN ? 'warn' : level, text],
       })
       .catch(() => {})
   }
@@ -137,6 +187,12 @@ export async function runJob(jobId, { trigger = 'manual' } = {}) {
     } finally {
       running.delete(jobId)
       controllers.delete(jobId)
+      // Trim this job's run history now that a new run has landed. Best-effort,
+      // like every other write here - a retention failure must never surface as
+      // a job failure. The run that just finished is the newest, so it is never
+      // what gets pruned, and the fire-and-forget log inserts above can't race
+      // with this.
+      await pruneJobRuns(serverId, jobId).catch(() => {})
     }
   })()
 
