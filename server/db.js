@@ -579,7 +579,10 @@ const SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_job_runs_job
      ON job_runs (server_id, job_id, started_at)`,
-  // The log stream for a run, one row per line, ordered by seq.
+  // The log stream for a run, one row per line, ordered by seq. Both this table
+  // and job_runs are pruned by the runner after every run - it keeps the newest
+  // HS_JOB_RUN_HISTORY (default 25) runs per job, capped at 5000 lines each, so
+  // neither can grow without bound inside the database the backup job snapshots.
   `CREATE TABLE IF NOT EXISTS job_run_logs (
      run_id  TEXT NOT NULL,
      seq     INTEGER NOT NULL,
@@ -800,6 +803,12 @@ const MIGRATIONS = [
   // series page. Existing follows stay NULL - they were keyed only by Audible
   // series ASIN, so the library can't match them by id until they're re-followed.
   `ALTER TABLE subscriptions ADD COLUMN abs_series_id TEXT`,
+  // Whether a paired box shows its "Sign in with HearthShelf" button. NULL =
+  // never chosen, which reads as enabled, so pairing keeps offering the button
+  // exactly as it did before this column existed. An admin turns it off to run
+  // on ABS logins alone (password and/or the server's own OpenID provider)
+  // without unpairing. See server/routes/hosted.js.
+  `ALTER TABLE hosted_config ADD COLUMN login_button_enabled INTEGER`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

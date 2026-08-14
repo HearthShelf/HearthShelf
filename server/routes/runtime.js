@@ -225,8 +225,7 @@ export async function handleRuntime(req, res, url, ctx) {
       const usersData = await usersRes.json().catch(() => null)
       const users = Array.isArray(usersData?.users) ? usersData.users : []
       const nonServiceAdmin = users.some(
-        (u) =>
-          (u?.type === 'admin' || u?.type === 'root') && u?.username !== SERVICE_USERNAME,
+        (u) => (u?.type === 'admin' || u?.type === 'root') && u?.username !== SERVICE_USERNAME,
       )
       if (nonServiceAdmin) {
         await setProvisioning({ absInitialized: true })
@@ -307,7 +306,10 @@ export async function handleRuntime(req, res, url, ctx) {
       const summary = await restoreFromUpload(buf)
       return (json(res, 200, { ok: true, summary }), true)
     } catch (err) {
-      return (json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }), true)
+      return (
+        json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }),
+        true
+      )
     }
   }
 
@@ -356,6 +358,11 @@ export async function handleRuntime(req, res, url, ctx) {
     hsVersion: HS_VERSION,
     // Whether the wizard can offer a restore-from-backup path on this fresh box.
     restoreAvailable,
+    // Whether a paired box offers "Sign in with HearthShelf" on its login page.
+    // An admin can turn this off (Config > Authentication) to run on ABS logins
+    // alone without unpairing. True when never chosen, so nothing changes for an
+    // existing paired box.
+    hostedLoginEnabled: hosted?.loginButtonEnabled ?? true,
   })
   return true
 }

@@ -68,6 +68,16 @@ export function getHostedStatus(): Promise<HostedStatus> {
   return hostedFetch<HostedStatus>('/config', { method: 'GET' })
 }
 
+// Show or hide "Sign in with HearthShelf" on this box's login page. Does not
+// unpair: grant verification, linked apps, and existing sessions are untouched -
+// this governs which buttons the login page offers.
+export function setHostedLoginButton(enabled: boolean): Promise<{ loginButtonEnabled: boolean }> {
+  return hostedFetch<{ loginButtonEnabled: boolean }>('/login-button', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
+}
+
 // Live health of the ABS admin credential used to provision invited users.
 export function getServiceHealth(): Promise<HSServiceHealth> {
   return hostedFetch<HSServiceHealth>('/service-health', { method: 'GET' })

@@ -22,7 +22,13 @@ import {
   type IntegrationsConfig,
   type IntegrationsConfigPatch,
 } from '@/api/integrations'
-import { getEmailRelayStatus, enableEmailRelay, type EmailRelayStatus } from '@/api/hosted'
+import {
+  getEmailRelayStatus,
+  enableEmailRelay,
+  setHostedLoginButton,
+  type EmailRelayStatus,
+} from '@/api/hosted'
+import { useRuntimeConfig } from '@/hooks/useRuntimeConfig'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { requestKeys } from '@/api/requests'
@@ -485,6 +491,19 @@ function AuthForm({ settings }: { settings: ABSAuthSettings }) {
     setMethods((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]))
   }
 
+  // The HearthShelf button is HearthShelf's own state, not ABS's, so it reads
+  // from the runtime config the login page itself reads - what's shown here is
+  // exactly what visitors will get. Absent means enabled.
+  const { data: runtime } = useRuntimeConfig()
+  const paired = Boolean(runtime?.paired)
+  const hostedLoginOn = runtime?.hostedLoginEnabled !== false
+  const hostedLogin = useMutation({
+    mutationFn: (enabled: boolean) => setHostedLoginButton(enabled),
+    // useRuntimeConfig caches with staleTime Infinity, so the toggle would keep
+    // rendering the old value without an explicit invalidate.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['runtime-config'] }),
+  })
+
   const save = async () => {
     setSaving(true)
     try {
@@ -542,6 +561,29 @@ function AuthForm({ settings }: { settings: ABSAuthSettings }) {
             <i />
           </button>
         </div>
+        {/* Only a paired box has this button to offer. It saves on click rather
+            than joining the Save below, because it writes to HearthShelf's own
+            backend while the two above are ABS settings. */}
+        {paired && (
+          <div className="cfg-line">
+            <Icon name="hub" style={{ color: 'var(--text-muted)' }} />
+            <div className="cl-meta" style={{ flex: 1 }}>
+              <div className="cl-t">HearthShelf accounts</div>
+              <div className="cl-d">
+                Sign in with an account from hearthshelf.com. Turning this off leaves the server
+                connected - it only removes the button from the sign-in page.
+              </div>
+            </div>
+            <button
+              className={hostedLoginOn ? 'toggle on' : 'toggle'}
+              aria-pressed={hostedLoginOn}
+              disabled={hostedLogin.isPending}
+              onClick={() => hostedLogin.mutate(!hostedLoginOn)}
+            >
+              <i />
+            </button>
+          </div>
+        )}
       </div>
 
       {openidOn && (

@@ -60,7 +60,32 @@ export async function getHostedConfig() {
     serverSecret: row.server_secret ?? null,
     absAdminToken: row.abs_admin_token ?? null,
     adminCredStatus: row.admin_cred_status ?? null,
+    // NULL means the admin never chose, which is "show it" - the behaviour every
+    // paired box had before the column existed. Written only by
+    // setHostedLoginButton, never by setHostedConfig's merge below.
+    loginButtonEnabled: row.login_button_enabled == null ? true : Boolean(row.login_button_enabled),
   }
+}
+
+// Show or hide the "Sign in with HearthShelf" button on this box's login page.
+//
+// Deliberately a targeted UPDATE rather than a field on setHostedConfig: that
+// function writes every column in one INSERT and already carries a fallback for
+// a box whose admin_cred_status migration hasn't landed. Adding a second new
+// column to it would put a freshly minted admin key behind another "no such
+// column" throw. A preference is not worth that risk, so it writes on its own.
+export async function setHostedLoginButton(enabled) {
+  await ensure()
+  const on = enabled ? 1 : 0
+  await db.execute({
+    sql: `INSERT INTO hosted_config (id, login_button_enabled, updated_at)
+          VALUES (1, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET
+            login_button_enabled = excluded.login_button_enabled,
+            updated_at = excluded.updated_at`,
+    args: [on, Date.now()],
+  })
+  return Boolean(on)
 }
 
 export async function setHostedConfig(patch) {
@@ -75,7 +100,7 @@ export async function setHostedConfig(patch) {
     // (meaning "unknown, re-check"), so honour an explicit patch value including
     // null; only fall back to the current value when the key is absent entirely.
     adminCredStatus:
-      patch.adminCredStatus !== undefined ? patch.adminCredStatus : cur.adminCredStatus ?? null,
+      patch.adminCredStatus !== undefined ? patch.adminCredStatus : (cur.adminCredStatus ?? null),
   }
   try {
     await db.execute({
@@ -127,6 +152,11 @@ export async function setHostedConfig(patch) {
 // trusts the control plane or federates users (issuer/jwks/secret/admin token all
 // null), effectively unpairing it. setHostedConfig can't null fields (it merges
 // with ??), so disconnect needs this explicit reset.
+//
+// login_button_enabled is cleared too, so a later re-pair starts from the
+// default. Carrying a stale "hidden" over an unpair/re-pair would show up as a
+// paired box whose HearthShelf button never appears, with nothing in the Connect
+// UI to explain why - a much harder thing to diagnose than re-hiding it.
 export async function clearHostedConfig() {
   await ensure()
   await db.execute({
@@ -134,7 +164,8 @@ export async function clearHostedConfig() {
           VALUES (1, NULL, NULL, NULL, NULL, NULL, ?)
           ON CONFLICT (id) DO UPDATE SET
             issuer = NULL, jwks_url = NULL, server_secret = NULL,
-            abs_admin_token = NULL, admin_cred_status = NULL, updated_at = excluded.updated_at`,
+            abs_admin_token = NULL, admin_cred_status = NULL,
+            login_button_enabled = NULL, updated_at = excluded.updated_at`,
     args: [Date.now()],
   })
 }
@@ -279,9 +310,7 @@ async function provisionAbsUser(adminToken, email, desiredUsername) {
       // call it out explicitly so the admin can re-mint it, rather than reading
       // it as "this one user failed".
       const hint =
-        res.status === 401
-          ? ' - the saved admin credential is invalid; reset it under Connect'
-          : ''
+        res.status === 401 ? ' - the saved admin credential is invalid; reset it under Connect' : ''
       appLog.warn('hosted', `provision failed for ${email}: ABS ${res.status}${hint}`)
       return null
     }
@@ -502,10 +531,7 @@ export async function resolveHostedContext(token) {
     if (await absKeyStillValid(cached.absApiKey)) {
       await markKeyChecked(serverId, claims.subject)
     } else {
-      appLog.warn(
-        'hosted',
-        `cached ABS key for user ${cached.absUserId} was rejected; re-minting`,
-      )
+      appLog.warn('hosted', `cached ABS key for user ${cached.absUserId} was rejected; re-minting`)
       await forgetCachedKey(serverId, claims.subject)
       cached = null // fall through to the cold path, which mints a fresh key
     }

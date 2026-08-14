@@ -62,6 +62,7 @@
 //   Invites / misc
 //     invalid_email (400) ...... invite recipient address is malformed.
 //     invalid_body (400) ....... request body failed validation.
+//     enabled_required (400) ... login-button toggle needs a boolean `enabled`.
 //     not_found (404) .......... unknown route under /hs/hosted/*.
 
 import { json, readBody } from '../lib/http.js'
@@ -71,6 +72,7 @@ import { getProvisioning, setProvisioning } from '../lib/provisioning.js'
 import {
   getHostedConfig,
   setHostedConfig,
+  setHostedLoginButton,
   clearHostedConfig,
   resolveHostedContext,
   verifyGrant,
@@ -343,9 +345,37 @@ export async function handleHosted(req, res, url, _ctx) {
         issuer: cfg?.issuer ?? null,
         adminCredStatus: health?.state ?? cfg?.adminCredStatus ?? null,
         canSelfHeal: health?.canSelfHeal ?? false,
+        // Whether the login page offers "Sign in with HearthShelf". Defaults to
+        // true on a box that has never had a hosted_config row at all.
+        loginButtonEnabled: cfg?.loginButtonEnabled ?? true,
       }),
       true
     )
+  }
+
+  // Show or hide the "Sign in with HearthShelf" button without unpairing, so a
+  // paired box can run on ABS logins alone (password and/or the admin's own
+  // OpenID provider). Pairing keeps working either way - this governs the login
+  // page only, not grant verification, so an already-signed-in user and every
+  // linked app are unaffected.
+  if (p === '/hs/hosted/login-button' && req.method === 'POST') {
+    const adminToken = await requireAbsAdmin(req)
+    if (!adminToken) return (json(res, 401, { error: 'unauthorized' }), true)
+    let body
+    try {
+      body = JSON.parse((await readBody(req)) || '{}')
+    } catch {
+      return (json(res, 400, { error: 'bad_json' }), true)
+    }
+    if (typeof body.enabled !== 'boolean') {
+      return (json(res, 400, { error: 'enabled_required' }), true)
+    }
+    const enabled = await setHostedLoginButton(body.enabled)
+    appLog.info(
+      'hosted',
+      `"Sign in with HearthShelf" button ${enabled ? 'enabled' : 'hidden'} from the admin UI`,
+    )
+    return (json(res, 200, { loginButtonEnabled: enabled }), true)
   }
 
   // Live credential health probe for the Connect UI's service-account panel.
@@ -395,8 +425,7 @@ export async function handleHosted(req, res, url, _ctx) {
       return (json(res, 400, { error: 'invalid_body' }), true)
     }
     const pastedToken = typeof body.absAdminToken === 'string' ? body.absAdminToken.trim() : ''
-    const servicePassword =
-      typeof body.servicePassword === 'string' ? body.servicePassword : ''
+    const servicePassword = typeof body.servicePassword === 'string' ? body.servicePassword : ''
 
     // Path A: paste a known-good admin token/key. Validate it authenticates as an
     // admin/root before storing, so a typo can't replace a working key with junk.
@@ -414,7 +443,8 @@ export async function handleHosted(req, res, url, _ctx) {
     // works, persist it (re-syncing provisioning so boot self-heal works again),
     // then mint a durable key from that session.
     if (servicePassword) {
-      const svcUsername = (await getProvisioning().catch(() => null))?.rootUsername || SERVICE_USERNAME
+      const svcUsername =
+        (await getProvisioning().catch(() => null))?.rootUsername || SERVICE_USERNAME
       let sessionToken = null
       try {
         const r = await fetch(`${ABS_URL}/login`, {
@@ -546,9 +576,7 @@ export async function handleHosted(req, res, url, _ctx) {
     }
     // Mint a durable key from the supplied (or caller's) admin token.
     const seedToken =
-      typeof body.absAdminToken === 'string' && body.absAdminToken
-        ? body.absAdminToken
-        : adminToken
+      typeof body.absAdminToken === 'string' && body.absAdminToken ? body.absAdminToken : adminToken
     const key = await remintServiceKey(seedToken)
     if (!key) {
       await setHostedConfig({ adminCredStatus: 'broken' }).catch(() => {})
@@ -890,7 +918,10 @@ export async function handleHosted(req, res, url, _ctx) {
     const paired_key = await remintServiceKey(adminToken).catch(() => null)
     if (!paired_key) {
       await setHostedConfig({ adminCredStatus: 'broken' }).catch(() => {})
-      appLog.warn('hosted', 'pairing completed but could not mint a durable admin key; reset it under Connect')
+      appLog.warn(
+        'hosted',
+        'pairing completed but could not mint a durable admin key; reset it under Connect',
+      )
     }
 
     // With the server_secret in hand, provision the secure connect-domain cert
@@ -1138,14 +1169,14 @@ export async function handleHosted(req, res, url, _ctx) {
         headers: { Authorization: `Bearer ${adminToken}` },
       })
     } catch (err) {
-      return (
-        json(res, 502, { error: 'abs_unreachable', detail: String(err).slice(0, 160) }),
-        true
-      )
+      return (json(res, 502, { error: 'abs_unreachable', detail: String(err).slice(0, 160) }), true)
     }
     if (!delRes.ok) {
       const detail = await delRes.text().catch(() => '')
-      return (json(res, delRes.status, { error: 'abs_delete_failed', detail: detail.slice(0, 160) }), true)
+      return (
+        json(res, delRes.status, { error: 'abs_delete_failed', detail: detail.slice(0, 160) }),
+        true
+      )
     }
 
     // Drop the cached per-user key so a re-invite mints a fresh one.
@@ -1154,7 +1185,10 @@ export async function handleHosted(req, res, url, _ctx) {
     const cfg = await getHostedConfig()
     if (!cfg?.issuer || !cfg?.serverSecret || !email) {
       // Not paired (or no address on file): nothing to unlink hosted-side.
-      return (json(res, 200, { ok: true, deleted: true, unlinked: false, email: email || null }), true)
+      return (
+        json(res, 200, { ok: true, deleted: true, unlinked: false, email: email || null }),
+        true
+      )
     }
 
     const serverId = await getServerId()
