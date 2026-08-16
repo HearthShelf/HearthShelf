@@ -2,8 +2,10 @@
 # Emit a structured changelog for one release as JSON on stdout:
 #   { product, version, released_at, download_url, items:[{section,text,tags[]}] }
 #
-# Each commit subject in the release range becomes one item. The section is
-# derived from the commit-prefix convention (new:/fixes:/improved: etc). Tags
+# Each commit subject in the release range becomes one item, EXCEPT repo
+# maintenance: chore: commits and commits with no recognized prefix are dropped.
+# The section is derived from the commit-prefix convention (new:/fixes:/improved:
+# /breaking:/docs:/refactor:/style:/perf:/feat:/fix:/bug: etc). Tags
 # carry ONLY what the author wrote explicitly as trailing [tag] / #tag markers -
 # all content-based auto-tagging is done server-side on the website so the rules
 # live in one place. The verb prefix and the trailing tag markers are stripped
@@ -48,13 +50,14 @@ categorize() {
     docs:* | documentation:*) echo docs; return ;;
     feat:* | feature:* | new:* | enhancement:*) echo feature; return ;;
     fix:* | fixes:* | bug:* | bugfix:*) echo fix; return ;;
-    chore:* | refactor:* | style:* | perf:* | improved:*) echo change; return ;;
+    # chore: is repo maintenance (docs, tooling, deps) - never user-facing.
+    chore:*) echo skip; return ;;
+    refactor:* | style:* | perf:* | improved:*) echo change; return ;;
   esac
-  # natural-language leading verbs
-  if [[ "$low" =~ ^(fix|fixes|fixed|fixing|silence|suppress|protect|protects|ensure|ensures|guard|guards)([[:space:]:-]) ]]; then echo fix; return; fi
-  if [[ "$low" =~ ^(add|adds|added|adding|new|implement|implements|implemented|integrate|integrates|integrated|register|registers|monitor|track|respect)([[:space:]:-]) ]]; then echo feature; return; fi
-  if [[ "$low" =~ ^(improve|improves|improved|enhance|enhances|update|updates|refactor|refactors|cleanup|reorganize|simplify|migrate|migrates|move|moves|moved|remove|removes|removed|delete|deletes|switch|replace|replaces|bundle)([[:space:]:-]) ]]; then echo change; return; fi
-  echo other
+  # No recognized prefix. Bare subjects ("Dependency Updates", "Script update",
+  # "Bump Core") are repo maintenance too - skip them rather than guessing from
+  # a leading verb.
+  echo skip
 }
 
 # --- clean: strip leading verb/prefix + trailing tag markers ------------------
@@ -88,10 +91,10 @@ ITEMS='[]'
 while IFS= read -r subject || [ -n "$subject" ]; do
   [ -z "$subject" ] && continue
   section="$(categorize "$subject")"
-  # Only commits that match a known prefix/verb get a changelog entry. Anything
-  # that falls through to "other" (e.g. "Script update", "CICD Updates",
-  # "Dependency bump") is intentionally skipped so it doesn't pollute the log.
-  [ "$section" = other ] && continue
+  # Only commits carrying a user-facing prefix get a changelog entry. chore:
+  # commits and anything with no prefix at all ("Script update", "CICD Updates",
+  # "Dependency Updates") are repo maintenance and stay out of the log.
+  [ "$section" = skip ] && continue
   text="$(clean_subject "$subject")"
   [ -z "$text" ] && continue
   tags_json="$(extract_tags "$subject" | jq -R . | jq -sc .)"
