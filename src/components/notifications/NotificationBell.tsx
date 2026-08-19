@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { respondToClubInvite } from '@/api/clubs'
 import {
+  deleteAllNotifications,
+  deleteNotification,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   type HSNotification,
 } from '@/api/notifications'
+import { findOwnedItemByAsin } from '@/api/libraries'
 import { Icon } from '@/components/common/Icon'
 
 const QUERY_KEY = ['notifications'] as const
@@ -58,6 +61,8 @@ export function NotificationBell() {
     onSuccess: refresh,
   })
   const markAll = useMutation({ mutationFn: markAllNotificationsRead, onSuccess: refresh })
+  const dismiss = useMutation({ mutationFn: deleteNotification, onSuccess: refresh })
+  const clearAll = useMutation({ mutationFn: deleteAllNotifications, onSuccess: refresh })
 
   const openNotification = (notification: HSNotification) => {
     if (!notification.readAt)
@@ -67,6 +72,15 @@ export function NotificationBell() {
     const asin = stringData(notification, 'asin')
     if (notification.kind === 'release' && asin) {
       setOpen(false)
+      // The 'available' signal means the book has LANDED in the library, so it
+      // opens the owned book; the still-upcoming signals open the upcoming
+      // page. Falls back to upcoming when the owned copy can't be resolved.
+      if (stringData(notification, 'signal') === 'available') {
+        void findOwnedItemByAsin(asin).then((itemId) =>
+          navigate(itemId ? `/item/${encodeURIComponent(itemId)}` : `/upcoming/${encodeURIComponent(asin)}`),
+        )
+        return
+      }
       navigate(`/upcoming/${encodeURIComponent(asin)}`)
     }
   }
@@ -93,11 +107,15 @@ export function NotificationBell() {
               <span className="eyebrow">Inbox</span>
               <strong>Notifications</strong>
             </div>
-            {unread > 0 && (
+            {unread > 0 ? (
               <button type="button" disabled={markAll.isPending} onClick={() => markAll.mutate()}>
                 Mark all read
               </button>
-            )}
+            ) : notifications.length > 0 ? (
+              <button type="button" disabled={clearAll.isPending} onClick={() => clearAll.mutate()}>
+                Clear all
+              </button>
+            ) : null}
           </div>
           <div className="notification-tray-list">
             {notifications.length === 0 ? (
@@ -168,6 +186,19 @@ export function NotificationBell() {
                         </span>
                       ) : null}
                     </div>
+                    <button
+                      type="button"
+                      className="ab-ico notification-dismiss"
+                      title="Dismiss"
+                      aria-label={`Dismiss ${notification.title}`}
+                      disabled={dismiss.isPending}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        dismiss.mutate(notification.id)
+                      }}
+                    >
+                      <Icon name="close" />
+                    </button>
                   </article>
                 )
               })

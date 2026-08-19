@@ -2653,11 +2653,28 @@
 }
 .notification-row {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  /* Third column is the dismiss button (auto so it collapses to its own size). */
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: 11px;
   padding: 15px 17px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+}
+.notification-dismiss {
+  align-self: start;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+/* Revealed on hover, but always present for keyboard and touch. */
+.notification-row:hover .notification-dismiss,
+.notification-dismiss:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .notification-dismiss {
+    opacity: 1;
+  }
 }
 .notification-row:last-child {
   border-bottom: 0;

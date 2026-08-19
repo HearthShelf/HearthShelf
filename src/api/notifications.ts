@@ -43,6 +43,21 @@ async function mark(path: string): Promise<void> {
   if (!response.ok) throw new Error(`notifications ${response.status}`)
 }
 
+async function remove(path: string): Promise<void> {
+  const response = await fetch(path, { method: 'DELETE', headers: authHeaders() })
+  if (!response.ok) throw new Error(`notifications ${response.status}`)
+}
+
+/** Dismiss one notification. */
+export function deleteNotification(id: string): Promise<void> {
+  return remove(`/hs/notifications/${encodeURIComponent(id)}`)
+}
+
+/** Clear the whole inbox. */
+export function deleteAllNotifications(): Promise<void> {
+  return remove('/hs/notifications')
+}
+
 export function markNotificationRead(id: string): Promise<void> {
   return mark(`/hs/notifications/${encodeURIComponent(id)}/read`)
 }

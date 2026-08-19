@@ -280,6 +280,38 @@ export function searchLibrary(libraryId: string, query: string): Promise<ABSSear
   )
 }
 
+/**
+ * Find the owned library item for an Audible ASIN, or null when it isn't in the
+ * library. ABS has no by-ASIN endpoint and the minified list metadata omits
+ * `asin`, so this searches (ABS does index the ASIN) and then CONFIRMS against
+ * the item detail - a bare ASIN can substring-match a description, and opening
+ * the wrong book is worse than not resolving one. Best-effort: every failure
+ * returns null so callers can fall back.
+ */
+export async function findOwnedItemByAsin(asin: string): Promise<string | null> {
+  const wanted = asin.trim().toLowerCase()
+  if (!wanted) return null
+  try {
+    const { libraries } = await getLibraries()
+    for (const library of libraries) {
+      const hits = await searchLibrary(library.id, asin)
+      for (const hit of (hits.book ?? []).slice(0, 5)) {
+        try {
+          const detail = await getItem(hit.libraryItem.id)
+          if ((detail.media?.metadata?.asin ?? '').trim().toLowerCase() === wanted) {
+            return hit.libraryItem.id
+          }
+        } catch {
+          // Unreadable item - try the next hit.
+        }
+      }
+    }
+  } catch {
+    // Offline or refused - caller falls back to the upcoming page.
+  }
+  return null
+}
+
 export function getCollections(libraryId: string): Promise<ABSCollectionsResponse> {
   return absRequest<ABSCollectionsResponse>(`/api/libraries/${libraryId}/collections`)
 }
