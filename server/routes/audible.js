@@ -20,7 +20,7 @@ import {
   getSeriesRosterByAsin,
   saveSeriesRoster,
 } from '../lib/seriesRosterStore.js'
-import { getOwnedSeriesBooks } from '../lib/absdb.js'
+import { getLibraryItemByAsin, getOwnedSeriesBooks } from '../lib/absdb.js'
 import { stampOwned } from '../lib/seriesOwned.js'
 
 const PAGE_SIZE = 25
@@ -387,6 +387,16 @@ export async function handleAudible(req, res, url, ctx) {
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
 
   const region = await currentRegion()
+
+  // Resolve a durable /upcoming/:asin link to the library detail route after
+  // the book has landed in ABS. This uses ABS's local database, so it is an
+  // exact ASIN match and does not depend on a catalog search or a stale roster.
+  if (p === '/hs/audible/library-item') {
+    const asin = (url.searchParams.get('asin') ?? '').trim()
+    if (!asin) return (json(res, 400, { error: 'asin_required' }), true)
+    const item = await getLibraryItemByAsin(asin)
+    return (json(res, 200, { libraryItemId: item?.libraryItemId ?? null }), true)
+  }
 
   // Catalog search: GET /hs/audible/search?q=
   if (p === '/hs/audible/search') {
