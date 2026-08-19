@@ -1,5 +1,5 @@
-// Release-notification job: walks every user's subscriptions and fires Expo
-// pushes for the three signals - a followed book is now in the ABS library
+// Release-notification job: walks every user's subscriptions and delivers the
+// three signals to the user's chosen destinations - a followed book is now in the ABS library
 // ("available"), its Audible release date has arrived ("release"), or it's within
 // the user's reminder window ("reminder"). Each signal fires at most once per
 // book, tracked in the subscription's notified_json. Per-user preferences come
@@ -8,7 +8,7 @@
 
 import { getServerId } from '../db.js'
 import { getUserSetting } from '../settings.js'
-import { absDbAvailable, getOwnedAsins, getLibraryItemByAsin } from '../lib/absdb.js'
+import { absDbAvailable, getOwnedAsins, getUserEmail } from '../lib/absdb.js'
 import { getSeriesRoster, getSeriesRosterByAsin } from '../lib/seriesRosterStore.js'
 import {
   allSubscriptions,
@@ -18,13 +18,28 @@ import {
   deletePushToken,
 } from '../lib/subscriptionsStore.js'
 import { sendPushMessages } from '../lib/expoPush.js'
+import { sendTransactionalEmail } from '../lib/emailRelay.js'
+import { createNotification } from '../notifications.js'
+
+const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
 
 // Read a user's notification prefs from the settings catalog, with the same
 // defaults core ships (DEFAULT_NOTIFICATION_PREFS).
 async function prefsFor(serverId, userId) {
   const get = (k, d) => getUserSetting(serverId, userId, k).then((v) => (v == null ? d : v))
-  const [enabled, avail, release, reminder, window] = await Promise.all([
+  const [enabled, inApp, email, avail, release, reminder, window] = await Promise.all([
     get('notifyEnabled', true),
+    get('notifyInApp', true),
+    get('notifyEmail', false),
     get('notifyAvailableInLibrary', true),
     get('notifyOnReleaseDate', true),
     get('notifyReminderDaysBefore', 3),
@@ -32,6 +47,8 @@ async function prefsFor(serverId, userId) {
   ])
   return {
     enabled: enabled !== false,
+    notifyInApp: inApp !== false,
+    notifyEmail: email === true,
     notifyAvailableInLibrary: avail !== false,
     notifyOnReleaseDate: release !== false,
     reminderDaysBefore: Number(reminder) || 0,
@@ -52,7 +69,7 @@ function daysUntil(sub, now) {
   return Math.ceil((ms - now) / DAY)
 }
 
-// Decide which one-shot push (if any) a book subscription should fire now.
+// Decide which one-shot alert (if any) a book subscription should fire now.
 // Returns { signal, title, body } or null. `owned` = the book is in ABS.
 function decideBookPush(sub, prefs, owned, now) {
   const notified = sub.notified || {}
@@ -64,7 +81,7 @@ function decideBookPush(sub, prefs, owned, now) {
       body: `${sub.title} is now in your library.`,
     }
   }
-  if (owned) return null // owned but that push already fired (or is off)
+  if (owned) return null // owned but that alert already fired (or is off)
 
   const d = daysUntil(sub, now)
   if (d === null) return null
@@ -101,13 +118,14 @@ export async function runReleaseNotify(logger) {
   }
 
   // Library-owned ASIN set (best-effort; without the ABS db we can still do the
-  // release-date / reminder pushes, just not "available in library").
+  // release-date / reminder alerts, just not "available in library").
   const ownedAsins = (await absDbAvailable()) ? await getOwnedAsins() : new Set()
   const now = Date.now()
 
   // Cache per-user prefs + push tokens across that user's subscriptions.
   const prefsCache = new Map()
   const tokensCache = new Map()
+  const emailCache = new Map()
   const getPrefs = async (userId) => {
     if (!prefsCache.has(userId)) prefsCache.set(userId, await prefsFor(serverId, userId))
     return prefsCache.get(userId)
@@ -116,9 +134,56 @@ export async function runReleaseNotify(logger) {
     if (!tokensCache.has(userId)) tokensCache.set(userId, await listPushTokens(serverId, userId))
     return tokensCache.get(userId)
   }
+  const getEmail = async (userId) => {
+    if (!emailCache.has(userId)) emailCache.set(userId, await getUserEmail(userId))
+    return emailCache.get(userId)
+  }
 
   let pushed = 0
+  let inboxed = 0
+  let emailed = 0
   const invalidTokens = new Set()
+
+  const deliver = async ({ userId, entityId, asin, signal, title, body, prefs }) => {
+    const data = { asin, signal }
+    if (prefs.notifyInApp) {
+      await createNotification(serverId, userId, {
+        kind: 'release',
+        entityId,
+        title,
+        body,
+        data,
+      })
+      inboxed += 1
+      const tokens = await getTokens(userId)
+      if (tokens.length) {
+        const { sent, invalidTokens: bad } = await sendPushMessages(
+          tokens.map((token) => ({
+            to: token.token,
+            title,
+            body,
+            channelId: 'releases',
+            data: { kind: 'release', ...data },
+          })),
+        )
+        pushed += sent
+        bad.forEach((token) => invalidTokens.add(token))
+      }
+    }
+    if (prefs.notifyEmail) {
+      const to = await getEmail(userId)
+      const href = asin
+        ? `${APP_ORIGIN}/upcoming/${encodeURIComponent(asin)}`
+        : `${APP_ORIGIN}/upcoming`
+      const result = await sendTransactionalEmail({
+        to,
+        subject: `${title}: ${body}`,
+        text: `${body}\n\nOpen HearthShelf: ${href}`,
+        html: `<p>${escapeHtml(body)}</p><p><a href="${escapeHtml(href)}">Open HearthShelf</a></p>`,
+      })
+      if (result.sent) emailed += 1
+    }
+  }
 
   for (const sub of subs) {
     try {
@@ -128,7 +193,7 @@ export async function runReleaseNotify(logger) {
       // Book subscription: the awaited book itself.
       if (sub.kind === 'book' && sub.asin) {
         const owned = ownedAsins.has(String(sub.asin).toLowerCase())
-        // Persist availability the first time we see it owned (even if the push
+        // Persist availability the first time we see it owned (even if the alert
         // is off), so the app can reflect "available now".
         if (owned && !sub.available) {
           await markSubscriptionAvailable(serverId, sub.userId, sub.id, now)
@@ -136,21 +201,17 @@ export async function runReleaseNotify(logger) {
         }
         const decision = decideBookPush(sub, prefs, owned, now)
         if (decision) {
-          const tokens = await getTokens(sub.userId)
-          if (tokens.length) {
-            const { sent, invalidTokens: bad } = await sendPushMessages(
-              tokens.map((t) => ({
-                to: t.token,
-                title: decision.title,
-                body: decision.body,
-                data: { kind: 'release', asin: sub.asin, signal: decision.signal },
-              })),
-            )
-            pushed += sent
-            bad.forEach((tok) => invalidTokens.add(tok))
-          }
-          // Mark the signal fired regardless of token availability, so it doesn't
-          // retry forever for a user with no device registered.
+          await deliver({
+            userId: sub.userId,
+            entityId: `${sub.id}:${decision.signal}`,
+            asin: sub.asin,
+            signal: decision.signal,
+            title: decision.title,
+            body: decision.body,
+            prefs,
+          })
+          // Mark the signal fired regardless of destination availability, so it
+          // doesn't retry forever for a user with no email or registered device.
           const notified = { ...(sub.notified || {}), [decision.signal]: now }
           await setSubscriptionNotified(sub.serverId ?? serverId, sub.userId, sub.id, notified)
           sub.notified = notified
@@ -158,7 +219,7 @@ export async function runReleaseNotify(logger) {
       }
 
       // Series subscription: notify when a NEW book in the series lands in ABS.
-      // Tracked per-asin in notified_json so each book pushes at most once.
+      // Tracked per-asin in notified_json so each book alerts at most once.
       if (sub.kind === 'series' && sub.seriesTitle) {
         // Prefer the subscription's resolved series ASIN - a name can match two
         // distinct series, and the name lookup returns null when it's ambiguous.
@@ -173,19 +234,15 @@ export async function runReleaseNotify(logger) {
           const key = `book:${String(b.asin).toLowerCase()}`
           const owned = ownedAsins.has(String(b.asin).toLowerCase())
           if (owned && prefs.notifyAvailableInLibrary && !notified[key]) {
-            const tokens = await getTokens(sub.userId)
-            if (tokens.length) {
-              const { sent, invalidTokens: bad } = await sendPushMessages(
-                tokens.map((t) => ({
-                  to: t.token,
-                  title: 'New in your series',
-                  body: `${b.title} (${sub.seriesTitle}) is now in your library.`,
-                  data: { kind: 'release', asin: b.asin, signal: 'series-available' },
-                })),
-              )
-              pushed += sent
-              bad.forEach((tok) => invalidTokens.add(tok))
-            }
+            await deliver({
+              userId: sub.userId,
+              entityId: `${sub.id}:${key}`,
+              asin: b.asin,
+              signal: 'series-available',
+              title: 'New in your series',
+              body: `${b.title} (${sub.seriesTitle}) is now in your library.`,
+              prefs,
+            })
             notified[key] = now
             changed = true
           }
@@ -209,5 +266,5 @@ export async function runReleaseNotify(logger) {
     }
   }
 
-  return `Checked ${subs.length} subscriptions, sent ${pushed} notifications`
+  return `Checked ${subs.length} subscriptions; inbox ${inboxed}, email ${emailed}, push ${pushed}`
 }

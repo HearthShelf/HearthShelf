@@ -120,6 +120,13 @@ export interface SettingsState {
   // How many taste-derived rows (genre / author / narrator) the "More picks for
   // you" block may spawn. 0 turns the block off.
   homeRecShelfCount: number
+  // Followed-book and series alerts (account-scoped across every client).
+  notifyEnabled: boolean
+  notifyInApp: boolean
+  notifyEmail: boolean
+  notifyAvailableInLibrary: boolean
+  notifyOnReleaseDate: boolean
+  notifyReminderDaysBefore: number
   // How many days out a followed book starts showing on Home's countdown band.
   notifyCountdownWindowDays: number
   // When on, Search also looks up titles you don't own via the Audible catalog
@@ -254,6 +261,12 @@ export const useSettingsStore = create<SettingsState>()(
       showOthersBooks: true,
       homeSections: DEFAULT_HOME_SECTIONS,
       homeRecShelfCount: DEFAULT_REC_SHELF_COUNT,
+      notifyEnabled: true,
+      notifyInApp: true,
+      notifyEmail: false,
+      notifyAvailableInLibrary: true,
+      notifyOnReleaseDate: true,
+      notifyReminderDaysBefore: 3,
       notifyCountdownWindowDays: 14,
       searchExternalSources: true,
       externalLinkGoodreads: true,

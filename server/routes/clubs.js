@@ -8,6 +8,10 @@
 //   POST   /hs/clubs/:id/join                   -> join (open + not archived)
 //   POST   /hs/clubs/:id/leave                  -> leave (owner cannot)
 //   POST   /hs/clubs/:id/kick   { userId } (owner)
+//   GET    /hs/clubs/:id/invitees              (owner) -> existing server users
+//   POST   /hs/clubs/:id/invites { userIds }   (owner) -> in-app + email + push
+//   DELETE /hs/clubs/:id/invites/:inviteId     (owner) -> revoke pending
+//   POST   /hs/clubs/:id/invites/:inviteId/accept|decline (recipient)
 //   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail (membership req.)
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
@@ -29,6 +33,7 @@ import {
   getMemberProgress,
   getActiveListeners,
   getFinishedGenresForUsers,
+  listServerUsers,
 } from '../lib/absdb.js'
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
 import { getExplicitSharePrefs } from '../settings.js'
@@ -36,6 +41,14 @@ import { getConfig } from '../config.js'
 import { isProviderConfigured, complete } from '../providers.js'
 import { parseResult } from './questgiver.js'
 import { craftClubPrompt, clubHeuristic } from '@hearthshelf/core/lib/social'
+import { sendTransactionalEmail } from '../lib/emailRelay.js'
+import { sendPushMessages } from '../lib/expoPush.js'
+import { deletePushToken, listPushTokens } from '../lib/subscriptionsStore.js'
+import {
+  createNotification,
+  deleteEntityNotifications,
+  markEntityNotificationsRead,
+} from '../notifications.js'
 import {
   getClub,
   getMembership,
@@ -56,14 +69,103 @@ import {
   setRecBasis,
   listMyClubs,
   listJoinableClubs,
+  createClubInvite,
+  getClubInvite,
+  listPendingClubInvites,
+  respondToClubInvite,
+  revokeClubInvite,
 } from '../clubs.js'
 
 const CLUB_CREATE_LIMIT = '10/day'
+const CLUB_INVITE_LIMIT = '30/day'
 const NAME_MAX = 120
+const INVITE_BATCH_MAX = 20
 const LISTENING_CUTOFF_MS = 3 * 60 * 1000
 // ABS library-item ids are opaque tokens (UUIDs, nanoids). Validate their shape
 // before we interpolate one into an ABS URL or a club_books row.
 const ID_RE = /^[A-Za-z0-9_-]+$/
+const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+async function invitationRoster(ctx) {
+  const fromDb = await listServerUsers()
+  if (fromDb.length) return fromDb
+  // Slim installs may not mount the ABS db. Fall back to ABS's API; this is
+  // available when the caller has user-management permission. A normal reader
+  // without either source gets an empty roster rather than leaked user data.
+  try {
+    const response = await fetch(`${ctx.absUrl}/api/users`, {
+      headers: { Authorization: `Bearer ${ctx.absToken}` },
+    })
+    if (!response.ok) return []
+    const raw = await response.json()
+    const rows = Array.isArray(raw?.users) ? raw.users : Array.isArray(raw) ? raw : []
+    return rows
+      .filter((user) => user && user.isActive !== false)
+      .map((user) => ({
+        userId: String(user.id ?? ''),
+        username: String(user.username ?? ''),
+        email: typeof user.email === 'string' && user.email ? user.email : null,
+        type: String(user.type ?? 'user'),
+      }))
+      .filter((user) => user.userId)
+  } catch {
+    return []
+  }
+}
+
+async function deliverClubInvite(ctx, club, target, inviteId) {
+  const title = `${ctx.username || 'A reader'} invited you to ${club.name}`
+  const body = club.currentBook?.title
+    ? `Join the club reading ${club.currentBook.title}.`
+    : 'Join this book club on HearthShelf.'
+  const data = {
+    clubId: club.id,
+    inviteId,
+    clubName: club.name,
+    inviterUsername: ctx.username || '',
+  }
+  await createNotification(ctx.serverId, target.userId, {
+    kind: 'club_invite',
+    entityId: inviteId,
+    title,
+    body,
+    data,
+  })
+
+  const acceptUrl = `${APP_ORIGIN}/clubs?club=${encodeURIComponent(club.id)}&invite=${encodeURIComponent(inviteId)}`
+  const email = await sendTransactionalEmail({
+    to: target.email,
+    subject: `You’re invited to ${club.name} on HearthShelf`,
+    text: `${title}\n\n${body}\n\nOpen HearthShelf to accept: ${acceptUrl}`,
+    html: `<p>${escapeHtml(title)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(acceptUrl)}">Open HearthShelf to accept</a></p>`,
+  })
+
+  const tokens = await listPushTokens(ctx.serverId, target.userId)
+  let pushed = 0
+  if (tokens.length) {
+    const result = await sendPushMessages(
+      tokens.map((token) => ({
+        to: token.token,
+        title,
+        body,
+        channelId: 'social',
+        data: { kind: 'club-invite', ...data },
+      })),
+    )
+    pushed = result.sent
+    await Promise.all(result.invalidTokens.map((token) => deletePushToken(ctx.serverId, token)))
+  }
+  return { emailSent: email.sent, emailReason: email.reason ?? null, pushed }
+}
 
 // Fetch a book's title/author from ABS as the caller (the routes/stats.js
 // pattern), for the club_books snapshot. Returns { title, author }, both '' on
@@ -228,6 +330,110 @@ export async function handleClubs(req, res, url, ctx) {
   if (!club) return (json(res, 404, { error: 'not_found' }), true)
   const membership = await getMembership(ctx.serverId, clubId, ctx.userId)
   const isOwner = membership?.role === 'owner' || club.createdBy === ctx.userId
+
+  // GET /hs/clubs/:id/invitees -> safe server roster + pending invitations.
+  if (action === 'invitees' && req.method === 'GET') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    const [users, members, pending] = await Promise.all([
+      invitationRoster(ctx),
+      listMembers(ctx.serverId, clubId),
+      listPendingClubInvites(ctx.serverId, clubId),
+    ])
+    const memberIds = new Set(members.map((member) => member.userId))
+    const pendingByUser = new Map(pending.map((invite) => [invite.userId, invite]))
+    return (
+      json(res, 200, {
+        users: users
+          .filter((user) => user.userId !== ctx.userId && !memberIds.has(user.userId))
+          .map((user) => ({
+            userId: user.userId,
+            username: user.username,
+            pendingInviteId: pendingByUser.get(user.userId)?.id ?? null,
+          })),
+      }),
+      true
+    )
+  }
+
+  // POST /hs/clubs/:id/invites { userIds } -> invite existing server users.
+  if (action === 'invites' && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    const userIds = Array.isArray(body?.userIds)
+      ? [...new Set(body.userIds.filter((id) => typeof id === 'string' && id))].slice(
+          0,
+          INVITE_BATCH_MAX,
+        )
+      : []
+    if (!userIds.length) return (json(res, 400, { error: 'user_ids_required' }), true)
+    const rl = await check(ctx.serverId, ctx.userId, CLUB_INVITE_LIMIT, 'club-invites')
+    if (!rl.allowed) return (json(res, 429, { error: 'rate_limited' }), true)
+
+    const [users, members] = await Promise.all([
+      invitationRoster(ctx),
+      listMembers(ctx.serverId, clubId),
+    ])
+    const byId = new Map(users.map((user) => [user.userId, user]))
+    const memberIds = new Set(members.map((member) => member.userId))
+    const summary = await clubSummary(ctx.serverId, club)
+    const results = []
+    for (const userId of userIds) {
+      const target = byId.get(userId)
+      if (!target || target.userId === ctx.userId || memberIds.has(target.userId)) {
+        results.push({ userId, invited: false, reason: 'not_eligible' })
+        continue
+      }
+      const invite = await createClubInvite(ctx.serverId, clubId, {
+        inviterUserId: ctx.userId,
+        inviterUsername: ctx.username,
+        inviteeUserId: target.userId,
+        inviteeUsername: target.username,
+        inviteeEmail: target.email,
+      })
+      if (!invite.created) {
+        results.push({ userId, inviteId: invite.id, invited: false, reason: 'already_pending' })
+        continue
+      }
+      const delivery = await deliverClubInvite(ctx, summary, target, invite.id)
+      results.push({ userId, inviteId: invite.id, invited: true, ...delivery })
+    }
+    await consume(ctx.serverId, ctx.userId, CLUB_INVITE_LIMIT, 'club-invites')
+    return (json(res, 200, { results }), true)
+  }
+
+  const inviteAction = action.match(/^invites\/([^/]+)\/(accept|decline)$/)
+  if (inviteAction && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    const inviteId = decodeURIComponent(inviteAction[1])
+    const accept = inviteAction[2] === 'accept'
+    const invite = await getClubInvite(ctx.serverId, inviteId)
+    if (!invite || invite.clubId !== clubId) return (json(res, 404, { error: 'not_found' }), true)
+    if (invite.inviteeUserId !== ctx.userId) return (json(res, 403, { error: 'forbidden' }), true)
+    const responded = await respondToClubInvite(
+      ctx.serverId,
+      inviteId,
+      ctx.userId,
+      accept,
+      ctx.username,
+    )
+    if (!responded) return (json(res, 409, { error: 'invite_not_pending' }), true)
+    await markEntityNotificationsRead(ctx.serverId, ctx.userId, 'club_invite', inviteId)
+    return (json(res, 200, { ok: true, status: accept ? 'accepted' : 'declined' }), true)
+  }
+
+  const revokeMatch = action.match(/^invites\/([^/]+)$/)
+  if (revokeMatch && req.method === 'DELETE') {
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    const inviteId = decodeURIComponent(revokeMatch[1])
+    const invite = await getClubInvite(ctx.serverId, inviteId)
+    if (!invite || invite.clubId !== clubId) return (json(res, 404, { error: 'not_found' }), true)
+    const revoked = await revokeClubInvite(ctx.serverId, clubId, inviteId)
+    if (revoked) await deleteEntityNotifications(ctx.serverId, 'club_invite', inviteId)
+    return (json(res, 200, { ok: true, revoked }), true)
+  }
 
   // DELETE /hs/clubs/:id -> archive (owner or admin)
   if (action === '' && req.method === 'DELETE') {
@@ -473,18 +679,34 @@ export async function handleClubs(req, res, url, ctx) {
     if (!candidates.length) return (json(res, 400, { error: 'no_candidates' }), true)
     // Drop books already anywhere in the club, and anything without an id.
     const inClub = new Set(
-      (await Promise.all([listBooks(ctx.serverId, clubId), listQueue(ctx.serverId, clubId)])).flat().map((b) => b.libraryItemId),
+      (await Promise.all([listBooks(ctx.serverId, clubId), listQueue(ctx.serverId, clubId)]))
+        .flat()
+        .map((b) => b.libraryItemId),
     )
     const pool = candidates.filter(
-      (c) => c && typeof c.libraryItemId === 'string' && c.libraryItemId && !inClub.has(c.libraryItemId),
+      (c) =>
+        c && typeof c.libraryItemId === 'string' && c.libraryItemId && !inClub.has(c.libraryItemId),
     )
-    if (!pool.length) return (json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: '', picks: [] }), true)
+    if (!pool.length)
+      return (
+        json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: '', picks: [] }),
+        true
+      )
 
     const members = await listMembers(ctx.serverId, clubId)
     // all-members-finished needs ABS's db mounted to read finished genres; if
     // it isn't, tell the owner rather than silently recommending at random.
     if (club.recBasis === 'all-members-finished' && !(await absDbAvailable())) {
-      return (json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: '', picks: [], unavailable: true }), true)
+      return (
+        json(res, 200, {
+          engine: 'heuristic',
+          basis: club.recBasis,
+          intro: '',
+          picks: [],
+          unavailable: true,
+        }),
+        true
+      )
     }
     const taste = await buildClubTaste(
       club.recBasis,
@@ -498,7 +720,8 @@ export async function handleClubs(req, res, url, ctx) {
     const wantAi = cfg.clubsAiEnabled && aiCfg.enabled && (await isProviderConfigured())
     if (wantAi) {
       const rate = await check(ctx.serverId, ctx.userId, aiCfg.limit)
-      if (!rate.allowed) return (json(res, 429, { error: 'rate_limited', period: rate.period }), true)
+      if (!rate.allowed)
+        return (json(res, 429, { error: 'rate_limited', period: rate.period }), true)
       try {
         const prompt = craftClubPrompt(club.name, members.length, taste, pool, club.recBasis)
         const parsed = parseResult(await complete(prompt))
@@ -530,7 +753,12 @@ export async function handleClubs(req, res, url, ctx) {
 
     const result = clubHeuristic(taste, pool, club.recBasis)
     return (
-      json(res, 200, { engine: 'heuristic', basis: club.recBasis, intro: result.intro, picks: result.picks }),
+      json(res, 200, {
+        engine: 'heuristic',
+        basis: club.recBasis,
+        intro: result.intro,
+        picks: result.picks,
+      }),
       true
     )
   }

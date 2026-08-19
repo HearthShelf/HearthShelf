@@ -121,15 +121,27 @@ export async function advanceClubBook(clubId: string, libraryItemId: string): Pr
 // Add a book to the club's up-next queue (owner only). No-op server-side if the
 // book is already in the club (returns { added:false }).
 export async function addClubQueue(clubId: string, libraryItemId: string): Promise<boolean> {
-  const r = await cFetch<{ ok: boolean; added: boolean }>(
-    `/${encodeURIComponent(clubId)}/queue`,
-    { method: 'POST', body: JSON.stringify({ libraryItemId }) },
-  )
+  const r = await cFetch<{ ok: boolean; added: boolean }>(`/${encodeURIComponent(clubId)}/queue`, {
+    method: 'POST',
+    body: JSON.stringify({ libraryItemId }),
+  })
   return r.added
 }
 
 export async function joinClub(clubId: string): Promise<void> {
   await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}/join`, { method: 'POST' })
+}
+
+export async function respondToClubInvite(
+  clubId: string,
+  inviteId: string,
+  accept: boolean,
+): Promise<void> {
+  const action = accept ? 'accept' : 'decline'
+  await cFetch<{ ok: boolean }>(
+    `/${encodeURIComponent(clubId)}/invites/${encodeURIComponent(inviteId)}/${action}`,
+    { method: 'POST' },
+  )
 }
 
 export async function leaveClub(clubId: string): Promise<void> {

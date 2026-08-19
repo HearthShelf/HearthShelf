@@ -512,6 +512,44 @@ const SCHEMA = [
      last_read_at INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (server_id, club_id, user_id)
    )`,
+  // Owner-issued invitations to EXISTING ABS users. Email is snapshotted only
+  // for delivery/audit and is never returned by the client API. A pending row
+  // is the source of truth shared by WebApp, Mobile, email links, and push.
+  `CREATE TABLE IF NOT EXISTS club_invites (
+     id                TEXT PRIMARY KEY,
+     server_id         TEXT NOT NULL DEFAULT 'local',
+     club_id           TEXT NOT NULL,
+     inviter_user_id   TEXT NOT NULL,
+     inviter_username  TEXT NOT NULL DEFAULT '',
+     invitee_user_id   TEXT NOT NULL,
+     invitee_username  TEXT NOT NULL DEFAULT '',
+     invitee_email     TEXT,
+     status            TEXT NOT NULL DEFAULT 'pending',
+     created_at        INTEGER NOT NULL,
+     responded_at      INTEGER,
+     UNIQUE (server_id, club_id, invitee_user_id)
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_club_invites_recipient
+     ON club_invites (server_id, invitee_user_id, status, created_at)`,
+  // Generic in-app notification inbox. kind + entity_id identify actionable
+  // domain state without duplicating it; data_json carries display/deep-link
+  // metadata. read_at is per recipient because every row belongs to one user.
+  `CREATE TABLE IF NOT EXISTS notifications (
+     id          TEXT PRIMARY KEY,
+     server_id   TEXT NOT NULL DEFAULT 'local',
+     user_id     TEXT NOT NULL,
+     kind        TEXT NOT NULL,
+     entity_id   TEXT NOT NULL DEFAULT '',
+     title       TEXT NOT NULL,
+     body        TEXT NOT NULL DEFAULT '',
+     data_json   TEXT NOT NULL DEFAULT '{}',
+     created_at  INTEGER NOT NULL,
+     read_at     INTEGER
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_user
+     ON notifications (server_id, user_id, read_at, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_entity
+     ON notifications (server_id, user_id, kind, entity_id)`,
   // One Hardcover Personal Access Token per ABS user (not server-wide - a
   // Hardcover account belongs to a person, not a household's HearthShelf box).
   // The token is never returned to the client once saved; only connection

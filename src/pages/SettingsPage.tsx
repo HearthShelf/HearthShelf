@@ -39,7 +39,14 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CoverStyleDemo } from '@/components/common/CoverStyleDemo'
 
 type SettingsSection =
-  'account' | 'appearance' | 'playback' | 'sleep' | 'reading' | 'library' | 'connections'
+  | 'account'
+  | 'appearance'
+  | 'notifications'
+  | 'playback'
+  | 'sleep'
+  | 'reading'
+  | 'library'
+  | 'connections'
 
 const SETTINGS_NAV: { label: string; items: [SettingsSection, string, string][] }[] = [
   {
@@ -47,6 +54,7 @@ const SETTINGS_NAV: { label: string; items: [SettingsSection, string, string][] 
     items: [
       ['account', 'person', 'Account'],
       ['appearance', 'palette', 'Appearance'],
+      ['notifications', 'notifications', 'Notifications'],
     ],
   },
   {
@@ -400,6 +408,133 @@ export function SettingsPage() {
           {section === 'account' && <AccountSettings />}
           {section === 'reading' && <ReadingSettings />}
           {section === 'connections' && <ConnectionsSettings />}
+
+          {section === 'notifications' && (
+            <>
+              <div className="section-head">
+                <Icon name="notifications" />
+                <h2>Notifications</h2>
+              </div>
+              <p className="t-muted mb-4 text-[13px]">
+                Choose where HearthShelf tells you about books and series you follow.
+              </p>
+
+              <div className="cn-label">Release alerts</div>
+              <div className="set-group">
+                <SetRow
+                  title="Release notifications"
+                  desc="Get told when a book you're waiting for is ready."
+                  control={
+                    <Toggle
+                      on={s.notifyEnabled}
+                      onClick={() => {
+                        const next = !s.notifyEnabled
+                        put('notifyEnabled', next)
+                        if (next && !s.notifyInApp && !s.notifyEmail) put('notifyInApp', true)
+                      }}
+                    />
+                  }
+                />
+              </div>
+
+              {s.notifyEnabled && (
+                <>
+                  <div className="cn-label">Delivery</div>
+                  <div className="set-group">
+                    <SetRow
+                      title="In app"
+                      desc="Show alerts in the HearthShelf notification tray. Mobile also sends a phone alert."
+                      control={
+                        <Toggle
+                          on={s.notifyInApp}
+                          onClick={() => {
+                            const next = !s.notifyInApp
+                            put('notifyInApp', next)
+                            if (!next && !s.notifyEmail) put('notifyEnabled', false)
+                          }}
+                        />
+                      }
+                    />
+                    <SetRow
+                      title="Email"
+                      desc="Send alerts to the email on your server account."
+                      control={
+                        <Toggle
+                          on={s.notifyEmail}
+                          onClick={() => {
+                            const next = !s.notifyEmail
+                            put('notifyEmail', next)
+                            if (!next && !s.notifyInApp) put('notifyEnabled', false)
+                          }}
+                        />
+                      }
+                    />
+                  </div>
+
+                  <div className="cn-label">Alert me</div>
+                  <div className="set-group">
+                    <SetRow
+                      title="When it's in your library"
+                      desc="The moment a followed book is ready to play."
+                      control={
+                        <Toggle
+                          on={s.notifyAvailableInLibrary}
+                          onClick={() =>
+                            put('notifyAvailableInLibrary', !s.notifyAvailableInLibrary)
+                          }
+                        />
+                      }
+                    />
+                    <SetRow
+                      title="On release day"
+                      desc="When the catalog says it's out, even before it syncs in."
+                      control={
+                        <Toggle
+                          on={s.notifyOnReleaseDate}
+                          onClick={() => put('notifyOnReleaseDate', !s.notifyOnReleaseDate)}
+                        />
+                      }
+                    />
+                    <SetRow
+                      title="Early reminder"
+                      desc="Choose how many days before release to get a heads-up."
+                      control={
+                        <NumPick
+                          value={s.notifyReminderDaysBefore}
+                          onChange={(value) => put('notifyReminderDaysBefore', value)}
+                          presets={[0, 1, 3, 7, 14]}
+                          min={0}
+                          max={14}
+                          unit="d"
+                        />
+                      }
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="cn-label">Home</div>
+              <div className="set-group">
+                <SetRow
+                  title="Countdown on Home"
+                  desc="Choose how many days before release upcoming books appear on Home."
+                  control={
+                    <NumPick
+                      value={s.notifyCountdownWindowDays}
+                      onChange={(value) => put('notifyCountdownWindowDays', value)}
+                      presets={[3, 7, 14, 30]}
+                      min={1}
+                      max={30}
+                      unit="d"
+                    />
+                  }
+                />
+              </div>
+              <p className="t-muted mt-3 text-[12px]">
+                Book club invitations always arrive in-app and by email so they can be accepted.
+              </p>
+            </>
+          )}
 
           {/* Appearance */}
           {section === 'appearance' && (

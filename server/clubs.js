@@ -345,6 +345,16 @@ export async function deleteClub(serverId, clubId) {
       sql: `DELETE FROM club_members WHERE server_id = ? AND club_id = ?`,
       args: [serverId, clubId],
     })
+    await db.execute({
+      sql: `DELETE FROM notifications
+            WHERE server_id = ? AND kind = 'club_invite'
+              AND entity_id IN (SELECT id FROM club_invites WHERE server_id = ? AND club_id = ?)`,
+      args: [serverId, serverId, clubId],
+    })
+    await db.execute({
+      sql: `DELETE FROM club_invites WHERE server_id = ? AND club_id = ?`,
+      args: [serverId, clubId],
+    })
     const r = await db.execute({
       sql: `DELETE FROM clubs WHERE server_id = ? AND id = ?`,
       args: [serverId, clubId],
@@ -355,6 +365,169 @@ export async function deleteClub(serverId, clubId) {
     await db.execute('ROLLBACK')
     throw err
   }
+}
+
+// --- invitations -----------------------------------------------------------
+
+export async function getClubInvite(serverId, inviteId) {
+  if (!inviteId) return null
+  await ensure()
+  const result = await db.execute({
+    sql: `SELECT id, club_id, inviter_user_id, inviter_username, invitee_user_id,
+                 invitee_username, invitee_email, status, created_at, responded_at
+            FROM club_invites WHERE server_id = ? AND id = ? LIMIT 1`,
+    args: [serverId, inviteId],
+  })
+  const row = result.rows[0]
+  if (!row) return null
+  return {
+    id: String(row.id),
+    clubId: String(row.club_id),
+    inviterUserId: String(row.inviter_user_id),
+    inviterUsername: String(row.inviter_username ?? ''),
+    inviteeUserId: String(row.invitee_user_id),
+    inviteeUsername: String(row.invitee_username ?? ''),
+    inviteeEmail: row.invitee_email ? String(row.invitee_email) : null,
+    status: String(row.status ?? 'pending'),
+    createdAt: Number(row.created_at),
+    respondedAt: row.responded_at == null ? null : Number(row.responded_at),
+  }
+}
+
+export async function listPendingClubInvites(serverId, clubId) {
+  await ensure()
+  const result = await db.execute({
+    sql: `SELECT id, invitee_user_id, invitee_username, created_at
+            FROM club_invites
+           WHERE server_id = ? AND club_id = ? AND status = 'pending'
+           ORDER BY created_at DESC`,
+    args: [serverId, clubId],
+  })
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    userId: String(row.invitee_user_id),
+    username: String(row.invitee_username ?? ''),
+    createdAt: Number(row.created_at),
+  }))
+}
+
+export async function createClubInvite(
+  serverId,
+  clubId,
+  { inviterUserId, inviterUsername, inviteeUserId, inviteeUsername, inviteeEmail },
+) {
+  await ensure()
+  const id = crypto.randomUUID()
+  const now = Date.now()
+  // Re-inviting after decline resets the same unique user/club slot to pending;
+  // a duplicate pending invite is reported as existing and does not notify twice.
+  const existing = await db.execute({
+    sql: `SELECT id, status FROM club_invites
+          WHERE server_id = ? AND club_id = ? AND invitee_user_id = ? LIMIT 1`,
+    args: [serverId, clubId, inviteeUserId],
+  })
+  const row = existing.rows[0]
+  if (row && String(row.status) === 'pending') {
+    return { id: String(row.id), created: false }
+  }
+  if (row) {
+    await db.execute({
+      sql: `UPDATE club_invites
+               SET id = ?, inviter_user_id = ?, inviter_username = ?,
+                   invitee_username = ?, invitee_email = ?, status = 'pending',
+                   created_at = ?, responded_at = NULL
+             WHERE server_id = ? AND club_id = ? AND invitee_user_id = ?`,
+      args: [
+        id,
+        inviterUserId,
+        inviterUsername || '',
+        inviteeUsername || '',
+        inviteeEmail || null,
+        now,
+        serverId,
+        clubId,
+        inviteeUserId,
+      ],
+    })
+  } else {
+    await db.execute({
+      sql: `INSERT INTO club_invites
+              (id, server_id, club_id, inviter_user_id, inviter_username,
+               invitee_user_id, invitee_username, invitee_email, status, created_at, responded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)`,
+      args: [
+        id,
+        serverId,
+        clubId,
+        inviterUserId,
+        inviterUsername || '',
+        inviteeUserId,
+        inviteeUsername || '',
+        inviteeEmail || null,
+        now,
+      ],
+    })
+  }
+  return { id, created: true }
+}
+
+export async function respondToClubInvite(
+  serverId,
+  inviteId,
+  inviteeUserId,
+  accept,
+  username = '',
+) {
+  await ensure()
+  await db.execute('BEGIN IMMEDIATE')
+  try {
+    const invite = await getClubInvite(serverId, inviteId)
+    if (!invite || invite.inviteeUserId !== inviteeUserId || invite.status !== 'pending') {
+      await db.execute('ROLLBACK')
+      return null
+    }
+    const status = accept ? 'accepted' : 'declined'
+    const updated = await db.execute({
+      sql: `UPDATE club_invites SET status = ?, responded_at = ?
+            WHERE server_id = ? AND id = ? AND status = 'pending'`,
+      args: [status, Date.now(), serverId, inviteId],
+    })
+    if ((updated.rowsAffected ?? 0) === 0) {
+      await db.execute('ROLLBACK')
+      return null
+    }
+    if (accept) {
+      await db.execute({
+        sql: `INSERT INTO club_members
+                (server_id, club_id, user_id, username, role, joined_at, last_read_at)
+              VALUES (?, ?, ?, ?, 'member', ?, 0)
+              ON CONFLICT (server_id, club_id, user_id)
+              DO UPDATE SET username = excluded.username`,
+        args: [
+          serverId,
+          invite.clubId,
+          inviteeUserId,
+          username || invite.inviteeUsername,
+          Date.now(),
+        ],
+      })
+    }
+    await db.execute('COMMIT')
+    return { ...invite, status }
+  } catch (error) {
+    await db.execute('ROLLBACK')
+    throw error
+  }
+}
+
+export async function revokeClubInvite(serverId, clubId, inviteId) {
+  await ensure()
+  const result = await db.execute({
+    sql: `UPDATE club_invites SET status = 'revoked', responded_at = ?
+          WHERE server_id = ? AND club_id = ? AND id = ? AND status = 'pending'`,
+    args: [Date.now(), serverId, clubId, inviteId],
+  })
+  return (result.rowsAffected ?? 0) > 0
 }
 
 // Set the owner's next-book recommendation basis. Returns the stored basis

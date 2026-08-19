@@ -72,6 +72,36 @@ async function forward({ issuer, serverId, serverSecret, to, subject, html, text
   return { status: res.status, data }
 }
 
+/** Send one HearthShelf-owned transactional message through the same paired
+ * control-plane relay used by ABS SMTP. Best-effort and safe for feature routes:
+ * invitation state is committed even when email delivery is unavailable. */
+export async function sendTransactionalEmail({ to, subject, html, text, replyTo = '' }) {
+  if (!to || !to.includes('@')) return { sent: false, reason: 'no_email' }
+  if (emailRelayOptedOut()) return { sent: false, reason: 'relay_disabled' }
+  const cfg = await getHostedConfig().catch(() => null)
+  if (!cfg?.serverSecret || !cfg?.issuer) return { sent: false, reason: 'not_paired' }
+  try {
+    const serverId = await getServerId()
+    const result = await forward({
+      issuer: cfg.issuer,
+      serverId,
+      serverSecret: cfg.serverSecret,
+      to,
+      subject,
+      html,
+      text,
+      replyTo,
+    })
+    if (result.status >= 200 && result.status < 300) return { sent: true }
+    return {
+      sent: false,
+      reason: result.status === 429 ? 'allowance_reached' : 'relay_rejected',
+    }
+  } catch {
+    return { sent: false, reason: 'relay_unreachable' }
+  }
+}
+
 // Pull the single recipient ABS addressed (ereader sends + test mail are 1:1).
 // If a message ever carries multiple recipients we take the first; the relay is
 // for ABS's transactional mail, not bulk.

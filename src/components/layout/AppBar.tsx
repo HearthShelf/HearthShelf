@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/common/Icon'
 import { useActiveLibrary, libraryIcon } from '@/hooks/useActiveLibrary'
 import { SearchDropdown } from './SearchDropdown'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 
 function LibrarySwitcher() {
   const { libraries, active, activeId, select } = useActiveLibrary()
@@ -66,6 +67,7 @@ export function AppBar() {
       <SearchDropdown />
       <div className="ab-spacer" />
       <div className="ab-actions">
+        <NotificationBell />
         <button className="ab-ico" title="Upload" onClick={() => navigate('/upload')}>
           <Icon name="upload" />
         </button>

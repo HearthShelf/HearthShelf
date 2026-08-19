@@ -162,6 +162,35 @@ export const DATA_DOMAINS = [
     userRefs: ['clubs.created_by', 'club_books.added_by', 'club_members.user_id'],
   },
   {
+    // Pending invitations are server-local actionable state. They are backed up
+    // with the box but deliberately not merged into another server, where the
+    // referenced club/user identities may no longer exist.
+    key: 'club-invites',
+    tables: ['club_invites'],
+    files: null,
+    scope: 'server',
+    secretColumns: { club_invites: ['invitee_email'] },
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: ['club_invites.inviter_user_id', 'club_invites.invitee_user_id'],
+  },
+  {
+    // Notification history is personal and may reference ephemeral actionable
+    // state, so it is exported/backed up but not merged across server installs.
+    key: 'notifications',
+    tables: ['notifications'],
+    files: null,
+    scope: 'user',
+    secretColumns: {},
+    backup: 'always',
+    userExport: true,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: 'key',
+  },
+  {
     key: 'discover',
     tables: ['qg_feedback', 'qg_monthly', 'qg_runs'],
     files: null,
@@ -455,9 +484,7 @@ export function backupFileRoots() {
 // start is worse). SQLite's own internal tables (sqlite_*) are ignored.
 export function assertDomainsCoverSchema(sqliteMasterTables) {
   const known = knownTables()
-  const unregistered = sqliteMasterTables.filter(
-    (t) => !t.startsWith('sqlite_') && !known.has(t),
-  )
+  const unregistered = sqliteMasterTables.filter((t) => !t.startsWith('sqlite_') && !known.has(t))
   if (unregistered.length === 0) return { ok: true, unregistered: [] }
 
   const msg =

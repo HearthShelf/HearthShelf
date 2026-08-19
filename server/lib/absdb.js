@@ -633,8 +633,15 @@ export async function getYearsInReviewForUser(userId) {
         if (!/^\d{4}$/.test(year)) continue
         let y = byYear.get(year)
         if (!y) {
-          y = { books: 0, seconds: 0, longest: null, shortest: null,
-                authors: new Map(), narrators: new Map(), series: new Map() }
+          y = {
+            books: 0,
+            seconds: 0,
+            longest: null,
+            shortest: null,
+            authors: new Map(),
+            narrators: new Map(),
+            series: new Map(),
+          }
           byYear.set(year, y)
         }
         y.books += 1
@@ -1110,7 +1117,10 @@ export async function getUserCurrentListen(userId, cutoffMs = 3 * 60 * 1000) {
       }
       const libraryItemId = row.libraryItemId == null ? '' : String(row.libraryItemId)
       if (!libraryItemId) {
-        appLog.warn('absdb', `currentListen: session resolved to an empty item id for user ${userId}`)
+        appLog.warn(
+          'absdb',
+          `currentListen: session resolved to an empty item id for user ${userId}`,
+        )
         return null
       }
 
@@ -1362,6 +1372,30 @@ export async function getUserEmail(userId) {
     return email ? String(email) : null
   } catch {
     return null
+  }
+}
+
+// Active ABS users available to server-local features such as Book Club
+// invitations. Email stays server-side for delivery; clients receive only id +
+// username. Returns [] when the ABS db mount is unavailable.
+export async function listServerUsers() {
+  const c = await ensureClient()
+  if (!c) return []
+  try {
+    const res = await c.execute(
+      `SELECT id, username, email, type, isActive
+         FROM users
+        WHERE isActive IS NULL OR isActive != 0
+        ORDER BY username COLLATE NOCASE ASC`,
+    )
+    return res.rows.map((row) => ({
+      userId: String(row.id),
+      username: String(row.username ?? ''),
+      email: row.email ? String(row.email) : null,
+      type: String(row.type ?? 'user'),
+    }))
+  } catch {
+    return []
   }
 }
 

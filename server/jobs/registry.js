@@ -30,7 +30,7 @@ export const JOBS = [
     id: 'release-notify',
     name: 'Release notifications',
     description:
-      'Checks the books and series people are following and sends a push notification when a book is available in the library, on its release day, or a few days before.',
+      'Checks followed books and series and sends in-app, email, or mobile alerts when a book is available, on release day, or a few days before.',
     defaultIntervalMs: 6 * HOUR_MS,
     run: runReleaseNotify,
   },
