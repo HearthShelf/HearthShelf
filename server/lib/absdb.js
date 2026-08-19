@@ -849,6 +849,59 @@ export async function getDailyListening(sinceDate) {
   }
 }
 
+// --- Server-wide listening activity (for Admin > Server Stats) ------------
+//
+// All-time listening seconds grouped into the caller's current local hour and
+// weekday. This is deliberately anonymous: the admin surface needs the server's
+// overall shape, not per-user rows. Both books and podcasts count because this
+// is server activity rather than the book-only social/leaderboard metric.
+//
+// `tzOffsetMinutes` follows Date.getTimezoneOffset(): positive values are west
+// of UTC, so local time = UTC - offset. SQLite applies that as one modifier and
+// performs the aggregation without sending the full session table to Node.
+export async function getServerListeningActivity(tzOffsetMinutes = 0) {
+  const c = await ensureClient()
+  if (!c) return null
+
+  const parsed = Number(tzOffsetMinutes)
+  const offset = Number.isFinite(parsed) ? Math.max(-840, Math.min(840, Math.trunc(parsed))) : 0
+  const modifier = `${offset > 0 ? '-' : '+'}${Math.abs(offset)} minutes`
+
+  try {
+    const res = await c.execute({
+      sql: `
+        SELECT
+          CAST(strftime('%H', ps.createdAt, ?) AS INTEGER) AS hour,
+          CAST(strftime('%w', ps.createdAt, ?) AS INTEGER) AS weekday,
+          SUM(ps.timeListening) AS seconds
+        FROM playbackSessions ps
+        JOIN users u ON u.id = ps.userId
+        WHERE ps.createdAt IS NOT NULL
+          AND ps.timeListening > 0
+          AND u.type != 'guest'
+        GROUP BY hour, weekday
+      `,
+      args: [modifier, modifier],
+    })
+
+    const byHour = Array(24).fill(0)
+    const byDay = Array(7).fill(0)
+    for (const row of res.rows) {
+      if (row.hour == null || row.weekday == null) continue
+      const hour = Number(row.hour)
+      const weekday = Number(row.weekday)
+      const seconds = Number(row.seconds) || 0
+      if (Number.isInteger(hour) && hour >= 0 && hour < 24) byHour[hour] += seconds
+      if (Number.isInteger(weekday) && weekday >= 0 && weekday < 7) byDay[weekday] += seconds
+    }
+
+    return { byHour, byDay }
+  } catch (err) {
+    appLog.error('absdb', `server listening activity failed: ${err?.message ?? err}`)
+    return null
+  }
+}
+
 // Per (user, day) count of distinct books FINISHED on that day, over the recent
 // window. finishedAt is a DATE text; we bucket by its leading 'YYYY-MM-DD' via
 // substr (not datetime()) so the day key lines up with playbackSessions.date,

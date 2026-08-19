@@ -200,6 +200,39 @@ export function getServerStats(): Promise<ABSServerStats> {
   return absRequest<ABSServerStats>('/api/stats/server')
 }
 
+export interface HSServerActivity {
+  available: boolean
+  /** All-time listening seconds by local hour, indices 0-23. */
+  byHour: number[]
+  /** All-time listening seconds by local weekday, Sunday first. */
+  byDay: number[]
+}
+
+// Anonymous all-user rollup from HearthShelf's read-only ABS database bridge.
+// Null keeps older/slim installs graceful when the route is not available.
+export async function getServerActivity(): Promise<HSServerActivity | null> {
+  try {
+    const tz = new Date().getTimezoneOffset()
+    const res = await fetch(`/hs/stats/server-activity?tz=${tz}`, { headers: authHeader() })
+    if (!res.ok) return null
+    const raw = (await res.json()) as Partial<HSServerActivity>
+    return {
+      available: raw.available === true,
+      byHour: normalizeActivityBuckets(raw.byHour, 24),
+      byDay: normalizeActivityBuckets(raw.byDay, 7),
+    }
+  } catch {
+    return null
+  }
+}
+
+function normalizeActivityBuckets(value: number[] | undefined, length: number): number[] {
+  return Array.from({ length }, (_, i) => {
+    const n = Number(value?.[i])
+    return Number.isFinite(n) && n > 0 ? n : 0
+  })
+}
+
 export interface ABSLibraryStats {
   totalItems: number
   totalAuthors: number

@@ -3692,6 +3692,33 @@
   margin-top: var(--s4);
 }
 
+.chart-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.chart-card-head .section-head {
+  margin-bottom: 0;
+}
+
+.chart-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 var(--s4);
+}
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
 .bars {
   display: flex;
   align-items: flex-end;
@@ -3731,6 +3758,37 @@
 .bar-col .d {
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* Admin Server Stats: all-user listening shape. Twenty-four hourly columns need
+   a stable plotting width; narrow screens scroll the chart rather than crushing
+   labels/bars into an unreadable strip. */
+.server-activity-card .toolbar2 {
+  margin-bottom: 0;
+}
+
+.server-activity-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.server-activity-bars {
+  min-width: 720px;
+  gap: 8px;
+}
+
+.server-activity-bars.day {
+  min-width: 420px;
+  gap: var(--s3);
+}
+
+.server-activity-bars .bar-col .bar {
+  min-height: 0;
+}
+
+.server-activity-bars .bar-col .d {
+  white-space: nowrap;
 }
 
 .scrim {

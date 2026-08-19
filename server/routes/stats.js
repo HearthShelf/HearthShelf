@@ -15,12 +15,14 @@ import { json } from '../lib/http.js'
 import { callerNow, computeListeningStats } from '../lib/stats.js'
 import {
   absDbAvailable,
+  getServerListeningActivity,
   getFinishedCountForUser,
   getFinishedExtremesForUser,
   getTopFinishedAuthorForUser,
   getTopFinishedNarratorForUser,
   getBookByMediaId,
 } from '../lib/absdb.js'
+import { isAdmin } from '../lib/context.js'
 import { getHistoryForUser, getMonthlyForUser } from '../lib/statsHistoryStore.js'
 import { getMostReReadForUser } from '../lib/bookCompletionsStore.js'
 
@@ -68,9 +70,29 @@ async function fetchSessionCount(ctx) {
 
 export async function handleStats(req, res, url, ctx) {
   const p = url.pathname
-  if (p !== '/hs/stats' && p !== '/hs/stats/history') return false
+  if (p !== '/hs/stats' && p !== '/hs/stats/history' && p !== '/hs/stats/server-activity') {
+    return false
+  }
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
   if (req.method !== 'GET') return (json(res, 405, { error: 'method_not_allowed' }), true)
+
+  // Anonymous all-user rollup for Admin > Server Stats. The raw session rows
+  // never leave the backend, and ordinary users/apps cannot read the aggregate.
+  if (p === '/hs/stats/server-activity') {
+    if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+    const tz = Number.parseInt(url.searchParams.get('tz') ?? '', 10)
+    const activity = await getServerListeningActivity(Number.isNaN(tz) ? 0 : tz)
+    return (
+      json(
+        res,
+        200,
+        activity
+          ? { available: true, ...activity }
+          : { available: false, byHour: Array(24).fill(0), byDay: Array(7).fill(0) },
+      ),
+      true
+    )
+  }
 
   // Durable daily listening history (the stats-snapshot job's output). Reads the
   // HS-owned stats_daily table for the caller. `available` is false when the ABS
