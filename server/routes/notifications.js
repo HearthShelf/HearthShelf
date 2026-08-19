@@ -2,9 +2,13 @@
 //   GET  /hs/notifications                 -> list + unread count
 //   PUT  /hs/notifications/read-all        -> mark every row read
 //   PUT  /hs/notifications/:id/read        -> mark one row read
+//   DELETE /hs/notifications/:id           -> dismiss one row
+//   DELETE /hs/notifications               -> clear the whole inbox
 
 import { json } from '../lib/http.js'
 import {
+  deleteAllNotifications,
+  deleteNotification,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -22,6 +26,17 @@ export async function handleNotifications(req, res, url, ctx) {
       unreadNotificationCount(ctx.serverId, ctx.userId),
     ])
     return (json(res, 200, { notifications, unreadCount }), true)
+  }
+
+  if (p === '/hs/notifications' && req.method === 'DELETE') {
+    await deleteAllNotifications(ctx.serverId, ctx.userId)
+    return (json(res, 200, { ok: true }), true)
+  }
+
+  const remove = p.match(/^\/hs\/notifications\/([^/]+)$/)
+  if (remove && req.method === 'DELETE') {
+    const found = await deleteNotification(ctx.serverId, ctx.userId, decodeURIComponent(remove[1]))
+    return (json(res, found ? 200 : 404, found ? { ok: true } : { error: 'not_found' }), true)
   }
 
   if (p === '/hs/notifications/read-all' && req.method === 'PUT') {

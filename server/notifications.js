@@ -112,6 +112,27 @@ export async function markEntityNotificationsRead(serverId, userId, kind, entity
   })
 }
 
+// Dismiss one row. Scoped to the caller's own server_id + user_id like every
+// other mutator here, so an id from another user's inbox simply matches nothing
+// and reports not-found rather than deleting across accounts.
+export async function deleteNotification(serverId, userId, id) {
+  await ensure()
+  const result = await db.execute({
+    sql: `DELETE FROM notifications WHERE server_id = ? AND user_id = ? AND id = ?`,
+    args: [serverId, userId, id],
+  })
+  return (result.rowsAffected ?? 0) > 0
+}
+
+// Clear the caller's whole inbox ("Clear all").
+export async function deleteAllNotifications(serverId, userId) {
+  await ensure()
+  await db.execute({
+    sql: `DELETE FROM notifications WHERE server_id = ? AND user_id = ?`,
+    args: [serverId, userId],
+  })
+}
+
 export async function deleteEntityNotifications(serverId, kind, entityId) {
   await ensure()
   await db.execute({
