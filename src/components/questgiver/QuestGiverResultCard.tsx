@@ -97,6 +97,11 @@ export function QuestGiverResultCard({
               type="button"
               disabled={requestState !== 'idle' || !onRequest}
               onClick={() => onRequest?.(pick)}
+              title={
+                requestState === 'done'
+                  ? "We'll let you know when it lands in your library"
+                  : undefined
+              }
             >
               {requestState === 'done' ? (
                 <>
