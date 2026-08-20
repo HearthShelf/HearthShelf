@@ -22,9 +22,16 @@ import {
   insertNote,
   softDeleteNote,
 } from '../lib/notesQuery.js'
-import { getClub, isClubMember, bookInClub, currentBook } from '../clubs.js'
+import { getClub, isClubMember, bookInClub, currentBook, listMembers } from '../clubs.js'
+import {
+  recordMentions,
+  hydrateMentions,
+  flushPendingMentions,
+} from '../lib/mentionDelivery.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
+// A note addressing more people than this is a broadcast, not a mention.
+const MENTIONS_MAX = 10
 const BODY_MAX = 2000
 // ABS library-item / club / note ids are opaque tokens (UUIDs, nanoids). Reject
 // anything outside this shape early with 400 invalid_id, for consistency with
@@ -108,6 +115,11 @@ export async function handleNotes(req, res, url, ctx) {
       includeLocked: isClubCurrentBook,
       after,
     })
+    await hydrateMentions(ctx.serverId, gated.notes)
+    // This read told us where the caller is, which may have unlocked a note they
+    // were mentioned in. Deliver those now. Fire-and-forget by design - a
+    // mention delivery failure must never break reading the discussion.
+    void flushPendingMentions(ctx, libraryItemId)
     return (
       json(res, 200, {
         enabled: true,
@@ -153,6 +165,20 @@ export async function handleNotes(req, res, url, ctx) {
       if (visibility !== 'public' && visibility !== 'personal') {
         return (json(res, 400, { error: 'invalid_visibility' }), true)
       }
+    }
+
+    // mentions: club member ids the note addresses. Shape-checked here and
+    // AUTHORIZED against club membership below - the client's list is a request,
+    // never a grant.
+    const rawMentions = Array.isArray(body?.mentions) ? body.mentions : []
+    if (rawMentions.length > MENTIONS_MAX) {
+      return (json(res, 400, { error: 'too_many_mentions' }), true)
+    }
+    const wantedMentions = []
+    for (const value of rawMentions) {
+      const id = String(value ?? '')
+      if (!id || !ID_RE.test(id)) return (json(res, 400, { error: 'invalid_id' }), true)
+      if (!wantedMentions.includes(id)) wantedMentions.push(id)
     }
 
     // safe: author-declared spoiler-free (bypasses the position gate). Coerced to
@@ -212,6 +238,19 @@ export async function handleNotes(req, res, url, ctx) {
     const rl = await check(ctx.serverId, ctx.userId, NOTES_RATE_LIMIT, 'notes')
     if (!rl.allowed) return (json(res, 429, { error: 'rate_limited' }), true)
 
+    // Only club members can be mentioned, and only in the club scope. Anything
+    // else is dropped SILENTLY rather than rejected: telling the caller which
+    // ids were refused would turn this endpoint into a membership probe.
+    let mentionTargets = []
+    if (clubId && wantedMentions.length) {
+      const members = await listMembers(ctx.serverId, clubId)
+      const byId = new Map(members.map((m) => [m.userId, m]))
+      mentionTargets = wantedMentions
+        .map((id) => byId.get(id))
+        .filter(Boolean)
+        .map((m) => ({ userId: m.userId, username: m.username }))
+    }
+
     const note = await insertNote(ctx.serverId, {
       userId: ctx.userId,
       username: ctx.username,
@@ -224,6 +263,10 @@ export async function handleNotes(req, res, url, ctx) {
       body: text,
     })
     await consume(ctx.serverId, ctx.userId, NOTES_RATE_LIMIT, 'notes')
+    if (mentionTargets.length) {
+      await recordMentions(ctx, note, mentionTargets)
+      note.mentions = mentionTargets
+    }
     return (json(res, 200, note), true)
   }
 

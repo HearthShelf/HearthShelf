@@ -138,15 +138,19 @@ export const DATA_DOMAINS = [
     userRefs: 'key',
   },
   {
+    // note_mentions rides with the notes it annotates: a mention is part of the
+    // note record (who it addressed, and whether that has been delivered yet),
+    // so exporting or restoring notes without it would lose undelivered
+    // mentions and orphan the delivered ones.
     key: 'book-notes',
-    tables: ['book_notes'],
+    tables: ['book_notes', 'note_mentions'],
     files: null,
     scope: 'user',
     secretColumns: {},
     backup: 'always',
     userExport: true,
     merge: 'union',
-    itemRefs: ['book_notes.library_item_id'],
+    itemRefs: ['book_notes.library_item_id', 'note_mentions.library_item_id'],
     userRefs: 'key',
   },
   {

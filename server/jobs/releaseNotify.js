@@ -20,6 +20,7 @@ import {
 import { sendPushMessages } from '../lib/expoPush.js'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
 import { createNotification } from '../notifications.js'
+import { notifyPrefsFor, shouldNotify } from '../lib/notificationPrefs.js'
 
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
 
@@ -30,30 +31,6 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
-}
-
-// Read a user's notification prefs from the settings catalog, with the same
-// defaults core ships (DEFAULT_NOTIFICATION_PREFS).
-async function prefsFor(serverId, userId) {
-  const get = (k, d) => getUserSetting(serverId, userId, k).then((v) => (v == null ? d : v))
-  const [enabled, inApp, email, avail, release, reminder, window] = await Promise.all([
-    get('notifyEnabled', true),
-    get('notifyInApp', true),
-    get('notifyEmail', false),
-    get('notifyAvailableInLibrary', true),
-    get('notifyOnReleaseDate', true),
-    get('notifyReminderDaysBefore', 3),
-    get('notifyCountdownWindowDays', 14),
-  ])
-  return {
-    enabled: enabled !== false,
-    notifyInApp: inApp !== false,
-    notifyEmail: email === true,
-    notifyAvailableInLibrary: avail !== false,
-    notifyOnReleaseDate: release !== false,
-    reminderDaysBefore: Number(reminder) || 0,
-    countdownWindowDays: Number(window) || 14,
-  }
 }
 
 const DAY = 86_400_000
@@ -74,7 +51,7 @@ function daysUntil(sub, now) {
 function decideBookPush(sub, prefs, owned, now) {
   const notified = sub.notified || {}
   // 1) Available in library - the strongest signal, supersedes the others.
-  if (owned && prefs.notifyAvailableInLibrary && !notified.available) {
+  if (owned && prefs.types.release.availableInLibrary && !notified.available) {
     return {
       signal: 'available',
       title: 'Ready to listen',
@@ -86,7 +63,7 @@ function decideBookPush(sub, prefs, owned, now) {
   const d = daysUntil(sub, now)
   if (d === null) return null
   // 2) Release day (d <= 0 means out today / past but not yet synced to ABS).
-  if (d <= 0 && prefs.notifyOnReleaseDate && !notified.release) {
+  if (d <= 0 && prefs.types.release.onReleaseDate && !notified.release) {
     return {
       signal: 'release',
       title: 'Out today',
@@ -96,8 +73,8 @@ function decideBookPush(sub, prefs, owned, now) {
   // 3) Early reminder, within the reminder window (but not on release day).
   if (
     d > 0 &&
-    prefs.reminderDaysBefore > 0 &&
-    d <= prefs.reminderDaysBefore &&
+    prefs.types.release.reminderDaysBefore > 0 &&
+    d <= prefs.types.release.reminderDaysBefore &&
     !notified.reminder
   ) {
     return {
@@ -127,7 +104,7 @@ export async function runReleaseNotify(logger) {
   const tokensCache = new Map()
   const emailCache = new Map()
   const getPrefs = async (userId) => {
-    if (!prefsCache.has(userId)) prefsCache.set(userId, await prefsFor(serverId, userId))
+    if (!prefsCache.has(userId)) prefsCache.set(userId, await notifyPrefsFor(serverId, userId))
     return prefsCache.get(userId)
   }
   const getTokens = async (userId) => {
@@ -146,7 +123,7 @@ export async function runReleaseNotify(logger) {
 
   const deliver = async ({ userId, entityId, asin, signal, title, body, prefs }) => {
     const data = { asin, signal }
-    if (prefs.notifyInApp) {
+    if (shouldNotify(prefs, 'release', 'inApp')) {
       await createNotification(serverId, userId, {
         kind: 'release',
         entityId,
@@ -155,6 +132,10 @@ export async function runReleaseNotify(logger) {
         data,
       })
       inboxed += 1
+    }
+    // Push is its own channel now - a reader can keep the tray but silence the
+    // phone, which the old combined notifyInApp flag made impossible.
+    if (shouldNotify(prefs, 'release', 'push')) {
       const tokens = await getTokens(userId)
       if (tokens.length) {
         const { sent, invalidTokens: bad } = await sendPushMessages(
@@ -170,7 +151,7 @@ export async function runReleaseNotify(logger) {
         bad.forEach((token) => invalidTokens.add(token))
       }
     }
-    if (prefs.notifyEmail) {
+    if (shouldNotify(prefs, 'release', 'email')) {
       const to = await getEmail(userId)
       const href = asin
         ? `${APP_ORIGIN}/upcoming/${encodeURIComponent(asin)}`
@@ -188,7 +169,7 @@ export async function runReleaseNotify(logger) {
   for (const sub of subs) {
     try {
       const prefs = await getPrefs(sub.userId)
-      if (!prefs.enabled) continue
+      if (!prefs.types.release.enabled) continue
 
       // Book subscription: the awaited book itself.
       if (sub.kind === 'book' && sub.asin) {
@@ -233,7 +214,7 @@ export async function runReleaseNotify(logger) {
           if (!b.asin) continue
           const key = `book:${String(b.asin).toLowerCase()}`
           const owned = ownedAsins.has(String(b.asin).toLowerCase())
-          if (owned && prefs.notifyAvailableInLibrary && !notified[key]) {
+          if (owned && prefs.types.release.availableInLibrary && !notified[key]) {
             await deliver({
               userId: sub.userId,
               entityId: `${sub.id}:${key}`,

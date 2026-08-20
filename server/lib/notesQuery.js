@@ -118,7 +118,10 @@ export async function getNote(serverId, id) {
 //
 // `byId` maps note id -> row for parent lookup (built from the FULL scope,
 // including deleted rows, so a deleted locked parent still gates its replies).
-function isUnlocked(note, byId, pos, meId, isFinished) {
+// Exported so mention delivery can ask the SAME question the gate asks
+// ("can this user read this note yet?") instead of reimplementing it - a
+// second copy of the spoiler rule is how a spoiler leak gets shipped.
+export function isUnlocked(note, byId, pos, meId, isFinished) {
   if (note.parentId) {
     if (note.userId === meId || isFinished) return true
     const parent = byId.get(note.parentId)

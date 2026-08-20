@@ -465,6 +465,32 @@ const SCHEMA = [
    )`,
   `CREATE INDEX IF NOT EXISTS idx_book_notes_item
      ON book_notes (server_id, library_item_id, club_id, created_at)`,
+  // @mentions in club notes. Stored by target_id (never by re-parsing the body)
+  // so a username change can't re-point or orphan a mention.
+  //
+  // delivered_at is the DEFERRED half of the spoiler gate: a mention inside a
+  // note the target hasn't reached yet must NOT notify, or the notification
+  // itself leaks that something was said ahead of them. Those rows sit with
+  // delivered_at NULL until the reader's position crosses the note's time_sec
+  // (or they finish the book), at which point a club read flushes them.
+  `CREATE TABLE IF NOT EXISTS note_mentions (
+     id              TEXT PRIMARY KEY,
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     note_id         TEXT NOT NULL,
+     club_id         TEXT NOT NULL DEFAULT '',
+     library_item_id TEXT NOT NULL,
+     author_id       TEXT NOT NULL,
+     target_id       TEXT NOT NULL,
+     username        TEXT NOT NULL DEFAULT '',
+     created_at      INTEGER NOT NULL,
+     delivered_at    INTEGER
+   )`,
+  // The flush query's access path: one user's still-pending mentions for a book.
+  `CREATE INDEX IF NOT EXISTS idx_note_mentions_pending
+     ON note_mentions (server_id, target_id, delivered_at)`,
+  // Hydrating mentions onto a page of notes.
+  `CREATE INDEX IF NOT EXISTS idx_note_mentions_note
+     ON note_mentions (server_id, note_id)`,
   // Book clubs (see docs/social.md). A club is a persistent group; the book is
   // an attribute of its timeline (club_books), not of the club. is_open is 1 for
   // open-join v1 (the column is shaped for invite-only later); archived hides a

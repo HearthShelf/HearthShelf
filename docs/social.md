@@ -286,6 +286,31 @@ CREATE INDEX IF NOT EXISTS idx_book_notes_item
 -- (backfill 'club' where club_id != '', else 'public') and `safe` (default 0).
 -- Personal notes only ever exist post-migration, so no personal backfill needed.
 
+-- @mentions on club notes. Stored by target_id, never by re-parsing the body,
+-- so a username change cannot re-point or orphan a mention.
+--
+-- delivered_at is the deferred half of the spoiler gate: a mention inside a note
+-- the target has not reached yet must NOT notify them, or the notification
+-- itself reveals that something was said ahead of them. Those rows sit with
+-- delivered_at NULL until a club/notes read finds the reader's position past the
+-- note (or the book finished), which delivers and stamps them exactly once.
+CREATE TABLE IF NOT EXISTS note_mentions (
+  id              TEXT PRIMARY KEY,
+  server_id       TEXT NOT NULL DEFAULT 'local',
+  note_id         TEXT NOT NULL,
+  club_id         TEXT NOT NULL DEFAULT '',
+  library_item_id TEXT NOT NULL,
+  author_id       TEXT NOT NULL,
+  target_id       TEXT NOT NULL,
+  username        TEXT NOT NULL DEFAULT '',
+  created_at      INTEGER NOT NULL,
+  delivered_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_note_mentions_pending
+  ON note_mentions (server_id, target_id, delivered_at);
+CREATE INDEX IF NOT EXISTS idx_note_mentions_note
+  ON note_mentions (server_id, note_id);
+
 CREATE TABLE IF NOT EXISTS clubs (
   id              TEXT PRIMARY KEY,
   server_id       TEXT NOT NULL DEFAULT 'local',
