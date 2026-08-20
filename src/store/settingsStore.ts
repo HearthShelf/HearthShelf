@@ -4,6 +4,7 @@ import type {
   QueueMode,
   AutoRulePref,
   HomeSectionPref,
+  HSNotifyPrefs,
   ReaderAlign,
   ReaderFont,
   ReaderLayout,
@@ -19,6 +20,7 @@ import {
   DEFAULT_AUTO_RULES as CORE_DEFAULT_AUTO_RULE_PREFS,
   DEFAULT_HOME_SECTIONS,
   DEFAULT_REC_SHELF_COUNT,
+  DEFAULT_NOTIFY_PREFS,
   READER_DEFAULTS,
   SETTINGS_CATALOG,
   settingDefault,
@@ -120,15 +122,11 @@ export interface SettingsState {
   // How many taste-derived rows (genre / author / narrator) the "More picks for
   // you" block may spawn. 0 turns the block off.
   homeRecShelfCount: number
-  // Followed-book and series alerts (account-scoped across every client).
-  notifyEnabled: boolean
-  notifyInApp: boolean
-  notifyEmail: boolean
-  notifyAvailableInLibrary: boolean
-  notifyOnReleaseDate: boolean
-  notifyReminderDaysBefore: number
-  // How many days out a followed book starts showing on Home's countdown band.
-  notifyCountdownWindowDays: number
+  // Notification delivery + per-type choices (account-scoped across every
+  // client). One structured value rather than a key per toggle - see
+  // HSNotifyPrefs in @hearthshelf/core. Read it through resolveChannels /
+  // shouldNotify, which own the inheritance rules and the club-invite floor.
+  notifyPrefs: HSNotifyPrefs
   // When on, Search also looks up titles you don't own via the Audible catalog
   // and shows them in a "Not in your library" section.
   searchExternalSources: boolean
@@ -261,13 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
       showOthersBooks: true,
       homeSections: DEFAULT_HOME_SECTIONS,
       homeRecShelfCount: DEFAULT_REC_SHELF_COUNT,
-      notifyEnabled: true,
-      notifyInApp: true,
-      notifyEmail: false,
-      notifyAvailableInLibrary: true,
-      notifyOnReleaseDate: true,
-      notifyReminderDaysBefore: 3,
-      notifyCountdownWindowDays: 14,
+      notifyPrefs: DEFAULT_NOTIFY_PREFS,
       searchExternalSources: true,
       externalLinkGoodreads: true,
       externalLinkAudible: true,

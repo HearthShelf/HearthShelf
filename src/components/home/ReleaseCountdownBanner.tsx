@@ -1,7 +1,7 @@
 /**
  * Home countdown banner: "X days until <book>" for whatever the reader is
  * waiting on whose release falls within their countdown window
- * (notifyCountdownWindowDays, default 14). Renders nothing when nothing
+ * (notifyPrefs.countdownWindowDays, default 14). Renders nothing when nothing
  * qualifies, so it's safe to always mount.
  *
  * Fed from BOTH follow kinds: a book followed directly, and the next book of a
@@ -30,7 +30,7 @@ import { Icon } from '@/components/common/Icon'
 
 export function ReleaseCountdownBanner() {
   const navigate = useNavigate()
-  const windowDays = useSettingsStore((s) => s.notifyCountdownWindowDays)
+  const windowDays = useSettingsStore((s) => s.notifyPrefs.countdownWindowDays)
 
   const ignoredAsins = useDismissalsStore((st) => st.rosterAsins)
 

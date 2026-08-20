@@ -7,6 +7,7 @@ import {
   type AutoRulePref,
 } from '@/store/settingsStore'
 import type { AutoRuleId } from '@/store/queueStore'
+import type { NotifyChannel, NotifyType } from '@hearthshelf/core'
 import { useQueueStore } from '@/store/queueStore'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -354,6 +355,27 @@ export function SettingsPage() {
   const put = <K extends keyof SettingsState>(k: K, v: SettingsState[K]) =>
     set(k as never, v as never)
 
+  // Notification prefs are one structured value (see HSNotifyPrefs): global
+  // delivery channels plus per-type opt-ins. These three helpers patch it.
+  const np = s.notifyPrefs
+  const setChannel = (channel: NotifyChannel, on: boolean) => {
+    const global = { ...np.global, [channel]: on }
+    // Every channel off means "notify me nowhere", which reads as a bug rather
+    // than a choice - keep the tray on as the floor.
+    if (!global.inApp && !global.push && !global.email) global.inApp = true
+    put('notifyPrefs', { ...np, global })
+  }
+  const setTypeEnabled = (type: NotifyType, on: boolean) =>
+    put('notifyPrefs', {
+      ...np,
+      types: { ...np.types, [type]: { ...np.types[type], enabled: on } },
+    })
+  const setRelease = (patch: Partial<(typeof np)['types']['release']>) =>
+    put('notifyPrefs', {
+      ...np,
+      types: { ...np.types, release: { ...np.types.release, ...patch } },
+    })
+
   // Toast for page-level actions (e.g. the data-export buttons).
   const { toast: pageToast, show } = useToast()
 
@@ -416,71 +438,81 @@ export function SettingsPage() {
                 <h2>Notifications</h2>
               </div>
               <p className="t-muted mb-4 text-[13px]">
-                Choose where HearthShelf tells you about books and series you follow.
+                Pick where HearthShelf reaches you, then choose what's worth reaching you about.
               </p>
 
-              <div className="cn-label">Release alerts</div>
+              <div className="cn-label">Delivery</div>
               <div className="set-group">
                 <SetRow
-                  title="Release notifications"
-                  desc="Get told when a book you're waiting for is ready."
+                  title="In app"
+                  desc="Show alerts in the HearthShelf notification tray."
                   control={
                     <Toggle
-                      on={s.notifyEnabled}
-                      onClick={() => {
-                        const next = !s.notifyEnabled
-                        put('notifyEnabled', next)
-                        if (next && !s.notifyInApp && !s.notifyEmail) put('notifyInApp', true)
-                      }}
+                      on={np.global.inApp}
+                      onClick={() => setChannel('inApp', !np.global.inApp)}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Mobile push"
+                  desc="Send an alert to the HearthShelf app on your phone."
+                  control={
+                    <Toggle
+                      on={np.global.push}
+                      onClick={() => setChannel('push', !np.global.push)}
+                    />
+                  }
+                />
+                <SetRow
+                  title="Email"
+                  desc="Send alerts to the email on your server account."
+                  control={
+                    <Toggle
+                      on={np.global.email}
+                      onClick={() => setChannel('email', !np.global.email)}
                     />
                   }
                 />
               </div>
 
-              {s.notifyEnabled && (
-                <>
-                  <div className="cn-label">Delivery</div>
-                  <div className="set-group">
-                    <SetRow
-                      title="In app"
-                      desc="Show alerts in the HearthShelf notification tray. Mobile also sends a phone alert."
-                      control={
-                        <Toggle
-                          on={s.notifyInApp}
-                          onClick={() => {
-                            const next = !s.notifyInApp
-                            put('notifyInApp', next)
-                            if (!next && !s.notifyEmail) put('notifyEnabled', false)
-                          }}
-                        />
-                      }
+              <div className="cn-label">Alert me about</div>
+              <div className="set-group">
+                <SetRow
+                  title="Release alerts"
+                  desc="Books and series you follow."
+                  control={
+                    <Toggle
+                      on={np.types.release.enabled}
+                      onClick={() => setTypeEnabled('release', !np.types.release.enabled)}
                     />
-                    <SetRow
-                      title="Email"
-                      desc="Send alerts to the email on your server account."
-                      control={
-                        <Toggle
-                          on={s.notifyEmail}
-                          onClick={() => {
-                            const next = !s.notifyEmail
-                            put('notifyEmail', next)
-                            if (!next && !s.notifyInApp) put('notifyEnabled', false)
-                          }}
-                        />
-                      }
+                  }
+                />
+                <SetRow
+                  title="Club mentions"
+                  desc="When someone @mentions you in a book club discussion."
+                  control={
+                    <Toggle
+                      on={np.types.mention.enabled}
+                      onClick={() => setTypeEnabled('mention', !np.types.mention.enabled)}
                     />
-                  </div>
+                  }
+                />
+              </div>
 
-                  <div className="cn-label">Alert me</div>
+              {np.types.release.enabled && (
+                <>
+                  <div className="cn-label">Release alerts</div>
                   <div className="set-group">
                     <SetRow
                       title="When it's in your library"
                       desc="The moment a followed book is ready to play."
                       control={
                         <Toggle
-                          on={s.notifyAvailableInLibrary}
+                          on={np.types.release.availableInLibrary}
                           onClick={() =>
-                            put('notifyAvailableInLibrary', !s.notifyAvailableInLibrary)
+                            setRelease({
+                              availableInLibrary: !np.types.release.availableInLibrary,
+                            })
                           }
                         />
                       }
@@ -490,8 +522,10 @@ export function SettingsPage() {
                       desc="When the catalog says it's out, even before it syncs in."
                       control={
                         <Toggle
-                          on={s.notifyOnReleaseDate}
-                          onClick={() => put('notifyOnReleaseDate', !s.notifyOnReleaseDate)}
+                          on={np.types.release.onReleaseDate}
+                          onClick={() =>
+                            setRelease({ onReleaseDate: !np.types.release.onReleaseDate })
+                          }
                         />
                       }
                     />
@@ -500,11 +534,11 @@ export function SettingsPage() {
                       desc="Choose how many days before release to get a heads-up."
                       control={
                         <NumPick
-                          value={s.notifyReminderDaysBefore}
-                          onChange={(value) => put('notifyReminderDaysBefore', value)}
+                          value={np.types.release.reminderDaysBefore}
+                          onChange={(value) => setRelease({ reminderDaysBefore: value })}
                           presets={[0, 1, 3, 7, 14]}
                           min={0}
-                          max={14}
+                          max={30}
                           unit="d"
                         />
                       }
@@ -520,8 +554,10 @@ export function SettingsPage() {
                   desc="Choose how many days before release upcoming books appear on Home."
                   control={
                     <NumPick
-                      value={s.notifyCountdownWindowDays}
-                      onChange={(value) => put('notifyCountdownWindowDays', value)}
+                      value={np.countdownWindowDays}
+                      onChange={(value) =>
+                        put('notifyPrefs', { ...np, countdownWindowDays: value })
+                      }
                       presets={[3, 7, 14, 30]}
                       min={1}
                       max={30}
@@ -531,7 +567,8 @@ export function SettingsPage() {
                 />
               </div>
               <p className="t-muted mt-3 text-[12px]">
-                Book club invitations always arrive in-app and by email so they can be accepted.
+                Book club invitations always arrive in the tray so you can accept them, whatever
+                else is switched off here.
               </p>
             </>
           )}
