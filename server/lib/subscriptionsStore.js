@@ -59,6 +59,25 @@ export async function allSubscriptions(serverId) {
   return res.rows.map((r) => ({ ...rowToSub(r), userId: String(r.user_id) }))
 }
 
+/**
+ * Does this user already follow this book ASIN, under any subscription id?
+ *
+ * Needed because ids are minted two ways - a user follow gets a random id, an
+ * auto-follow from a request gets a deterministic `req_<asin>` - so the primary
+ * key alone can't stop the same book being followed twice. Matched
+ * case-insensitively, the same way the notify job compares owned ASINs.
+ */
+export async function findBookSubscriptionByAsin(serverId, userId, asin) {
+  const res = await db.execute({
+    sql: `SELECT * FROM subscriptions
+          WHERE server_id = ? AND user_id = ? AND kind = 'book'
+            AND lower(asin) = lower(?)
+          LIMIT 1`,
+    args: [serverId, userId, String(asin)],
+  })
+  return res.rows[0] ? rowToSub(res.rows[0]) : null
+}
+
 /** Create (or upsert by id) a subscription. `sub` is HSSubscriptionCreate plus a
  *  caller-supplied id + createdAt. */
 export async function saveSubscription(serverId, userId, sub) {

@@ -6,6 +6,45 @@
 import { json, readBody } from '../lib/http.js'
 import { isRmabConfigured, rmabFetch } from '../rmab.js'
 import { appLog } from '../lib/appLog.js'
+import {
+  findBookSubscriptionByAsin,
+  saveSubscription,
+} from '../lib/subscriptionsStore.js'
+
+// Requesting a book is an implicit "tell me when this arrives", so a successful
+// submit auto-creates the same book subscription the Follow button would. The
+// nightly release job then fires "Ready to listen" once the book lands in ABS.
+// Doing it here rather than in a client covers every UI (web, hosted, mobile) at
+// once. The id is derived from the ASIN so a repeat request upserts the one row
+// rather than stacking duplicates.
+async function autoFollowRequested(serverId, userId, audiobook) {
+  const asin = typeof audiobook?.asin === 'string' ? audiobook.asin.trim() : ''
+  const title = typeof audiobook?.title === 'string' ? audiobook.title.trim() : ''
+  if (!asin || !title) return
+  // Already following this book (from the Follow button, or an earlier request)?
+  // Leave that subscription alone - re-inserting under a different id would
+  // duplicate the row and send the same alert twice.
+  if (await findBookSubscriptionByAsin(serverId, userId, asin)) return
+  await saveSubscription(serverId, userId, {
+    id: `req_${asin}`,
+    kind: 'book',
+    asin,
+    seriesAsin: null,
+    absSeriesId: null,
+    title,
+    author: audiobook.author ?? null,
+    seriesTitle: audiobook.seriesTitle ?? null,
+    sequence: audiobook.sequence ?? null,
+    coverArtUrl: audiobook.coverArtUrl ?? null,
+    narrator: audiobook.narrator ?? null,
+    durationMinutes: Number.isFinite(audiobook.durationMinutes)
+      ? audiobook.durationMinutes
+      : null,
+    releaseDate: audiobook.releaseDate ?? null,
+    publicationDatetime: audiobook.publicationDatetime ?? null,
+    createdAt: Date.now(),
+  })
+}
 
 export async function handleRmab(req, res, url, ctx) {
   const p = url.pathname
@@ -43,6 +82,15 @@ export async function handleRmab(req, res, url, ctx) {
       const asin = payload?.audiobook?.asin || 'unknown'
       if (r.status >= 200 && r.status < 300 && r.body?.success !== false) {
         appLog.info('readmeabook', `Request submitted (asin=${asin}, status=${r.status})`)
+        // Best-effort: a failed follow must not fail the request that succeeded.
+        try {
+          await autoFollowRequested(ctx.serverId, ctx.userId, payload?.audiobook)
+        } catch (err) {
+          appLog.warn(
+            'readmeabook',
+            `Could not auto-follow requested book (asin=${asin}): ${String(err?.message ?? err)}`,
+          )
+        }
       } else {
         const reason = r.body?.error || r.body?.message || `HTTP ${r.status}`
         appLog.warn('readmeabook', `Request rejected (asin=${asin}, status=${r.status}): ${reason}`)
