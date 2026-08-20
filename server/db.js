@@ -484,7 +484,10 @@ const SCHEMA = [
   //   finished : finished_at stamped
   // title/author are snapshotted at add time so the timeline renders even if the
   // item later leaves ABS. started_at is 0 while a book is queued, set when the
-  // owner promotes it to current.
+  // owner promotes it to current. abandoned_at marks a book the club started and
+  // set aside without finishing - it leaves the current slot but is not a past
+  // read. sort_order is the owner's up-next ordering (only meaningful while
+  // queued_at is set).
   `CREATE TABLE IF NOT EXISTS club_books (
      server_id       TEXT NOT NULL DEFAULT 'local',
      club_id         TEXT NOT NULL,
@@ -495,6 +498,8 @@ const SCHEMA = [
      started_at      INTEGER NOT NULL,
      finished_at     INTEGER,
      queued_at       INTEGER,
+     abandoned_at    INTEGER,
+     sort_order      INTEGER NOT NULL DEFAULT 0,
      PRIMARY KEY (server_id, club_id, library_item_id)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_club_books_item
@@ -796,6 +801,11 @@ const MIGRATIONS = [
   // default to their own reading history.
   `ALTER TABLE community_config ADD COLUMN clubs_ai_enabled INTEGER DEFAULT 0`,
   `ALTER TABLE clubs ADD COLUMN rec_basis TEXT NOT NULL DEFAULT 'club-history'`,
+  // A club book that left the current slot without being read to the end. Before
+  // this column every such book was stamped finished_at, so shelved books showed
+  // up as past reads; the requeue action moves those back.
+  `ALTER TABLE club_books ADD COLUMN abandoned_at INTEGER`,
+  `ALTER TABLE club_books ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
   // Avatar provenance (see docs/database.md). Existing rows are all manual
   // uploads, so the DEFAULT 'upload' backfills them correctly; only the hosted
   // WebApp writes 'clerk' rows when it copies a user's SSO photo.

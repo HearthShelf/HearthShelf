@@ -204,9 +204,9 @@ async function mergeClubs(src, tgtServerId, ctx) {
     const addedBy = targetUser(ctx.userMap, b.added_by)
     if (!targetClubId || !libraryItemId) continue
     await db.execute({
-      sql: `INSERT OR IGNORE INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [tgtServerId, targetClubId, libraryItemId, String(b.title ?? ''), String(b.author ?? ''), addedBy || '', Number(b.started_at) || 0, b.finished_at != null ? Number(b.finished_at) : null, b.queued_at != null ? Number(b.queued_at) : null],
+      sql: `INSERT OR IGNORE INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [tgtServerId, targetClubId, libraryItemId, String(b.title ?? ''), String(b.author ?? ''), addedBy || '', Number(b.started_at) || 0, b.finished_at != null ? Number(b.finished_at) : null, b.queued_at != null ? Number(b.queued_at) : null, b.abandoned_at != null ? Number(b.abandoned_at) : null, Number(b.sort_order) || 0],
     })
   }
 

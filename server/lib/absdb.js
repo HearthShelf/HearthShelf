@@ -1742,6 +1742,51 @@ export async function getMemberProgress(userIds = [], libraryItemId) {
   }
 }
 
+// Per-member progress across MANY library items at once, for the club reach
+// ("book 5 of 12") badges. Returns Map<userId, Map<libraryItemId, { currentTime,
+// duration, isFinished }>>; users or items with no row are simply absent. Same
+// shape per entry as getMemberProgress, one query instead of N.
+export async function getMemberProgressMulti(userIds = [], libraryItemIds = []) {
+  const ids = [...new Set(userIds.filter(Boolean))]
+  const items = [...new Set(libraryItemIds.filter(Boolean))]
+  if (!ids.length || !items.length) return new Map()
+  const c = await ensureClient()
+  if (!c) return new Map()
+  try {
+    const userPh = ids.map(() => '?').join(', ')
+    const itemPh = items.map(() => '?').join(', ')
+    const res = await c.execute({
+      sql: `
+        SELECT li.id AS libraryItemId, mp.userId AS userId, mp.currentTime AS currentTime,
+               mp.duration AS duration, mp.isFinished AS isFinished
+        FROM libraryItems li
+        JOIN mediaProgresses mp
+          ON mp.mediaItemId = li.mediaId AND mp.mediaItemType = 'book'
+        WHERE li.id IN (${itemPh}) AND li.mediaType = 'book'
+          AND mp.userId IN (${userPh})
+      `,
+      args: [...items, ...ids],
+    })
+    const out = new Map()
+    for (const row of res.rows) {
+      const userId = String(row.userId)
+      let perUser = out.get(userId)
+      if (!perUser) {
+        perUser = new Map()
+        out.set(userId, perUser)
+      }
+      perUser.set(String(row.libraryItemId), {
+        currentTime: row.currentTime == null ? null : Number(row.currentTime),
+        duration: row.duration == null ? null : Number(row.duration),
+        isFinished: Boolean(row.isFinished),
+      })
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
 // The caller's own progress in one library item: { currentTime, duration,
 // isFinished } or null when there's no row (or the db is unavailable). Used for
 // the notes finished-bypass and the position clamp.

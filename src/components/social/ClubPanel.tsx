@@ -153,7 +153,9 @@ export function ClubPanel({
 
   const club = data?.club
   const books = data?.books ?? []
-  const current = books.find((b) => b.finishedAt == null) ?? null
+  // The current book carries neither terminal stamp; a set aside book also has
+  // finishedAt null and must not be mistaken for it.
+  const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) ?? null
   // The book actually shown (server resolves the default when we send none).
   const shownBookId =
     viewBookId ||
@@ -322,7 +324,12 @@ export function ClubPanel({
               .reverse()
               .map((b) => (
                 <option key={b.libraryItemId} value={b.libraryItemId}>
-                  {b.finishedAt == null ? 'Now reading' : 'Past'} · {b.title || 'Untitled'}
+                  {b.finishedAt != null
+                    ? 'Past'
+                    : b.abandonedAt != null
+                      ? 'Set aside'
+                      : 'Now reading'}{' '}
+                  · {b.title || 'Untitled'}
                 </option>
               ))}
           </select>

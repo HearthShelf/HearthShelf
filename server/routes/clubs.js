@@ -2,9 +2,15 @@
 //
 //   GET    /hs/clubs?libraryItemId=            -> { enabled, mine, joinable }
 //   POST   /hs/clubs   { name, libraryItemId? } -> HSClub (creator = owner)
-//   POST   /hs/clubs/:id/books  { libraryItemId } (owner) -> advance current book
+//   POST   /hs/clubs/:id/books  { libraryItemId, finishPrevious? } (owner)
+//                                               -> advance current book; the
+//                                                  outgoing book becomes a past
+//                                                  read (default) or set aside
 //   POST   /hs/clubs/:id/queue  { libraryItemId } (owner) -> add to up-next queue
 //   DELETE /hs/clubs/:id/queue/:itemId          (owner) -> remove a queued book
+//   POST   /hs/clubs/:id/requeue { libraryItemId } (owner) -> past/set aside book
+//                                                  back into the up-next queue
+//   PUT    /hs/clubs/:id/queue-order { libraryItemIds } (owner) -> reorder queue
 //   POST   /hs/clubs/:id/join                   -> join (open + not archived)
 //   POST   /hs/clubs/:id/leave                  -> leave (owner cannot)
 //   POST   /hs/clubs/:id/kick   { userId } (owner)
@@ -31,6 +37,7 @@ import { check, consume } from '../ratelimit.js'
 import {
   absDbAvailable,
   getMemberProgress,
+  getMemberProgressMulti,
   getActiveListeners,
   getFinishedGenresForUsers,
   listServerUsers,
@@ -40,7 +47,12 @@ import { getExplicitSharePrefs } from '../settings.js'
 import { getConfig } from '../config.js'
 import { isProviderConfigured, complete } from '../providers.js'
 import { parseResult } from './questgiver.js'
-import { craftClubPrompt, clubHeuristic } from '@hearthshelf/core/lib/social'
+import {
+  craftClubPrompt,
+  clubHeuristic,
+  clubBookOrder,
+  memberReach,
+} from '@hearthshelf/core/lib/social'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
 import { sendPushMessages } from '../lib/expoPush.js'
 import { deletePushToken, listPushTokens } from '../lib/subscriptionsStore.js'
@@ -61,6 +73,8 @@ import {
   setCurrentBook,
   enqueueBook,
   removeQueued,
+  requeueBook,
+  reorderQueue,
   addMember,
   removeMember,
   bumpReadCursor,
@@ -196,11 +210,19 @@ async function fetchBookSnapshot(ctx, libraryItemId) {
 
 // Assemble an HSClub summary (adds memberCount + currentBook to a club row).
 async function clubSummary(serverId, club) {
-  const [count, current] = await Promise.all([
+  const [count, current, queue] = await Promise.all([
     memberCount(serverId, club.id),
     currentBook(serverId, club.id),
+    listQueue(serverId, club.id),
   ])
-  return { ...club, memberCount: count, currentBook: current }
+  // queuedItemIds lets a book page say "In queue" for a club without fetching
+  // each club's full detail just to render one button's state.
+  return {
+    ...club,
+    memberCount: count,
+    currentBook: current,
+    queuedItemIds: queue.map((b) => b.libraryItemId),
+  }
 }
 
 // Turn a raw { genre -> count } tally into the ClubTaste shape the core
@@ -460,7 +482,9 @@ export async function handleClubs(req, res, url, ctx) {
       listBooks(ctx.serverId, clubId),
       listQueue(ctx.serverId, clubId),
     ])
-    const current = books.find((b) => b.finishedAt == null) || null
+    // The current book carries neither terminal stamp; a set aside book has
+    // finishedAt null too and must not be mistaken for it.
+    const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) || null
     const requestedBookId = url.searchParams.get('bookId') || ''
     // Which book we're viewing: the requested one if it's in this club, else the
     // current book, else the most recent past book.
@@ -481,11 +505,29 @@ export async function handleClubs(req, res, url, ctx) {
     // false always wins - the member's progress still shows, only the live pulse
     // hides (docs/social.md privacy table). The community default is NOT
     // consulted in-club; the caller always sees their own pulse.
+    // Reach = how far each member has got through the club's whole book order,
+    // so a 12-book series shows who has run ahead of the club's pace.
+    const bookOrder = clubBookOrder(books, queue)
     let progress = new Map()
+    let reachByUser = new Map()
     let listeningIds = new Set()
     let listenPrefs = new Map()
     if (viewedBookId && (await absDbAvailable())) {
-      progress = await getMemberProgress(memberIds, viewedBookId)
+      const [viewed, across] = await Promise.all([
+        getMemberProgress(memberIds, viewedBookId),
+        getMemberProgressMulti(
+          memberIds,
+          bookOrder.map((b) => b.libraryItemId),
+        ),
+      ])
+      progress = viewed
+      const clubCurrentId = current ? current.libraryItemId : ''
+      for (const id of memberIds) {
+        const perItem = across.get(id)
+        if (!perItem) continue
+        const r = memberReach(bookOrder, perItem, clubCurrentId)
+        if (r) reachByUser.set(id, r)
+      }
       if (isCurrent) {
         const [rows, prefs] = await Promise.all([
           getActiveListeners([viewedBookId], LISTENING_CUTOFF_MS),
@@ -510,6 +552,7 @@ export async function handleClubs(req, res, url, ctx) {
         duration: pr ? pr.duration : null,
         isFinished: pr ? pr.isFinished : null,
         listeningNow: listeningIds.has(m.userId) && !optedOut,
+        reach: reachByUser.get(m.userId) ?? null,
       }
     })
 
@@ -564,10 +607,13 @@ export async function handleClubs(req, res, url, ctx) {
     if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
     if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
     const snapshot = await fetchBookSnapshot(ctx, libraryItemId)
+    // The outgoing current book becomes a past read unless the owner says the
+    // club is setting it aside unfinished (finishPrevious false).
     await setCurrentBook(ctx.serverId, clubId, {
       libraryItemId,
       addedBy: ctx.userId,
       bookSnapshot: snapshot,
+      finishPrevious: body.finishPrevious !== false,
     })
     return (json(res, 200, await clubSummary(ctx.serverId, club)), true)
   }
@@ -601,6 +647,41 @@ export async function handleClubs(req, res, url, ctx) {
     if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
     const removed = await removeQueued(ctx.serverId, clubId, libraryItemId)
     return (json(res, 200, { ok: true, removed }), true)
+  }
+
+  // POST /hs/clubs/:id/requeue { libraryItemId } -> move a past read or a set
+  // aside book back into the up-next queue (owner). This is the un-do for a book
+  // the club shelved, including one wrongly stamped finished before set-aside
+  // existed. The current book is refused - promote something else first.
+  if (action === 'requeue' && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    const libraryItemId =
+      typeof body.libraryItemId === 'string' && body.libraryItemId ? body.libraryItemId : ''
+    if (!libraryItemId) return (json(res, 400, { error: 'missing_libraryItemId' }), true)
+    if (!ID_RE.test(libraryItemId)) return (json(res, 400, { error: 'invalid_id' }), true)
+    const moved = await requeueBook(ctx.serverId, clubId, libraryItemId)
+    if (!moved) return (json(res, 409, { error: 'not_requeueable' }), true)
+    return (json(res, 200, { ok: true }), true)
+  }
+
+  // PUT /hs/clubs/:id/queue-order { libraryItemIds } -> reorder the up-next
+  // queue (owner). Ids not currently queued are ignored; omitted queued books
+  // keep their relative order at the back, so a stale list never drops a book.
+  if (action === 'queue-order' && req.method === 'PUT') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    if (!body || !Array.isArray(body.libraryItemIds)) {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    const ids = body.libraryItemIds.filter((id) => typeof id === 'string' && ID_RE.test(id))
+    const count = await reorderQueue(ctx.serverId, clubId, ids)
+    return (json(res, 200, { ok: true, count }), true)
   }
 
   // POST /hs/clubs/:id/join -> join (open + not archived)

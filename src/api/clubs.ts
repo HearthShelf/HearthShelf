@@ -69,6 +69,7 @@ const EMPTY_DETAIL: HSClubDetail = {
     createdAt: 0,
     memberCount: 0,
     currentBook: null,
+    queuedItemIds: [],
     recBasis: 'club-history',
   },
   books: [],

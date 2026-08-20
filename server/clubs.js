@@ -5,9 +5,11 @@
 // authoritative implementations.
 //
 // A club is a persistent group; the book is an attribute of its timeline. The
-// club_books table holds every book in one of three states: queued (queued_at
-// set), current (queued_at and finished_at both NULL, exactly one), and finished
-// (finished_at stamped). The owner queues up-next books and promotes them.
+// club_books table holds every book in one of four states: queued (queued_at
+// set), current (queued_at, finished_at and abandoned_at all NULL, exactly one),
+// finished (finished_at stamped), and set aside (abandoned_at stamped - started
+// but shelved without finishing, so it is NOT a past read). The owner queues
+// up-next books, promotes them, and can send any book back to the queue.
 
 import crypto from 'node:crypto'
 import { db, initDb } from './db.js'
@@ -47,6 +49,8 @@ function mapBookRow(row) {
     startedAt: Number(row.started_at),
     finishedAt: row.finished_at == null ? null : Number(row.finished_at),
     queuedAt: row.queued_at == null ? null : Number(row.queued_at),
+    abandonedAt: row.abandoned_at == null ? null : Number(row.abandoned_at),
+    sortOrder: Number(row.sort_order ?? 0),
   }
 }
 
@@ -120,13 +124,14 @@ export async function memberCount(serverId, clubId) {
   return Number(r.rows[0]?.n) || 0
 }
 
-// The club's reading history: current + finished books, in started_at order
-// (current book, with finished_at NULL, sorts last as it's the newest started).
-// Excludes queued books - those aren't part of the timeline yet (see listQueue).
+// The club's reading history: current + finished + set-aside books, in
+// started_at order. Excludes queued books - those aren't part of the timeline
+// yet (see listQueue). Callers separate past reads (finished_at) from set-aside
+// books (abandoned_at); the current book has neither stamp.
 export async function listBooks(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
           FROM club_books WHERE server_id = ? AND club_id = ? AND queued_at IS NULL
           ORDER BY started_at ASC`,
     args: [serverId, clubId],
@@ -134,26 +139,29 @@ export async function listBooks(serverId, clubId) {
   return r.rows.map(mapBookRow)
 }
 
-// The up-next queue: books queued but not yet started, oldest-queued first.
+// The up-next queue: books queued but not yet started, in the owner's order
+// (sort_order, then queued_at for rows predating ordering).
 export async function listQueue(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
           FROM club_books WHERE server_id = ? AND club_id = ?
             AND queued_at IS NOT NULL AND finished_at IS NULL
-          ORDER BY queued_at ASC`,
+          ORDER BY sort_order ASC, queued_at ASC`,
     args: [serverId, clubId],
   })
   return r.rows.map(mapBookRow)
 }
 
-// The club's current book (started, not finished, not queued), or null.
+// The club's current book (started, not finished, not set aside, not queued),
+// or null.
 export async function currentBook(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
           FROM club_books
           WHERE server_id = ? AND club_id = ? AND finished_at IS NULL AND queued_at IS NULL
+            AND abandoned_at IS NULL
           LIMIT 1`,
     args: [serverId, clubId],
   })
@@ -212,30 +220,37 @@ export async function createClub(
   return id
 }
 
-// Advance the club to a new current book: stamp finished_at on the previous
-// current, then upsert the new one as started/current (clearing finished_at and
-// queued_at, so promoting a queued book works too). `bookSnapshot` is
-// { title, author }.
-export async function setCurrentBook(serverId, clubId, { libraryItemId, addedBy, bookSnapshot }) {
+// Advance the club to a new current book. The outgoing current book leaves the
+// slot as either a past read (finishPrevious true - the club read it to the end)
+// or set aside (finishPrevious false - the club shelved it unread, so it stays
+// eligible to come back via requeueBook). Then upsert the new one as
+// started/current, clearing every terminal stamp so promoting a queued, set
+// aside, or past book all work. `bookSnapshot` is { title, author }.
+export async function setCurrentBook(
+  serverId,
+  clubId,
+  { libraryItemId, addedBy, bookSnapshot, finishPrevious = true },
+) {
   await ensure()
   const now = Date.now()
   // Stamp the outgoing current book (if any) unless it's the same item. Only the
-  // started current book qualifies (queued_at NULL) - queued books also have
-  // finished_at NULL and must not be finished here.
+  // started current book qualifies (queued_at NULL, no terminal stamp) - queued
+  // books also have finished_at NULL and must not be stamped here.
   await db.execute({
-    sql: `UPDATE club_books SET finished_at = ?
+    sql: `UPDATE club_books SET ${finishPrevious ? 'finished_at' : 'abandoned_at'} = ?
           WHERE server_id = ? AND club_id = ? AND finished_at IS NULL AND queued_at IS NULL
-            AND library_item_id != ?`,
+            AND abandoned_at IS NULL AND library_item_id != ?`,
     args: [now, serverId, clubId, libraryItemId],
   })
-  // Upsert the new current book; re-adding a past or queued book clears its
-  // finished_at and queued_at and stamps started_at now.
+  // Upsert the new current book; re-adding a past, set aside, or queued book
+  // clears its stamps and restamps started_at now.
   await db.execute({
-    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0)
           ON CONFLICT (server_id, club_id, library_item_id)
-          DO UPDATE SET finished_at = NULL, queued_at = NULL, started_at = excluded.started_at,
-                        title = excluded.title, author = excluded.author, added_by = excluded.added_by`,
+          DO UPDATE SET finished_at = NULL, queued_at = NULL, abandoned_at = NULL,
+                        started_at = excluded.started_at, title = excluded.title,
+                        author = excluded.author, added_by = excluded.added_by`,
     args: [
       serverId,
       clubId,
@@ -248,6 +263,56 @@ export async function setCurrentBook(serverId, clubId, { libraryItemId, addedBy,
   })
 }
 
+// The next sort_order for a club's queue (max + 1, so new books land at the
+// back). Returns 0 for an empty queue.
+async function nextQueueOrder(serverId, clubId) {
+  const r = await db.execute({
+    sql: `SELECT COALESCE(MAX(sort_order), -1) AS m FROM club_books
+          WHERE server_id = ? AND club_id = ? AND queued_at IS NOT NULL AND finished_at IS NULL`,
+    args: [serverId, clubId],
+  })
+  return (Number(r.rows[0]?.m) || 0) + 1
+}
+
+// Move a book that already left the queue - a past read or a set aside book -
+// back into the up-next queue, clearing its terminal stamps. This is how a club
+// un-does a book it shelved (or one wrongly marked finished). Refuses to touch
+// the current book: promote a different book first. Returns true if a row moved.
+export async function requeueBook(serverId, clubId, libraryItemId) {
+  await ensure()
+  const order = await nextQueueOrder(serverId, clubId)
+  const r = await db.execute({
+    sql: `UPDATE club_books
+          SET queued_at = ?, finished_at = NULL, abandoned_at = NULL, started_at = 0,
+              sort_order = ?
+          WHERE server_id = ? AND club_id = ? AND library_item_id = ?
+            AND queued_at IS NULL
+            AND (finished_at IS NOT NULL OR abandoned_at IS NOT NULL)`,
+    args: [Date.now(), order, serverId, clubId, libraryItemId],
+  })
+  return (r.rowsAffected ?? 0) > 0
+}
+
+// Rewrite the queue's order from an explicit list of library item ids. Ids not
+// currently queued are ignored; queued books the list omits keep their relative
+// order after the listed ones, so a partial list can never drop a book.
+export async function reorderQueue(serverId, clubId, libraryItemIds) {
+  await ensure()
+  const queue = await listQueue(serverId, clubId)
+  const queued = new Set(queue.map((b) => b.libraryItemId))
+  const wanted = libraryItemIds.filter((id) => queued.has(id))
+  const seen = new Set(wanted)
+  const finalOrder = [...wanted, ...queue.map((b) => b.libraryItemId).filter((id) => !seen.has(id))]
+  for (let i = 0; i < finalOrder.length; i++) {
+    await db.execute({
+      sql: `UPDATE club_books SET sort_order = ?
+            WHERE server_id = ? AND club_id = ? AND library_item_id = ? AND queued_at IS NOT NULL`,
+      args: [i, serverId, clubId, finalOrder[i]],
+    })
+  }
+  return finalOrder.length
+}
+
 // Add a book to the up-next queue. No-op (returns false) if the book is already
 // in the club (queued, current, or finished) - re-queueing a finished book would
 // need an explicit re-add via setCurrentBook. `bookSnapshot` is { title, author }.
@@ -255,9 +320,10 @@ export async function enqueueBook(serverId, clubId, { libraryItemId, addedBy, bo
   await ensure()
   if (await bookInClub(serverId, clubId, libraryItemId)) return false
   const now = Date.now()
+  const order = await nextQueueOrder(serverId, clubId)
   await db.execute({
-    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at)
-          VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, ?)`,
     args: [
       serverId,
       clubId,
@@ -266,6 +332,7 @@ export async function enqueueBook(serverId, clubId, { libraryItemId, addedBy, bo
       bookSnapshot?.author || '',
       addedBy,
       now,
+      order,
     ],
   })
   return true
@@ -558,8 +625,8 @@ export async function listMyClubs(serverId, userId) {
   return r.rows.map(mapClubRow)
 }
 
-// Open, non-archived clubs whose CURRENT book (finished_at NULL, not queued) is
-// the item.
+// Open, non-archived clubs whose CURRENT book (no terminal stamp, not queued) is
+// the item. A book the club set aside no longer advertises the club.
 export async function listJoinableClubs(serverId, libraryItemId) {
   if (!libraryItemId) return []
   await ensure()
@@ -569,6 +636,7 @@ export async function listJoinableClubs(serverId, libraryItemId) {
           JOIN club_books cb ON cb.server_id = c.server_id AND cb.club_id = c.id
           WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0
             AND cb.library_item_id = ? AND cb.finished_at IS NULL AND cb.queued_at IS NULL
+            AND cb.abandoned_at IS NULL
           ORDER BY c.created_at DESC`,
     args: [serverId, libraryItemId],
   })
