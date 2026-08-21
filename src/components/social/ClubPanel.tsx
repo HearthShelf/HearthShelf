@@ -8,7 +8,7 @@ import {
   setClubRecBasis,
   addClubQueue,
 } from '@/api/clubs'
-import { postNote } from '@/api/notes'
+import { postNote, reactToNote } from '@/api/notes'
 import { getAllLibraryItems, libraryKeys } from '@/api/libraries'
 import { useAuthStore } from '@/store/authStore'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
@@ -17,6 +17,8 @@ import type { ABSChapter } from '@/api/types'
 import type {
   HSClubBook,
   HSClubMember,
+  HSNote,
+  NoteReactionKind,
   ClubRecBasis,
   ClubRecCandidate,
   ClubRecPick,
@@ -31,6 +33,17 @@ import { SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
 // A member is "almost done" once they're at least 90% through the current book.
 // When the whole club has nothing queued next, that's the cue to recommend one.
 const ALMOST_DONE = 0.9
+/** Whether the reader reacted with any kind - so liking again doesn't stack a
+ *  second reaction on top of a heart left from another client. */
+function likedByMe(note: HSNote): boolean {
+  return (note.reactions ?? []).some((r) => r.mine)
+}
+
+/** Every reaction on a note, across kinds. */
+function reactionTotal(note: HSNote): number {
+  return (note.reactions ?? []).reduce((sum, r) => sum + r.count, 0)
+}
+
 function memberFraction(m: HSClubMember): number {
   if (m.isFinished === true) return 1
   if (m.currentTime != null && m.duration != null && m.duration > 0) {
@@ -158,12 +171,8 @@ export function ClubPanel({
   const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) ?? null
   // The book actually shown (server resolves the default when we send none).
   const shownBookId =
-    viewBookId ||
-    current?.libraryItemId ||
-    books[books.length - 1]?.libraryItemId ||
-    ''
-  const shownBook: HSClubBook | null =
-    books.find((b) => b.libraryItemId === shownBookId) ?? current
+    viewBookId || current?.libraryItemId || books[books.length - 1]?.libraryItemId || ''
+  const shownBook: HSClubBook | null = books.find((b) => b.libraryItemId === shownBookId) ?? current
   const isViewingCurrent = Boolean(current) && shownBookId === current?.libraryItemId
   // Composer stamps a position only when the player is on the viewed book.
   const canStamp = Boolean(playingItemId && playingItemId === shownBookId)
@@ -172,12 +181,8 @@ export function ClubPanel({
   const hiddenAhead = data?.notes.hiddenAhead ?? 0
   const threads = useMemo(() => buildThreads(notes), [notes])
 
-  const members = useMemo(
-    () => sortMembersByProgress(data?.members ?? []),
-    [data?.members],
-  )
-  const shownDuration =
-    members.find((m) => m.duration != null)?.duration ?? 0
+  const members = useMemo(() => sortMembersByProgress(data?.members ?? []), [data?.members])
+  const shownDuration = members.find((m) => m.duration != null)?.duration ?? 0
 
   // Recommendation surface: owner-only, and only when the club allows it (basis
   // isn't 'off'). The auto-banner nudges when the club is wrapping up its book -
@@ -256,11 +261,13 @@ export function ClubPanel({
     )
   }
 
-  const bubble = (
-    note: (typeof notes)[number],
-    reply?: boolean,
-    onReply?: () => void,
-  ) => {
+  const react = useMutation({
+    mutationFn: ({ note, kind, on }: { note: HSNote; kind: NoteReactionKind; on: boolean }) =>
+      reactToNote(note.id, kind, on),
+    onSuccess: invalidate,
+  })
+
+  const bubble = (note: (typeof notes)[number], reply?: boolean, onReply?: () => void) => {
     const stamp = noteTimeLabel(note.timeSec, playingChapters)
     return (
       <div
@@ -284,13 +291,24 @@ export function ClubPanel({
             <NoteChips note={note} />
           </div>
           <div className="note-text">{note.body}</div>
-          {onReply && (
-            <div className="note-actions">
+          {/* The row is no longer gated on onReply: a reply can't be replied to,
+              but it can still be reacted to. */}
+          <div className="note-actions">
+            <button
+              className={'note-act' + (likedByMe(note) ? ' on' : '')}
+              onClick={() => react.mutate({ note, kind: 'up', on: !likedByMe(note) })}
+              aria-pressed={likedByMe(note)}
+              title={likedByMe(note) ? 'Remove your reaction' : 'Like this comment'}
+            >
+              <Icon name="thumb_up" style={{ fontSize: 14 }} />{' '}
+              {reactionTotal(note) > 0 ? reactionTotal(note) : 'Like'}
+            </button>
+            {onReply && (
               <button className="note-act" onClick={onReply}>
                 <Icon name="reply" style={{ fontSize: 14 }} /> Reply
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     )
@@ -435,8 +453,8 @@ export function ClubPanel({
 
 // The basis choices the owner can pick, with short plain-language labels.
 const BASIS_OPTIONS: { value: ClubRecBasis; label: string }[] = [
-  { value: 'club-history', label: "Books your club has read" },
-  { value: 'all-members-finished', label: "Everything members have finished" },
+  { value: 'club-history', label: 'Books your club has read' },
+  { value: 'all-members-finished', label: 'Everything members have finished' },
   { value: 'off', label: 'Turn recommendations off' },
 ]
 
@@ -531,7 +549,11 @@ function ClubRecommend({
 
   return (
     <div className="club-recommend">
-      <div className="club-race-head" style={{ cursor: 'pointer' }} onClick={() => setExpanded((v) => !v)}>
+      <div
+        className="club-race-head"
+        style={{ cursor: 'pointer' }}
+        onClick={() => setExpanded((v) => !v)}
+      >
         <Icon name="auto_awesome" style={{ fontSize: 15 }} /> Next book
         <Icon
           name={expanded ? 'expand_less' : 'expand_more'}
@@ -542,8 +564,8 @@ function ClubRecommend({
       {wrappingUp && !picks && (
         <div className="banner info" style={{ margin: '6px 0' }}>
           <Icon name="lightbulb" />
-          Your club is wrapping up {clubName === 'this club' ? 'this book' : clubName} and has nothing
-          queued next. Want a recommendation?
+          Your club is wrapping up {clubName === 'this club' ? 'this book' : clubName} and has
+          nothing queued next. Want a recommendation?
         </div>
       )}
 
@@ -613,7 +635,13 @@ function ClubRecommend({
 }
 
 // Shown when the owner has turned recommendations off: a one-line way back on.
-function ClubRecBasisOff({ clubId, onBasisChanged }: { clubId: string; onBasisChanged: () => void }) {
+function ClubRecBasisOff({
+  clubId,
+  onBasisChanged,
+}: {
+  clubId: string
+  onBasisChanged: () => void
+}) {
   const setBasis = useMutation({
     mutationFn: () => setClubRecBasis(clubId, 'club-history'),
     onSuccess: onBasisChanged,

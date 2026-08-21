@@ -12212,6 +12212,12 @@ select.fld {
   color: var(--text);
 }
 
+/* A reaction you left, so the button reads as state rather than just a label. */
+.note-act.on,
+.note-act.on:hover {
+  color: var(--accent);
+}
+
 .note-reply {
   margin-left: 46px;
 }

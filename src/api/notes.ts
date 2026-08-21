@@ -6,7 +6,13 @@
 // query-key conventions.
 
 import { useAuthStore } from '@/store/authStore'
-import type { HSNote, HSNotesResponse, NoteVisibility } from '@hearthshelf/core'
+import type {
+  HSNote,
+  HSNoteReaction,
+  HSNotesResponse,
+  NoteReactionKind,
+  NoteVisibility,
+} from '@hearthshelf/core'
 
 async function nFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
@@ -95,6 +101,21 @@ export async function postNote(args: PostNoteArgs): Promise<HSNote> {
   // Safe is top-level only; the server ignores it on replies regardless.
   if (args.safe && !args.parentId) payload.safe = true
   return nFetch<HSNote>('', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+// Add or remove one reaction on a note. `on` is explicit rather than a toggle so
+// a double click converges instead of flipping twice. Returns the note's fresh
+// tallies, to reconcile against rather than incrementing a stale local count.
+export async function reactToNote(
+  noteId: string,
+  kind: NoteReactionKind,
+  on: boolean,
+): Promise<HSNoteReaction[]> {
+  const res = await nFetch<{ reactions?: HSNoteReaction[] }>(
+    `/${encodeURIComponent(noteId)}/reactions`,
+    { method: 'POST', body: JSON.stringify({ kind, on }) },
+  )
+  return Array.isArray(res.reactions) ? res.reactions : []
 }
 
 // Soft-delete a note (author, club owner, or admin). Throws on failure.

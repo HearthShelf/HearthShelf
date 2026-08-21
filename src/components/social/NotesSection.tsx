@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getNotes, postNote, deleteNote, notesKeys } from '@/api/notes'
-import type { HSNote, NoteVisibility } from '@hearthshelf/core'
+import { getNotes, postNote, deleteNote, reactToNote, notesKeys } from '@/api/notes'
+import type { HSNote, NoteReactionKind, NoteVisibility } from '@hearthshelf/core'
 import type { ABSChapter } from '@/api/types'
 import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
@@ -24,18 +24,31 @@ function agoLabel(ms: number): string {
   return new Date(ms).toLocaleDateString()
 }
 
+/** Whether the reader reacted with any kind - so liking again doesn't stack a
+ *  second reaction on top of a heart left from another client. */
+function likedByMe(note: HSNote): boolean {
+  return (note.reactions ?? []).some((r) => r.mine)
+}
+
+/** Every reaction on a note, across kinds. */
+function reactionTotal(note: HSNote): number {
+  return (note.reactions ?? []).reduce((sum, r) => sum + r.count, 0)
+}
+
 function NoteBubble({
   note,
   chapters,
   meId,
   onReply,
   onDelete,
+  onReact,
 }: {
   note: HSNote
   chapters: ABSChapter[]
   meId: string
   onReply?: () => void
   onDelete: (id: string) => void
+  onReact?: (note: HSNote, kind: NoteReactionKind, on: boolean) => void
 }) {
   const stamp = noteTimeLabel(note.timeSec, chapters)
   const mine = note.userId === meId
@@ -55,6 +68,19 @@ function NoteBubble({
         </div>
         <div className="note-text">{note.body}</div>
         <div className="note-actions">
+          {/* Thumbs up is the kind offered here; a heart or laugh from another
+              client still counts in the total and reads as "you reacted". */}
+          {onReact && (
+            <button
+              className={'note-act' + (likedByMe(note) ? ' on' : '')}
+              onClick={() => onReact(note, 'up', !likedByMe(note))}
+              aria-pressed={likedByMe(note)}
+              title={likedByMe(note) ? 'Remove your reaction' : 'Like this comment'}
+            >
+              <Icon name="thumb_up" style={{ fontSize: 15 }} />{' '}
+              {reactionTotal(note) > 0 ? reactionTotal(note) : 'Like'}
+            </button>
+          )}
           {onReply && (
             <button className="note-act" onClick={onReply}>
               <Icon name="reply" style={{ fontSize: 15 }} /> Reply
@@ -117,11 +143,15 @@ export function NotesSection({
     refetchInterval: 15 * 1000,
   })
 
-  const invalidate = () =>
-    qc.invalidateQueries({ queryKey: notesKeys.forItem(libraryItemId) })
+  const invalidate = () => qc.invalidateQueries({ queryKey: notesKeys.forItem(libraryItemId) })
 
   const post = useMutation({
-    mutationFn: (vars: { body: string; parentId?: string; visibility?: NoteVisibility; safe?: boolean }) =>
+    mutationFn: (vars: {
+      body: string
+      parentId?: string
+      visibility?: NoteVisibility
+      safe?: boolean
+    }) =>
       postNote({
         libraryItemId,
         body: vars.body,
@@ -147,6 +177,12 @@ export function NotesSection({
 
   const del = useMutation({
     mutationFn: (id: string) => deleteNote(id),
+    onSuccess: invalidate,
+  })
+
+  const react = useMutation({
+    mutationFn: ({ note, kind, on }: { note: HSNote; kind: NoteReactionKind; on: boolean }) =>
+      reactToNote(note.id, kind, on),
     onSuccess: invalidate,
   })
 
@@ -206,6 +242,7 @@ export function NotesSection({
                   setReplyDraft('')
                 }}
                 onDelete={setConfirmDel}
+                onReact={(n, kind, on) => react.mutate({ note: n, kind, on })}
               />
               {t.replies.map((r) => (
                 <div className="note-reply" key={r.id}>
@@ -214,6 +251,7 @@ export function NotesSection({
                     chapters={chapters}
                     meId={meId}
                     onDelete={setConfirmDel}
+                    onReact={(n, kind, on) => react.mutate({ note: n, kind, on })}
                   />
                 </div>
               ))}
@@ -232,9 +270,7 @@ export function NotesSection({
                     <button
                       className="btn-sm btn-green"
                       disabled={!replyDraft.trim() || post.isPending}
-                      onClick={() =>
-                        post.mutate({ body: replyDraft.trim(), parentId: t.note.id })
-                      }
+                      onClick={() => post.mutate({ body: replyDraft.trim(), parentId: t.note.id })}
                     >
                       <Icon name="send" /> Reply
                     </button>
@@ -251,9 +287,8 @@ export function NotesSection({
 
       {hiddenAhead > 0 && (
         <div className="note-hidden-ahead">
-          <Icon name="lock" style={{ fontSize: 15, verticalAlign: '-2px' }} />{' '}
-          {hiddenAhead} {hiddenAhead === 1 ? 'note is' : 'notes are'} ahead of you. Keep
-          listening to unlock them.
+          <Icon name="lock" style={{ fontSize: 15, verticalAlign: '-2px' }} /> {hiddenAhead}{' '}
+          {hiddenAhead === 1 ? 'note is' : 'notes are'} ahead of you. Keep listening to unlock them.
         </div>
       )}
 
