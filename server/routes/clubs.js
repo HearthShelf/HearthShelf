@@ -44,6 +44,7 @@ import {
 } from '../lib/absdb.js'
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
 import { hydrateMentions, flushPendingMentions } from '../lib/mentionDelivery.js'
+import { hydrateReactions } from '../lib/noteReactions.js'
 import { getExplicitSharePrefs } from '../settings.js'
 import { serviceAccountFilter } from '../lib/serviceAccounts.js'
 import { getConfig } from '../config.js'
@@ -591,6 +592,7 @@ export async function handleClubs(req, res, url, ctx) {
       })
       unread = unreadCount(notes.notes, membership.lastReadAt)
       await hydrateMentions(ctx.serverId, notes.notes)
+      await hydrateReactions(ctx.serverId, notes.notes, ctx.userId)
       // Opening the room tells us where the caller is, which may have unlocked a
       // note they were mentioned in. Deliver those now; never block the read.
       void flushPendingMentions(ctx, viewedBookId)

@@ -3,6 +3,7 @@
 //   GET    /hs/notes?libraryItemId=&clubId=&position=&after=&finished=
 //   POST   /hs/notes   { libraryItemId, clubId?, parentId?, timeSec?, body }
 //   DELETE /hs/notes/:id
+//   POST   /hs/notes/:id/reactions  { kind, on }
 //
 // The spoiler gate lives in lib/notesQuery.js (the one authoritative server-side
 // implementation; core's gateNotes is client-only). Public notes never return
@@ -23,11 +24,14 @@ import {
   softDeleteNote,
 } from '../lib/notesQuery.js'
 import { getClub, isClubMember, bookInClub, currentBook, listMembers } from '../clubs.js'
+import { recordMentions, hydrateMentions, flushPendingMentions } from '../lib/mentionDelivery.js'
 import {
-  recordMentions,
-  hydrateMentions,
-  flushPendingMentions,
-} from '../lib/mentionDelivery.js'
+  hydrateReactions,
+  setReaction,
+  deliverReaction,
+  deliverReply,
+  isValidReactionKind,
+} from '../lib/noteReactions.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
 // A note addressing more people than this is a broadcast, not a mention.
@@ -51,6 +55,39 @@ export async function handleNotes(req, res, url, ctx) {
   const p = url.pathname
   if (p !== '/hs/notes' && !p.startsWith('/hs/notes/')) return false
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
+
+  // POST /hs/notes/:id/reactions { kind, on }
+  //
+  // Reacting needs no spoiler check of its own: the note had to be readable for
+  // the caller to have it, and club membership is re-verified here so a stale id
+  // from a club you have left cannot be used.
+  if (p.startsWith('/hs/notes/') && p.endsWith('/reactions')) {
+    if (req.method !== 'POST') return (json(res, 405, { error: 'method_not_allowed' }), true)
+    const id = decodeURIComponent(p.slice('/hs/notes/'.length, -'/reactions'.length))
+    if (!id) return (json(res, 400, { error: 'missing_id' }), true)
+    if (!ID_RE.test(id)) return (json(res, 400, { error: 'invalid_id' }), true)
+    const note = await getNote(ctx.serverId, id)
+    if (!note || note.deleted) return (json(res, 404, { error: 'not_found' }), true)
+    if (note.clubId) {
+      const err = await checkClubAccess(ctx.serverId, note.clubId, ctx.userId)
+      if (err === 'club_not_found') return (json(res, 404, { error: 'club_not_found' }), true)
+      if (err === 'not_member') return (json(res, 403, { error: 'not_member' }), true)
+    } else if (note.visibility === 'personal' && note.userId !== ctx.userId) {
+      // A personal note is nobody else's to react to.
+      return (json(res, 403, { error: 'forbidden' }), true)
+    }
+    const body = await readBody(req)
+    const kind = String(body?.kind ?? 'up')
+    if (!isValidReactionKind(kind)) return (json(res, 400, { error: 'invalid_kind' }), true)
+    const on = body?.on !== false
+    const { added, reactions } = await setReaction(ctx.serverId, note, ctx.userId, kind, on)
+    // Only a NEW reaction tells the author, so a toggle off/on doesn't re-ping
+    // them and a racing double tap notifies once.
+    if (added) {
+      void deliverReaction(ctx.serverId, note, { userId: ctx.userId, username: ctx.username }, kind)
+    }
+    return (json(res, 200, { ok: true, reactions }), true)
+  }
 
   // DELETE /hs/notes/:id
   if (p.startsWith('/hs/notes/')) {
@@ -116,6 +153,7 @@ export async function handleNotes(req, res, url, ctx) {
       after,
     })
     await hydrateMentions(ctx.serverId, gated.notes)
+    await hydrateReactions(ctx.serverId, gated.notes, ctx.userId)
     // This read told us where the caller is, which may have unlocked a note they
     // were mentioned in. Deliver those now. Fire-and-forget by design - a
     // mention delivery failure must never break reading the discussion.
@@ -158,7 +196,8 @@ export async function handleNotes(req, res, url, ctx) {
     const visRaw = body?.visibility == null ? '' : String(body.visibility)
     if (clubId) {
       // A clubId with an explicit non-club visibility is contradictory.
-      if (visRaw && visRaw !== 'club') return (json(res, 400, { error: 'invalid_visibility' }), true)
+      if (visRaw && visRaw !== 'club')
+        return (json(res, 400, { error: 'invalid_visibility' }), true)
       visibility = 'club'
     } else {
       visibility = visRaw || 'public'
@@ -217,6 +256,8 @@ export async function handleNotes(req, res, url, ctx) {
     // parentId must reference an existing TOP-LEVEL note in the same (server,
     // item, club) scope. Replies-of-replies are not allowed (parent must itself
     // be top-level).
+    // Kept beyond the block so the reply notification can address its author.
+    let parentNote = null
     if (parentId) {
       const parent = await getNote(ctx.serverId, parentId)
       if (
@@ -232,6 +273,7 @@ export async function handleNotes(req, res, url, ctx) {
       ) {
         return (json(res, 400, { error: 'invalid_parent' }), true)
       }
+      parentNote = parent
     }
 
     // Rate limit: 60 notes/user/hour, reusing the durable rate_limits table.
@@ -266,6 +308,16 @@ export async function handleNotes(req, res, url, ctx) {
     if (mentionTargets.length) {
       await recordMentions(ctx, note, mentionTargets)
       note.mentions = mentionTargets
+    }
+    // Tell the parent's author they got a reply. A reply gates at its parent's
+    // time, and the parent is their own note, so this is always readable by them
+    // - no deferral needed. Skipped when they were @mentioned in the same reply,
+    // which would otherwise arrive twice for one message.
+    if (parentId && !mentionTargets.some((m) => m.userId === parentNote?.userId)) {
+      void deliverReply(ctx.serverId, parentNote, note, {
+        userId: ctx.userId,
+        username: ctx.username,
+      })
     }
     return (json(res, 200, note), true)
   }

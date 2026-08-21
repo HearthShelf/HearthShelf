@@ -491,6 +491,27 @@ const SCHEMA = [
   // Hydrating mentions onto a page of notes.
   `CREATE INDEX IF NOT EXISTS idx_note_mentions_note
      ON note_mentions (server_id, note_id)`,
+  // Reactions on a note. `kind` is a string, not a boolean "liked", so the set
+  // can grow (heart, laugh) without a migration; an unknown kind from a newer
+  // client is stored and counted rather than rejected.
+  //
+  // One row per (note, user, kind) - the unique index is what makes a double
+  // tap idempotent instead of double-counting.
+  `CREATE TABLE IF NOT EXISTS note_reactions (
+     id              TEXT PRIMARY KEY,
+     server_id       TEXT NOT NULL DEFAULT 'local',
+     note_id         TEXT NOT NULL,
+     club_id         TEXT NOT NULL DEFAULT '',
+     library_item_id TEXT NOT NULL,
+     user_id         TEXT NOT NULL,
+     kind            TEXT NOT NULL DEFAULT 'up',
+     created_at      INTEGER NOT NULL
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_note_reactions_one
+     ON note_reactions (server_id, note_id, user_id, kind)`,
+  // Tallying reactions across a page of notes.
+  `CREATE INDEX IF NOT EXISTS idx_note_reactions_note
+     ON note_reactions (server_id, note_id)`,
   // Book clubs (see docs/social.md). A club is a persistent group; the book is
   // an attribute of its timeline (club_books), not of the club. is_open is 1 for
   // open-join v1 (the column is shaped for invite-only later); archived hides a
