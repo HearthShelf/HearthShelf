@@ -270,13 +270,13 @@ export async function flushPendingMentions(ctx, libraryItemId) {
     // Group by scope so each (item, club) note set is loaded once.
     const byScope = new Map()
     for (const row of pending.rows) {
-      const key = `${row.library_item_id} ${row.club_id}`
+      const key = `${row.library_item_id}\u0000${row.club_id}`
       if (!byScope.has(key)) byScope.set(key, [])
       byScope.get(key).push(row)
     }
 
     for (const [key, rows] of byScope) {
-      const [itemId, clubId] = key.split(' ')
+      const [itemId, clubId] = key.split('\u0000')
       const notes = await loadNotes(ctx.serverId, itemId, clubId, ctx.userId, true)
       const byId = new Map(notes.map((n) => [n.id, n]))
       const { position, isFinished } = await resolveGatePosition(ctx, itemId, Number.NaN, false)
