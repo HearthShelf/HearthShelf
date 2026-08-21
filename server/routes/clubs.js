@@ -45,6 +45,7 @@ import {
 import { loadNotes, gateNotes, resolveGatePosition, unreadCount } from '../lib/notesQuery.js'
 import { hydrateMentions, flushPendingMentions } from '../lib/mentionDelivery.js'
 import { getExplicitSharePrefs } from '../settings.js'
+import { serviceAccountFilter } from '../lib/serviceAccounts.js'
 import { getConfig } from '../config.js'
 import { isProviderConfigured, complete } from '../providers.js'
 import { parseResult } from './questgiver.js'
@@ -110,9 +111,17 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;')
 }
 
+// Everyone on the server who could be invited to a club - PEOPLE only.
+//
+// Service accounts (the auto-created root plus any admin-tagged machine account)
+// are filtered out: they are ABS users, so they show up in every roster, but
+// inviting one to a book club is meaningless. Filtering here rather than in the
+// UI also means a hand-crafted POST /invites can't target one, since the invite
+// path validates against this same roster.
 async function invitationRoster(ctx) {
+  const notService = await serviceAccountFilter()
   const fromDb = await listServerUsers()
-  if (fromDb.length) return fromDb
+  if (fromDb.length) return fromDb.filter(notService)
   // Slim installs may not mount the ABS db. Fall back to ABS's API; this is
   // available when the caller has user-management permission. A normal reader
   // without either source gets an empty roster rather than leaked user data.
@@ -132,6 +141,7 @@ async function invitationRoster(ctx) {
         type: String(user.type ?? 'user'),
       }))
       .filter((user) => user.userId)
+      .filter(notService)
   } catch {
     return []
   }

@@ -12,6 +12,12 @@
 // HearthShelf never duplicates that data.
 
 import { db, initDb } from '../db.js'
+import { getProvisioning } from './provisioning.js'
+
+// The auto-created service root. Tracked ids never include it (it is implied by
+// provisioning.root_username), so anything asking "is this a machine account?"
+// has to consider both. Same default as reconcile.js / serviceCredential.js.
+const SERVICE_USERNAME = process.env.AIO_SERVICE_USERNAME || 'hearthshelf-service'
 
 let ready = null
 async function ensureRow() {
@@ -61,4 +67,30 @@ export async function addServiceAccountId(userId) {
 export async function removeServiceAccountId(userId) {
   const cur = await getServiceAccountIds()
   return writeIds(cur.filter((id) => id !== String(userId)))
+}
+
+/**
+ * Is this ABS user a machine account rather than a person?
+ *
+ * Two sources, because tracked ids deliberately exclude the auto-created root:
+ * the explicitly tagged ids, plus the provisioned root username (falling back to
+ * the well-known default when provisioning has not recorded one).
+ *
+ * Callers that filter a roster should use `serviceAccountFilter()` instead, so
+ * they read the tracked ids once rather than per user.
+ */
+export async function serviceAccountFilter() {
+  const [ids, prov] = await Promise.all([
+    getServiceAccountIds().catch(() => []),
+    getProvisioning().catch(() => null),
+  ])
+  const tagged = new Set(ids.map(String))
+  // Both the provisioned root AND the well-known default: an operator who set a
+  // custom root name should not have an account literally called
+  // 'hearthshelf-service' reappear as an invitable person.
+  const rootNames = new Set([SERVICE_USERNAME])
+  if (prov?.rootUsername) rootNames.add(prov.rootUsername)
+  return (user) =>
+    !tagged.has(String(user?.userId ?? user?.id ?? '')) &&
+    !rootNames.has(String(user?.username ?? ''))
 }
