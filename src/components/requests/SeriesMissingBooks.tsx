@@ -174,7 +174,7 @@ export function SeriesMissingBooks({
 
   if (!data?.seriesAsin) return null
 
-  const missing = missingSeriesBooks(data.books, ownedBooks, ignoredAsins)
+  const missing = missingSeriesBooks(data.books, ownedBooks, ignoredAsins, seriesName)
   if (missing.length === 0) return null
 
   if (inline) {

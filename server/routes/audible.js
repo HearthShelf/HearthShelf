@@ -345,12 +345,12 @@ export async function fetchProduct(asin, region) {
 // older client sending only ?q=; ABS's db not mounted; a series with no owned
 // books), so a slim deploy behaves exactly as before and clients fall back to
 // their own title/sequence matching.
-async function withFreshOwned(seriesId, books) {
+async function withFreshOwned(seriesId, books, seriesName) {
   if (!seriesId || !books.length) return books
   try {
     const owned = await getOwnedSeriesBooks(seriesId)
     if (!owned.length) return books
-    return stampOwned(books, owned)
+    return stampOwned(books, owned, seriesName)
   } catch {
     return books
   }
@@ -360,7 +360,7 @@ async function withFreshOwned(seriesId, books) {
 // actually changed, so the other readers of series_roster (the release-notify
 // job) see the new state too instead of waiting for the next sweep.
 async function refreshStoredRoster(roster) {
-  const books = await withFreshOwned(roster.seriesId, roster.books)
+  const books = await withFreshOwned(roster.seriesId, roster.books, roster.name)
   if (books === roster.books) return roster.books
   const changed = books.some((b, i) => b.owned !== roster.books[i]?.owned)
   if (changed) {
@@ -492,7 +492,7 @@ export async function handleAudible(req, res, url, ctx) {
     const cached = cacheGet(key)
     if (cached) {
       return (
-        json(res, 200, { ...cached, books: await withFreshOwned(seriesId, cached.books) }),
+        json(res, 200, { ...cached, books: await withFreshOwned(seriesId, cached.books, name) }),
         true
       )
     }
@@ -517,7 +517,7 @@ export async function handleAudible(req, res, url, ctx) {
     const books = await fetchSeriesBooks(match.asin, region)
     const out = { name, seriesAsin: match.asin, seriesTitle: match.title, books }
     cacheSet(key, out)
-    return (json(res, 200, { ...out, books: await withFreshOwned(seriesId, books) }), true)
+    return (json(res, 200, { ...out, books: await withFreshOwned(seriesId, books, name) }), true)
   }
 
   return (json(res, 404, { error: 'not_found' }), true)

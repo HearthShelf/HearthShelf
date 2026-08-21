@@ -14,14 +14,40 @@
 // Normalize a title the same way the client does (mirror of core's normalizeTitle
 // - the server runs plain .js and can't import the .ts). Keep in step with
 // @hearthshelf/core src/lib/series.ts.
-export function normalizeTitle(title) {
+function squash(title) {
   return String(title ?? '')
     .toLowerCase()
-    .replace(/:\s.*$/, '')
-    .replace(/[,\-–—]?\s*(book|volume|vol|part|#)\s*\d+(\.\d+)?\s*$/i, '')
     .replace(/[^\p{L}\p{N}\s]/gu, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// Strip a leading "<series name>:" / "<series name> -" prefix. Mirror of core's
+// stripSeriesPrefix.
+function stripSeriesPrefix(title, series) {
+  const wantedSeries = squash(series)
+  if (!wantedSeries) return title
+  const parts = String(title ?? '').split(/\s*[:–—-]\s+/)
+  for (let i = parts.length - 1; i >= 1; i--) {
+    if (squash(parts.slice(0, i).join(' ')) === wantedSeries) return parts.slice(i).join(': ')
+  }
+  return squash(title) === wantedSeries ? '' : title
+}
+
+// Pass `series` whenever it's known: in a series whose books are all titled
+// "<Series>: <Book Name>", dropping the subtitle normalizes EVERY book to the
+// series name, so every owned book matches every roster entry and ownership is
+// handed out in roster order. Stripping the series prefix instead keeps the part
+// that names the book. Mirror of core's normalizeTitle.
+export function normalizeTitle(title, series) {
+  const raw = String(title ?? '')
+  const stripped = series ? stripSeriesPrefix(raw, series) : raw
+  const base = stripped || raw
+  return squash(
+    base
+      .replace(/:\s.*$/, '')
+      .replace(/[,\-–—]?\s*(book|volume|vol|part|#)\s*\d+(\.\d+)?\s*$/i, ''),
+  )
 }
 
 export function seqKey(sequence) {
@@ -44,13 +70,24 @@ export function seqKey(sequence) {
 //     the books it actually contains stayed unowned - inconsistent either way.
 //
 // Ranking (strongest first) fixes both: an ASIN match is conclusive; an owned
-// book that HAS an ASIN is never matched by title or sequence (a real ASIN that
-// didn't match means it's a different book); and a sequence claim only stands
-// when the two titles don't actively disagree - both sides having real titles
-// that differ is contradicted metadata, not a match.
-export function stampOwned(audibleBooks, ownedBooks) {
+// book whose ASIN IS IN THIS ROSTER is never matched by title or sequence (a
+// live ASIN that didn't match means it's a different book); and a sequence claim
+// only stands when the two titles don't actively disagree - both sides having
+// real titles that differ is contradicted metadata, not a match.
+//
+// The roster check is what makes the ASIN rule safe. An ASIN is only evidence
+// while the edition it names is still on sale: when a book is re-issued under a
+// new publisher, the ASIN of the copy in the library is DELISTED and appears
+// nowhere in the current roster (Audible 404s it - "this title is no longer
+// available"). Treating that dead ASIN as conclusive vetoed the title and
+// sequence signals that would have matched the re-issue, so every owned book in
+// a re-published series was stamped unowned and the series page listed the whole
+// library back to the user as "not in library". An owned ASIN the roster doesn't
+// contain tells us nothing, so the book falls through to the weaker signals.
+export function stampOwned(audibleBooks, ownedBooks, series) {
   // Index owned books by each signal, keeping their identity so a match can
-  // consume them. Only ASIN-less books are eligible for the weaker signals.
+  // consume them. Only books without a LIVE asin are eligible for the weaker
+  // signals.
   const byAsin = new Map()
   const byTitle = new Map()
   const bySeq = new Map()
@@ -61,11 +98,16 @@ export function stampOwned(audibleBooks, ownedBooks) {
     else map.set(key, [entry])
   }
 
+  const rosterAsins = new Set(
+    audibleBooks.map((b) => (b.asin ? String(b.asin).toLowerCase() : '')).filter(Boolean),
+  )
+
   for (const b of ownedBooks) {
-    const entry = { used: false, title: normalizeTitle(b.title) }
-    if (b.asin) {
-      push(byAsin, String(b.asin).toLowerCase(), entry)
-      continue // ASIN is conclusive for this book; don't weaken it with title/seq
+    const entry = { used: false, title: normalizeTitle(b.title, series) }
+    const asin = b.asin ? String(b.asin).toLowerCase() : ''
+    if (asin && rosterAsins.has(asin)) {
+      push(byAsin, asin, entry)
+      continue // live ASIN is conclusive for this book; don't weaken it
     }
     push(byTitle, entry.title, entry)
     push(bySeq, seqKey(b.sequence), entry)
@@ -88,11 +130,11 @@ export function stampOwned(audibleBooks, ownedBooks) {
     if (claim(byAsin, b.asin ? String(b.asin).toLowerCase() : '')) b.owned = true
   })
   out.forEach((b) => {
-    if (!b.owned && claim(byTitle, normalizeTitle(b.title))) b.owned = true
+    if (!b.owned && claim(byTitle, normalizeTitle(b.title, series))) b.owned = true
   })
   out.forEach((b) => {
     if (b.owned) return
-    const rosterTitle = normalizeTitle(b.title)
+    const rosterTitle = normalizeTitle(b.title, series)
     const compatible = (e) => !e.title || !rosterTitle || e.title === rosterTitle
     if (claim(bySeq, seqKey(b.sequence), compatible)) b.owned = true
   })

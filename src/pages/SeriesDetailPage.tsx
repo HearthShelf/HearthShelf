@@ -113,7 +113,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     void hydrateDismissals()
   }, [hydrateDismissals])
   const missing = audible?.seriesAsin
-    ? missingSeriesBooks(audible.books, ownedBooks, ignoredAsins)
+    ? missingSeriesBooks(audible.books, ownedBooks, ignoredAsins, series.name)
     : []
   // A book that isn't out yet isn't a gap in the collection - nobody could own
   // it. Counting it as missing would permanently cap a fully-caught-up series

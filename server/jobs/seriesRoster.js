@@ -127,7 +127,7 @@ export async function runSeriesRoster(logger, signal) {
         logger.info(`[${i}/${seriesList.length}] ${s.name}: no Audible match`)
       } else {
         const roster = await fetchSeriesBooks(match.asin, region)
-        const books = stampOwned(roster, owned)
+        const books = stampOwned(roster, owned, s.name)
         const missing = books.filter((b) => b.owned === false).length
         await saveSeriesRoster({
           seriesId: s.seriesId,
@@ -159,7 +159,8 @@ export async function runSeriesRoster(logger, signal) {
   try {
     const serverId = await getServerId()
     const { linked, remaining, ambiguous } = await backfillAbsSeriesIds(serverId)
-    if (linked > 0) logger.info(`Linked ${linked} existing series follow(s) to their library series`)
+    if (linked > 0)
+      logger.info(`Linked ${linked} existing series follow(s) to their library series`)
     if (remaining > 0) {
       logger.info(
         `${remaining} follow(s) still unlinked - their series is not in this library or has no Audible match yet`,
