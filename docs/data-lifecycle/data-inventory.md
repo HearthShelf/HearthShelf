@@ -88,6 +88,7 @@ From `server/db.js` (verified 2026-07-03). Scope legend: **U** = per-user
 | `book_ratings` | U | - | The user's own 1-5 star ratings - ABS has no rating field, so these exist nowhere else. `item_key` is an ABS item id needing re-mapping, EXCEPT `fb:<finished_books.id>` keys (an unowned imported book), which pass through since the merge preserves those row ids |
 | `book_notes` | U | - | References ABS `library_item_id` - needs item re-mapping on cross-server merge |
 | `note_mentions` | U | - | @mentions on club notes. Travels with `book_notes` (same domain): `delivered_at` NULL marks a mention still withheld behind the spoiler gate, so dropping the table would lose undelivered mentions. `library_item_id` needs item re-mapping |
+| `note_reactions` | U | - | Likes/reactions on notes. Travels with `book_notes` (same domain): a reaction exists nowhere else, so dropping it loses every like. Merge = union - the UNIQUE `(server_id, note_id, user_id, kind)` index keeps a repeated merge from double-counting. `library_item_id` needs item re-mapping |
 | `clubs` / `club_books` / `club_members` | S / per-club | - | `club_books.library_item_id` needs item re-mapping; `club_members.user_id` needs user re-mapping |
 | `qg_feedback`, `qg_monthly`, `qg_runs` | U | - | Discover/QuestGiver state (votes, not ratings); merge = LWW / union, low stakes |
 | `popular_signals`, `series_roster` | S | - | Aggregates; re-derivable, back up as convenience |
