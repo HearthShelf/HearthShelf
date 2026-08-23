@@ -25,6 +25,7 @@ import { notifyPrefsFor, shouldNotify } from './notificationPrefs.js'
 import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
+import { renderEmail } from './emailTemplate.js'
 
 let ready = null
 function ensure() {
@@ -34,15 +35,6 @@ function ensure() {
 
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
 const EXCERPT_MAX = 140
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
-}
 
 function excerpt(body) {
   const text = String(body ?? '')
@@ -152,8 +144,14 @@ async function deliverMention(serverId, row, note, authorUsername) {
         await sendTransactionalEmail({
           to,
           subject: title,
-          text: `${title}\n\n${body}\n\nOpen the discussion: ${href}`,
-          html: `<p>${escapeHtml(title)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(href)}">Open the discussion</a></p>`,
+          // `body` is the comment they were mentioned in, so it renders as a
+          // quote rather than as our own prose.
+          ...renderEmail({
+            title,
+            quote: body,
+            actionUrl: href,
+            actionLabel: 'Open the discussion',
+          }),
         })
       }
     } catch {

@@ -20,18 +20,10 @@ import {
 import { sendPushMessages } from '../lib/expoPush.js'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
 import { createNotification } from '../notifications.js'
+import { renderEmail } from '../lib/emailTemplate.js'
 import { notifyPrefsFor, shouldNotify } from '../lib/notificationPrefs.js'
 
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
-}
 
 const DAY = 86_400_000
 function releaseMs(sub) {
@@ -159,8 +151,7 @@ export async function runReleaseNotify(logger) {
       const result = await sendTransactionalEmail({
         to,
         subject: `${title}: ${body}`,
-        text: `${body}\n\nOpen HearthShelf: ${href}`,
-        html: `<p>${escapeHtml(body)}</p><p><a href="${escapeHtml(href)}">Open HearthShelf</a></p>`,
+        ...renderEmail({ title, body, actionUrl: href, actionLabel: 'Open HearthShelf' }),
       })
       if (result.sent) emailed += 1
     }

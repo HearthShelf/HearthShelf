@@ -26,6 +26,7 @@ import { notifyPrefsFor, shouldNotify } from './notificationPrefs.js'
 import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
+import { renderEmail } from './emailTemplate.js'
 import {
   isValidReactionKind as isValidKind,
   normalizeReactionKind,
@@ -51,15 +52,6 @@ export { normalizeReactionKind }
 /** Whether a normalized kind may be stored. */
 export function isValidReactionKind(kind) {
   return isValidKind(kind)
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
 }
 
 function excerpt(body) {
@@ -231,8 +223,14 @@ export async function deliverReaction(serverId, note, actor, kind) {
           await sendTransactionalEmail({
             to,
             subject: title,
-            text: `${title}\n\n${body}\n\nOpen the discussion: ${href}`,
-            html: `<p>${escapeHtml(title)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(href)}">Open the discussion</a></p>`,
+            // `body` is the comment being reacted/replied to, so it reads as a
+            // quote rather than as our own prose.
+            ...renderEmail({
+              title,
+              quote: body,
+              actionUrl: href,
+              actionLabel: 'Open the discussion',
+            }),
           })
         }
       } catch {
@@ -303,8 +301,14 @@ export async function deliverReply(serverId, parent, reply, actor) {
           await sendTransactionalEmail({
             to,
             subject: title,
-            text: `${title}\n\n${body}\n\nOpen the discussion: ${href}`,
-            html: `<p>${escapeHtml(title)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(href)}">Open the discussion</a></p>`,
+            // `body` is the comment being reacted/replied to, so it reads as a
+            // quote rather than as our own prose.
+            ...renderEmail({
+              title,
+              quote: body,
+              actionUrl: href,
+              actionLabel: 'Open the discussion',
+            }),
           })
         }
       } catch {

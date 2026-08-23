@@ -57,6 +57,7 @@ import {
   memberReach,
 } from '@hearthshelf/core/lib/social'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
+import { renderEmail } from '../lib/emailTemplate.js'
 import { sendPushMessages } from '../lib/expoPush.js'
 import { deletePushToken, listPushTokens } from '../lib/subscriptionsStore.js'
 import {
@@ -102,15 +103,6 @@ const LISTENING_CUTOFF_MS = 3 * 60 * 1000
 // before we interpolate one into an ABS URL or a club_books row.
 const ID_RE = /^[A-Za-z0-9_-]+$/
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
-}
 
 // Everyone on the server who could be invited to a club - PEOPLE only.
 //
@@ -171,8 +163,13 @@ async function deliverClubInvite(ctx, club, target, inviteId) {
   const email = await sendTransactionalEmail({
     to: target.email,
     subject: `You’re invited to ${club.name} on HearthShelf`,
-    text: `${title}\n\n${body}\n\nOpen HearthShelf to accept: ${acceptUrl}`,
-    html: `<p>${escapeHtml(title)}</p><p>${escapeHtml(body)}</p><p><a href="${escapeHtml(acceptUrl)}">Open HearthShelf to accept</a></p>`,
+    ...renderEmail({
+      title,
+      body,
+      actionUrl: acceptUrl,
+      actionLabel: 'Accept the invitation',
+      footnote: 'If you were not expecting this, you can ignore this message.',
+    }),
   })
 
   const tokens = await listPushTokens(ctx.serverId, target.userId)
