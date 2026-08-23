@@ -7,6 +7,7 @@ import {
   recommendClubBook,
   setClubRecBasis,
   addClubQueue,
+  setClubVisibility,
 } from '@/api/clubs'
 import { postNote, reactToNote } from '@/api/notes'
 import { getAllLibraryItems, libraryKeys } from '@/api/libraries'
@@ -211,6 +212,10 @@ export function ClubPanel({
     mutationFn: (lastReadAt: number) => markClubRead(clubId, lastReadAt),
     onSuccess: () => qc.invalidateQueries({ queryKey: clubsKeys.detail(clubId, viewBookId) }),
   })
+  const visibility = useMutation({
+    mutationFn: () => setClubVisibility(clubId, club?.isOpen === false ? 'public' : 'closed'),
+    onSuccess: invalidate,
+  })
 
   const newestAt = notes.reduce((mx, n) => (n.createdAt > mx ? n.createdAt : mx), 0)
   const cursorRef = useRef(0)
@@ -309,6 +314,16 @@ export function ClubPanel({
             {club ? `${club.memberCount} ${club.memberCount === 1 ? 'member' : 'members'}` : ''}
           </div>
         </div>
+        {isOwner && club ? (
+          <button
+            className="icon-btn"
+            onClick={() => visibility.mutate()}
+            title={club.isOpen ? 'Make club closed' : 'Make club public'}
+            aria-label={club.isOpen ? 'Make club closed' : 'Make club public'}
+          >
+            <Icon name={club.isOpen ? 'lock' : 'public'} />
+          </button>
+        ) : null}
         <button className="icon-btn" onClick={onClose}>
           <Icon name="close" />
         </button>

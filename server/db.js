@@ -460,8 +460,10 @@ const SCHEMA = [
      parent_id       TEXT NOT NULL DEFAULT '',
      time_sec        REAL,
      safe            INTEGER NOT NULL DEFAULT 0,
+     spoiler         INTEGER NOT NULL DEFAULT 0,
      body            TEXT NOT NULL,
      created_at      INTEGER NOT NULL,
+     updated_at      INTEGER,
      deleted         INTEGER NOT NULL DEFAULT 0
    )`,
   `CREATE INDEX IF NOT EXISTS idx_book_notes_item
@@ -514,8 +516,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_note_reactions_note
      ON note_reactions (server_id, note_id)`,
   // Book clubs (see docs/social.md). A club is a persistent group; the book is
-  // an attribute of its timeline (club_books), not of the club. is_open is 1 for
-  // open-join v1 (the column is shaped for invite-only later); archived hides a
+  // an attribute of its timeline (club_books), not of the club. is_open stores
+  // public (1) versus closed/invite-only (0); archived hides a
   // finished club while keeping its chat readable.
   `CREATE TABLE IF NOT EXISTS clubs (
      id              TEXT PRIMARY KEY,
@@ -524,6 +526,8 @@ const SCHEMA = [
      created_by      TEXT NOT NULL,
      is_open         INTEGER NOT NULL DEFAULT 1,
      archived        INTEGER NOT NULL DEFAULT 0,
+     allow_comment_editing INTEGER NOT NULL DEFAULT 1,
+     allow_replies   INTEGER NOT NULL DEFAULT 1,
      created_at      INTEGER NOT NULL
    )`,
   // A club's reading timeline. Each book is in exactly one state:
@@ -855,6 +859,8 @@ const MIGRATIONS = [
   // exist pre-migration. safe defaults 0.
   `ALTER TABLE book_notes ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'`,
   `ALTER TABLE book_notes ADD COLUMN safe INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE book_notes ADD COLUMN spoiler INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE book_notes ADD COLUMN updated_at INTEGER`,
   // Club reading queue (see docs/social.md). queued_at set = the book is lined
   // up as up-next (not yet the current book). Existing rows stay NULL, so all
   // pre-migration books remain current/finished as before.
@@ -866,6 +872,8 @@ const MIGRATIONS = [
   // default to their own reading history.
   `ALTER TABLE community_config ADD COLUMN clubs_ai_enabled INTEGER DEFAULT 0`,
   `ALTER TABLE clubs ADD COLUMN rec_basis TEXT NOT NULL DEFAULT 'club-history'`,
+  `ALTER TABLE clubs ADD COLUMN allow_comment_editing INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE clubs ADD COLUMN allow_replies INTEGER NOT NULL DEFAULT 1`,
   // A club book that left the current slot without being read to the end. Before
   // this column every such book was stamped finished_at, so shelved books showed
   // up as past reads; the requeue action moves those back.

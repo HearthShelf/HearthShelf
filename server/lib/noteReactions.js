@@ -27,10 +27,7 @@ import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
 import { renderEmail } from './emailTemplate.js'
-import {
-  isValidReactionKind as isValidKind,
-  normalizeReactionKind,
-} from '@hearthshelf/core'
+import { isValidReactionKind as isValidKind, normalizeReactionKind } from '@hearthshelf/core'
 
 let ready = null
 function ensure() {
@@ -98,6 +95,32 @@ export async function reactionsForNotes(serverId, noteIds, meId) {
     )
   }
   return out
+}
+
+/** Full reactor roster for the reaction tray on one club comment. Usernames
+ * come from the club roster, which is already the note's access boundary. */
+export async function reactionDetails(serverId, note) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT r.kind, r.user_id, r.created_at, m.username
+          FROM note_reactions r
+          LEFT JOIN club_members m
+            ON m.server_id = r.server_id AND m.club_id = r.club_id AND m.user_id = r.user_id
+          WHERE r.server_id = ? AND r.note_id = ?
+          ORDER BY r.created_at ASC`,
+    args: [serverId, note.id],
+  })
+  const byKind = new Map()
+  for (const row of r.rows) {
+    const kind = String(row.kind ?? 'up')
+    if (!byKind.has(kind)) byKind.set(kind, [])
+    byKind.get(kind).push({
+      userId: String(row.user_id),
+      username: String(row.username ?? row.user_id ?? 'Reader'),
+      reactedAt: Number(row.created_at),
+    })
+  }
+  return [...byKind].map(([kind, users]) => ({ kind, users }))
 }
 
 /**

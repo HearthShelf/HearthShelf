@@ -3,6 +3,8 @@
 //   GET    /hs/notes?libraryItemId=&clubId=&position=&after=&finished=
 //   POST   /hs/notes   { libraryItemId, clubId?, parentId?, timeSec?, body }
 //   DELETE /hs/notes/:id
+//   PATCH  /hs/notes/:id            { body, spoiler, timeSec }
+//   GET    /hs/notes/:id/reactions
 //   POST   /hs/notes/:id/reactions  { kind, on }
 //
 // The spoiler gate lives in lib/notesQuery.js (the one authoritative server-side
@@ -21,6 +23,7 @@ import {
   gateNotes,
   resolveGatePosition,
   insertNote,
+  updateNote,
   softDeleteNote,
 } from '../lib/notesQuery.js'
 import { getClub, isClubMember, bookInClub, currentBook, listMembers } from '../clubs.js'
@@ -32,6 +35,7 @@ import {
   deliverReply,
   isValidReactionKind,
   normalizeReactionKind,
+  reactionDetails,
 } from '../lib/noteReactions.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
@@ -63,7 +67,8 @@ export async function handleNotes(req, res, url, ctx) {
   // the caller to have it, and club membership is re-verified here so a stale id
   // from a club you have left cannot be used.
   if (p.startsWith('/hs/notes/') && p.endsWith('/reactions')) {
-    if (req.method !== 'POST') return (json(res, 405, { error: 'method_not_allowed' }), true)
+    if (req.method !== 'GET' && req.method !== 'POST')
+      return (json(res, 405, { error: 'method_not_allowed' }), true)
     const id = decodeURIComponent(p.slice('/hs/notes/'.length, -'/reactions'.length))
     if (!id) return (json(res, 400, { error: 'missing_id' }), true)
     if (!ID_RE.test(id)) return (json(res, 400, { error: 'invalid_id' }), true)
@@ -77,7 +82,16 @@ export async function handleNotes(req, res, url, ctx) {
       // A personal note is nobody else's to react to.
       return (json(res, 403, { error: 'forbidden' }), true)
     }
-    const body = await readBody(req)
+    if (req.method === 'GET') {
+      const reactions = await reactionDetails(ctx.serverId, note)
+      return (json(res, 200, { reactions }), true)
+    }
+    let body
+    try {
+      body = JSON.parse(await readBody(req))
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
     // Normalize FIRST, then validate, then store the normalized value - so what
     // was checked is exactly what is written, and skin-tone variants of one
     // emoji converge on a single tally.
@@ -93,13 +107,47 @@ export async function handleNotes(req, res, url, ctx) {
     return (json(res, 200, { ok: true, reactions }), true)
   }
 
-  // DELETE /hs/notes/:id
+  // PATCH or DELETE /hs/notes/:id
   if (p.startsWith('/hs/notes/')) {
-    if (req.method !== 'DELETE') return (json(res, 405, { error: 'method_not_allowed' }), true)
+    if (req.method !== 'DELETE' && req.method !== 'PATCH')
+      return (json(res, 405, { error: 'method_not_allowed' }), true)
     const id = decodeURIComponent(p.slice('/hs/notes/'.length))
     if (!id) return (json(res, 400, { error: 'missing_id' }), true)
     const note = await getNote(ctx.serverId, id)
     if (!note || note.deleted) return (json(res, 404, { error: 'not_found' }), true)
+    if (req.method === 'PATCH') {
+      if (note.userId !== ctx.userId) return (json(res, 403, { error: 'forbidden' }), true)
+      if (note.clubId) {
+        const club = await getClub(ctx.serverId, note.clubId)
+        if (!club) return (json(res, 404, { error: 'club_not_found' }), true)
+        if (club.createdBy !== ctx.userId && !club.allowCommentEditing) {
+          return (json(res, 403, { error: 'comment_editing_disabled' }), true)
+        }
+      }
+      let body
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return (json(res, 400, { error: 'invalid_body' }), true)
+      }
+      const text = typeof body?.body === 'string' ? body.body.trim() : ''
+      if (text.length < 1 || text.length > BODY_MAX) {
+        return (json(res, 400, { error: 'invalid_body_text' }), true)
+      }
+      let timeSec = null
+      if (body?.timeSec != null) {
+        const t = Number(body.timeSec)
+        if (!Number.isFinite(t) || t < 0)
+          return (json(res, 400, { error: 'invalid_timeSec' }), true)
+        timeSec = t
+      }
+      const updated = await updateNote(ctx.serverId, id, {
+        body: text,
+        spoiler: Boolean(body?.spoiler),
+        timeSec,
+      })
+      return (json(res, 200, updated), true)
+    }
     // Author, the owner of the note's club, or a server admin may delete.
     let allowed = note.userId === ctx.userId || isAdmin(ctx)
     if (!allowed && note.clubId) {
@@ -245,6 +293,7 @@ export async function handleNotes(req, res, url, ctx) {
     // Club scope: the club must exist and be non-archived, the caller must be a
     // member, and the book must be in the club's reading history (a note can only
     // attach to a book the club is or was reading).
+    let postingClub = null
     if (clubId) {
       const club = await getClub(ctx.serverId, clubId)
       if (!club) return (json(res, 404, { error: 'club_not_found' }), true)
@@ -255,6 +304,7 @@ export async function handleNotes(req, res, url, ctx) {
       if (!(await bookInClub(ctx.serverId, clubId, libraryItemId))) {
         return (json(res, 400, { error: 'book_not_in_club' }), true)
       }
+      postingClub = club
     }
 
     // parentId must reference an existing TOP-LEVEL note in the same (server,
@@ -263,6 +313,9 @@ export async function handleNotes(req, res, url, ctx) {
     // Kept beyond the block so the reply notification can address its author.
     let parentNote = null
     if (parentId) {
+      if (postingClub && !postingClub.allowReplies) {
+        return (json(res, 403, { error: 'replies_disabled' }), true)
+      }
       const parent = await getNote(ctx.serverId, parentId)
       if (
         !parent ||
@@ -306,6 +359,7 @@ export async function handleNotes(req, res, url, ctx) {
       parentId,
       timeSec,
       safe,
+      spoiler: Boolean(body?.spoiler),
       body: text,
     })
     await consume(ctx.serverId, ctx.userId, NOTES_RATE_LIMIT, 'notes')

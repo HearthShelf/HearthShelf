@@ -21,6 +21,8 @@
 //   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail (membership req.)
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
+//   PUT    /hs/clubs/:id/visibility { visibility } (owner) -> public or closed
+//   PUT    /hs/clubs/:id/settings { allowCommentEditing, allowReplies } (owner/admin)
 //   POST   /hs/clubs/:id/recommend { candidates, historyGenres } (owner) -> next-book picks
 //   DELETE /hs/clubs/:id                         -> archive (owner or admin)
 //   DELETE /hs/clubs/:id/hard                    -> permanently delete (owner or admin)
@@ -85,6 +87,9 @@ import {
   archiveClub,
   deleteClub,
   setRecBasis,
+  setClubVisibility,
+  clubActivityAt,
+  setClubSettings,
   listMyClubs,
   listJoinableClubs,
   createClubInvite,
@@ -219,10 +224,11 @@ async function fetchBookSnapshot(ctx, libraryItemId) {
 
 // Assemble an HSClub summary (adds memberCount + currentBook to a club row).
 async function clubSummary(serverId, club) {
-  const [count, current, queue] = await Promise.all([
+  const [count, current, queue, lastActivityAt] = await Promise.all([
     memberCount(serverId, club.id),
     currentBook(serverId, club.id),
     listQueue(serverId, club.id),
+    clubActivityAt(serverId, club.id, club.createdAt),
   ])
   // queuedItemIds lets a book page say "In queue" for a club without fetching
   // each club's full detail just to render one button's state.
@@ -231,6 +237,7 @@ async function clubSummary(serverId, club) {
     memberCount: count,
     currentBook: current,
     queuedItemIds: queue.map((b) => b.libraryItemId),
+    lastActivityAt,
   }
 }
 
@@ -308,17 +315,16 @@ export async function handleClubs(req, res, url, ctx) {
     if (req.method === 'GET') {
       if (!cfg.clubsEnabled) return (json(res, 200, { enabled: false }), true)
       const libraryItemId = url.searchParams.get('libraryItemId') || ''
+      const wantsDirectory = url.searchParams.get('directory') === '1'
       const mineRows = await listMyClubs(ctx.serverId, ctx.userId)
       const mine = await Promise.all(mineRows.map((c) => clubSummary(ctx.serverId, c)))
-      let joinable = []
-      if (libraryItemId) {
-        const joinRows = await listJoinableClubs(ctx.serverId, libraryItemId)
-        // Don't list a club the caller already belongs to as joinable.
-        const mineIds = new Set(mineRows.map((c) => c.id))
-        joinable = await Promise.all(
-          joinRows.filter((c) => !mineIds.has(c.id)).map((c) => clubSummary(ctx.serverId, c)),
-        )
-      }
+      const joinRows =
+        libraryItemId || wantsDirectory ? await listJoinableClubs(ctx.serverId, libraryItemId) : []
+      // Don't list a club the caller already belongs to as joinable.
+      const mineIds = new Set(mineRows.map((c) => c.id))
+      const joinable = await Promise.all(
+        joinRows.filter((c) => !mineIds.has(c.id)).map((c) => clubSummary(ctx.serverId, c)),
+      )
       return (json(res, 200, { enabled: true, mine, joinable }), true)
     }
     if (req.method === 'POST') {
@@ -334,6 +340,10 @@ export async function handleClubs(req, res, url, ctx) {
       if (libraryItemId && !ID_RE.test(libraryItemId)) {
         return (json(res, 400, { error: 'invalid_id' }), true)
       }
+      const visibility = body.visibility == null ? 'public' : body.visibility
+      if (visibility !== 'closed' && visibility !== 'public') {
+        return (json(res, 400, { error: 'invalid_visibility' }), true)
+      }
 
       const rl = await check(ctx.serverId, ctx.userId, CLUB_CREATE_LIMIT, 'clubs')
       if (!rl.allowed) return (json(res, 429, { error: 'rate_limited' }), true)
@@ -345,6 +355,7 @@ export async function handleClubs(req, res, url, ctx) {
         username: ctx.username,
         libraryItemId,
         bookSnapshot: snapshot,
+        visibility,
       })
       await consume(ctx.serverId, ctx.userId, CLUB_CREATE_LIMIT, 'clubs')
       const club = await getClub(ctx.serverId, id)
@@ -755,6 +766,33 @@ export async function handleClubs(req, res, url, ctx) {
     const stored = await setRecBasis(ctx.serverId, clubId, body.basis)
     if (stored == null) return (json(res, 400, { error: 'invalid_basis' }), true)
     return (json(res, 200, { recBasis: stored }), true)
+  }
+
+  // PUT /hs/clubs/:id/visibility { visibility } -> owner controls whether the
+  // club is discoverable/open-join or invite-only.
+  if (action === 'visibility' && req.method === 'PUT') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    const visibility = await setClubVisibility(ctx.serverId, clubId, body?.visibility)
+    if (!visibility) return (json(res, 400, { error: 'invalid_visibility' }), true)
+    return (json(res, 200, { ok: true, visibility }), true)
+  }
+
+  // Discussion permissions are club policy, not an instance-wide server
+  // switch. Owner and server admin may change them; every note write still
+  // re-checks the stored policy server-side.
+  if (action === 'settings' && req.method === 'PUT') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner && !isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    if (typeof body.allowCommentEditing !== 'boolean' || typeof body.allowReplies !== 'boolean') {
+      return (json(res, 400, { error: 'invalid_settings' }), true)
+    }
+    const settings = await setClubSettings(ctx.serverId, clubId, body)
+    return (json(res, 200, settings), true)
   }
 
   // POST /hs/clubs/:id/recommend { candidates, historyGenres } -> next-book picks

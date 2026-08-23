@@ -33,10 +33,15 @@ function mapClubRow(row) {
     id: String(row.id),
     name: String(row.name ?? ''),
     createdBy: String(row.created_by ?? ''),
+    visibility: Boolean(row.is_open) ? 'public' : 'closed',
     isOpen: Boolean(row.is_open),
     archived: Boolean(row.archived),
     createdAt: Number(row.created_at),
+    lastActivityAt: Number(row.last_activity_at ?? row.created_at),
     recBasis: normalizeRecBasis(row.rec_basis == null ? undefined : String(row.rec_basis)),
+    allowCommentEditing:
+      row.allow_comment_editing == null ? true : Boolean(row.allow_comment_editing),
+    allowReplies: row.allow_replies == null ? true : Boolean(row.allow_replies),
   }
 }
 
@@ -59,7 +64,7 @@ export async function getClub(serverId, clubId) {
   if (!clubId) return null
   await ensure()
   const r = await db.execute({
-    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis
+    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis, allow_comment_editing, allow_replies
           FROM clubs WHERE server_id = ? AND id = ? LIMIT 1`,
     args: [serverId, clubId],
   })
@@ -187,15 +192,15 @@ export async function bookInClub(serverId, clubId, libraryItemId) {
 // caller. Returns the created club id.
 export async function createClub(
   serverId,
-  { name, createdBy, username, libraryItemId, bookSnapshot },
+  { name, createdBy, username, libraryItemId, bookSnapshot, visibility = 'public' },
 ) {
   await ensure()
   const id = crypto.randomUUID()
   const now = Date.now()
   await db.execute({
     sql: `INSERT INTO clubs (id, server_id, name, created_by, is_open, archived, created_at)
-          VALUES (?, ?, ?, ?, 1, 0, ?)`,
-    args: [id, serverId, name, createdBy, now],
+          VALUES (?, ?, ?, ?, ?, 0, ?)`,
+    args: [id, serverId, name, createdBy, visibility === 'closed' ? 0 : 1, now],
   })
   await db.execute({
     sql: `INSERT INTO club_members (server_id, club_id, user_id, username, role, joined_at, last_read_at)
@@ -609,13 +614,73 @@ export async function setRecBasis(serverId, clubId, basis) {
   return basis
 }
 
+// Change whether a club is server-discoverable/open-join or invite-only.
+export async function setClubVisibility(serverId, clubId, visibility) {
+  if (visibility !== 'closed' && visibility !== 'public') return null
+  await ensure()
+  await db.execute({
+    sql: `UPDATE clubs SET is_open = ? WHERE server_id = ? AND id = ?`,
+    args: [visibility === 'public' ? 1 : 0, serverId, clubId],
+  })
+  return visibility
+}
+
+// Latest meaningful club activity. A queued book or a new discussion wakes an
+// otherwise quiet club, rather than relying on creation/current-book dates.
+export async function clubActivityAt(serverId, clubId, createdAt = 0) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT MAX(activity_at) AS activity_at FROM (
+            SELECT created_at AS activity_at FROM clubs
+              WHERE server_id = ? AND id = ?
+            UNION ALL SELECT started_at FROM club_books
+              WHERE server_id = ? AND club_id = ?
+            UNION ALL SELECT finished_at FROM club_books
+              WHERE server_id = ? AND club_id = ? AND finished_at IS NOT NULL
+            UNION ALL SELECT queued_at FROM club_books
+              WHERE server_id = ? AND club_id = ? AND queued_at IS NOT NULL
+            UNION ALL SELECT abandoned_at FROM club_books
+              WHERE server_id = ? AND club_id = ? AND abandoned_at IS NOT NULL
+            UNION ALL SELECT created_at FROM book_notes
+              WHERE server_id = ? AND club_id = ?
+          )`,
+    args: [
+      serverId,
+      clubId,
+      serverId,
+      clubId,
+      serverId,
+      clubId,
+      serverId,
+      clubId,
+      serverId,
+      clubId,
+      serverId,
+      clubId,
+    ],
+  })
+  return Number(r.rows[0]?.activity_at) || Number(createdAt) || 0
+}
+
+// Update member discussion policy for one club. Both values are explicit so a
+// partial client cannot accidentally reset the other switch.
+export async function setClubSettings(serverId, clubId, { allowCommentEditing, allowReplies }) {
+  await ensure()
+  await db.execute({
+    sql: `UPDATE clubs SET allow_comment_editing = ?, allow_replies = ?
+          WHERE server_id = ? AND id = ?`,
+    args: [allowCommentEditing ? 1 : 0, allowReplies ? 1 : 0, serverId, clubId],
+  })
+  return { allowCommentEditing: Boolean(allowCommentEditing), allowReplies: Boolean(allowReplies) }
+}
+
 // Clubs the user belongs to, with member counts + current book resolved by the
 // caller. Returns club summaries (without memberCount/currentBook - the route
 // assembles those, one query each, to keep this layer thin).
 export async function listMyClubs(serverId, userId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies
           FROM clubs c
           JOIN club_members m ON m.server_id = c.server_id AND m.club_id = c.id
           WHERE c.server_id = ? AND m.user_id = ? AND c.archived = 0
@@ -627,11 +692,21 @@ export async function listMyClubs(serverId, userId) {
 
 // Open, non-archived clubs whose CURRENT book (no terminal stamp, not queued) is
 // the item. A book the club set aside no longer advertises the club.
-export async function listJoinableClubs(serverId, libraryItemId) {
-  if (!libraryItemId) return []
+export async function listJoinableClubs(serverId, libraryItemId = '') {
   await ensure()
+  if (!libraryItemId) {
+    const r = await db.execute({
+      sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis,
+                   c.allow_comment_editing, c.allow_replies
+            FROM clubs c
+            WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0
+            ORDER BY c.created_at DESC`,
+      args: [serverId],
+    })
+    return r.rows.map(mapClubRow)
+  }
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies
           FROM clubs c
           JOIN club_books cb ON cb.server_id = c.server_id AND cb.club_id = c.id
           WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0

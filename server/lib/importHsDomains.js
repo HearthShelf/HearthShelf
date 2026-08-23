@@ -74,7 +74,8 @@ async function mergeFinishedBooks(src, tgtServerId, ctx) {
     // Re-map the item ref if present (a linked ABS item); a null stays null (a
     // standalone Goodreads/Hardcover stub with no live item).
     let libraryItemId = r.library_item_id != null ? String(r.library_item_id) : null
-    if (libraryItemId) libraryItemId = targetItem(ctx.srcItemMedia, ctx.mediaToTargetItem, libraryItemId)
+    if (libraryItemId)
+      libraryItemId = targetItem(ctx.srcItemMedia, ctx.mediaToTargetItem, libraryItemId)
     // Preserve the SOURCE row id as the PK. This makes a re-run idempotent even
     // for standalone rows (library_item_id NULL), where SQLite's UNIQUE index
     // treats NULLs as distinct and so wouldn't dedupe on the UNIQUE key alone.
@@ -86,12 +87,19 @@ async function mergeFinishedBooks(src, tgtServerId, ctx) {
               (id, server_id, user_id, source, library_item_id, title, author, isbn, date_finished, hardcover_book_id, hardcover_synced_at, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        id, tgtServerId, userId, String(r.source ?? 'abs'), libraryItemId,
-        String(r.title ?? ''), r.author != null ? String(r.author) : null,
-        r.isbn != null ? String(r.isbn) : null, r.date_finished != null ? String(r.date_finished) : null,
+        id,
+        tgtServerId,
+        userId,
+        String(r.source ?? 'abs'),
+        libraryItemId,
+        String(r.title ?? ''),
+        r.author != null ? String(r.author) : null,
+        r.isbn != null ? String(r.isbn) : null,
+        r.date_finished != null ? String(r.date_finished) : null,
         r.hardcover_book_id != null ? String(r.hardcover_book_id) : null,
         r.hardcover_synced_at != null ? Number(r.hardcover_synced_at) : null,
-        Number(r.created_at) || Date.now(), Number(r.updated_at) || Date.now(),
+        Number(r.created_at) || Date.now(),
+        Number(r.updated_at) || Date.now(),
       ],
     })
     written += Number(res.rowsAffected) || 0
@@ -120,10 +128,7 @@ async function mergeBookRatings(src, tgtServerId, ctx) {
     const res = await db.execute({
       sql: `INSERT OR IGNORE INTO book_ratings (server_id, user_id, item_key, rating, updated_at)
             VALUES (?, ?, ?, ?, ?)`,
-      args: [
-        tgtServerId, userId, itemKey,
-        Number(r.rating), Number(r.updated_at) || Date.now(),
-      ],
+      args: [tgtServerId, userId, itemKey, Number(r.rating), Number(r.updated_at) || Date.now()],
     })
     written += Number(res.rowsAffected) || 0
   }
@@ -141,13 +146,24 @@ async function mergeBookNotes(src, tgtServerId, ctx) {
     // Preserve the note id so a re-run is idempotent (INSERT OR IGNORE on PK).
     const res = await db.execute({
       sql: `INSERT OR IGNORE INTO book_notes
-              (id, server_id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, body, created_at, deleted)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (id, server_id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, spoiler, body, created_at, updated_at, deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
-        String(r.id), tgtServerId, userId, String(r.username ?? ''), libraryItemId,
-        String(r.club_id ?? ''), String(r.visibility ?? 'public'), String(r.parent_id ?? ''),
-        r.time_sec != null ? Number(r.time_sec) : null, Number(r.safe) || 0,
-        String(r.body ?? ''), Number(r.created_at) || Date.now(), Number(r.deleted) || 0,
+        String(r.id),
+        tgtServerId,
+        userId,
+        String(r.username ?? ''),
+        libraryItemId,
+        String(r.club_id ?? ''),
+        String(r.visibility ?? 'public'),
+        String(r.parent_id ?? ''),
+        r.time_sec != null ? Number(r.time_sec) : null,
+        Number(r.safe) || 0,
+        Number(r.spoiler) || 0,
+        String(r.body ?? ''),
+        Number(r.created_at) || Date.now(),
+        r.updated_at == null ? null : Number(r.updated_at),
+        Number(r.deleted) || 0,
       ],
     })
     written += Number(res.rowsAffected) || 0
@@ -159,7 +175,10 @@ async function mergeClubs(src, tgtServerId, ctx) {
   // Union clubs by name: if a club with the same name exists, reuse its id;
   // otherwise create it (preserving created_by re-keyed). Then union members and
   // books. Deterministic (the UI's "ask before combining" is a pre-step).
-  const existing = await db.execute({ sql: `SELECT id, name FROM clubs WHERE server_id = ?`, args: [tgtServerId] })
+  const existing = await db.execute({
+    sql: `SELECT id, name FROM clubs WHERE server_id = ?`,
+    args: [tgtServerId],
+  })
   const byName = new Map(existing.rows.map((r) => [String(r.name).toLowerCase(), String(r.id)]))
   const clubIdMap = new Map() // source club id -> target club id
   let written = 0
@@ -173,9 +192,20 @@ async function mergeClubs(src, tgtServerId, ctx) {
       if (!creator) continue // can't create a club whose owner didn't import
       targetClubId = crypto.randomUUID()
       await db.execute({
-        sql: `INSERT INTO clubs (id, server_id, name, created_by, is_open, archived, created_at, rec_basis)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [targetClubId, tgtServerId, String(c.name ?? ''), creator, Number(c.is_open) || 1, Number(c.archived) || 0, Number(c.created_at) || Date.now(), String(c.rec_basis ?? 'club-history')],
+        sql: `INSERT INTO clubs (id, server_id, name, created_by, is_open, archived, created_at, rec_basis, allow_comment_editing, allow_replies)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          targetClubId,
+          tgtServerId,
+          String(c.name ?? ''),
+          creator,
+          Number(c.is_open) === 0 ? 0 : 1,
+          Number(c.archived) || 0,
+          Number(c.created_at) || Date.now(),
+          String(c.rec_basis ?? 'club-history'),
+          c.allow_comment_editing == null ? 1 : Number(c.allow_comment_editing),
+          c.allow_replies == null ? 1 : Number(c.allow_replies),
+        ],
       })
       byName.set(nameKey, targetClubId)
       written++
@@ -192,7 +222,15 @@ async function mergeClubs(src, tgtServerId, ctx) {
     await db.execute({
       sql: `INSERT OR IGNORE INTO club_members (server_id, club_id, user_id, username, role, joined_at, last_read_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [tgtServerId, targetClubId, userId, String(m.username ?? ''), String(m.role ?? 'member'), Number(m.joined_at) || Date.now(), Number(m.last_read_at) || 0],
+      args: [
+        tgtServerId,
+        targetClubId,
+        userId,
+        String(m.username ?? ''),
+        String(m.role ?? 'member'),
+        Number(m.joined_at) || Date.now(),
+        Number(m.last_read_at) || 0,
+      ],
     })
   }
 
@@ -206,7 +244,19 @@ async function mergeClubs(src, tgtServerId, ctx) {
     await db.execute({
       sql: `INSERT OR IGNORE INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [tgtServerId, targetClubId, libraryItemId, String(b.title ?? ''), String(b.author ?? ''), addedBy || '', Number(b.started_at) || 0, b.finished_at != null ? Number(b.finished_at) : null, b.queued_at != null ? Number(b.queued_at) : null, b.abandoned_at != null ? Number(b.abandoned_at) : null, Number(b.sort_order) || 0],
+      args: [
+        tgtServerId,
+        targetClubId,
+        libraryItemId,
+        String(b.title ?? ''),
+        String(b.author ?? ''),
+        addedBy || '',
+        Number(b.started_at) || 0,
+        b.finished_at != null ? Number(b.finished_at) : null,
+        b.queued_at != null ? Number(b.queued_at) : null,
+        b.abandoned_at != null ? Number(b.abandoned_at) : null,
+        Number(b.sort_order) || 0,
+      ],
     })
   }
 
@@ -215,7 +265,13 @@ async function mergeClubs(src, tgtServerId, ctx) {
 
 // --- entry point -----------------------------------------------------------
 
-export async function mergeHsDomains({ hsBackupBuf, userMap, mediaToTargetItem, sourceItems, serverId }) {
+export async function mergeHsDomains({
+  hsBackupBuf,
+  userMap,
+  mediaToTargetItem,
+  sourceItems,
+  serverId,
+}) {
   const { client, tmpDir } = await openSourceHsDb(hsBackupBuf)
   const srcItemMedia = new Map(sourceItems.map((i) => [String(i.libraryItemId), i.mediaId]))
   const ctx = { userMap, mediaToTargetItem, srcItemMedia }

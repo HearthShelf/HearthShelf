@@ -15,6 +15,14 @@ import type {
   ClubRecommendation,
 } from '@hearthshelf/core'
 
+export type ClubVisibility = 'closed' | 'public'
+type ClubSummary = HSClub & {
+  visibility: ClubVisibility
+  lastActivityAt: number
+  allowCommentEditing: boolean
+  allowReplies: boolean
+}
+
 async function cFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token
   const res = await fetch(`/hs/clubs${path}`, {
@@ -58,20 +66,26 @@ export async function getClubs(libraryItemId?: string): Promise<HSClubsResponse>
   }
 }
 
+const EMPTY_CLUB: ClubSummary = {
+  id: '',
+  name: '',
+  createdBy: '',
+  visibility: 'public',
+  isOpen: true,
+  archived: false,
+  createdAt: 0,
+  lastActivityAt: 0,
+  memberCount: 0,
+  currentBook: null,
+  queuedItemIds: [],
+  recBasis: 'club-history',
+  allowCommentEditing: true,
+  allowReplies: true,
+}
+
 const EMPTY_DETAIL: HSClubDetail = {
   enabled: false,
-  club: {
-    id: '',
-    name: '',
-    createdBy: '',
-    isOpen: true,
-    archived: false,
-    createdAt: 0,
-    memberCount: 0,
-    currentBook: null,
-    queuedItemIds: [],
-    recBasis: 'club-history',
-  },
+  club: EMPTY_CLUB,
   books: [],
   queue: [],
   members: [],
@@ -104,8 +118,12 @@ export async function getClub(args: GetClubArgs): Promise<HSClubDetail> {
 
 // Create a club (creator becomes owner). Optional libraryItemId seeds the first
 // current book. Throws on failure so the create modal can surface an error.
-export async function createClub(name: string, libraryItemId?: string): Promise<HSClub> {
-  const payload: Record<string, unknown> = { name }
+export async function createClub(
+  name: string,
+  libraryItemId?: string,
+  visibility: ClubVisibility = 'public',
+): Promise<HSClub> {
+  const payload: Record<string, unknown> = { name, visibility }
   if (libraryItemId) payload.libraryItemId = libraryItemId
   return cFetch<HSClub>('', { method: 'POST', body: JSON.stringify(payload) })
 }
@@ -131,6 +149,13 @@ export async function addClubQueue(clubId: string, libraryItemId: string): Promi
 
 export async function joinClub(clubId: string): Promise<void> {
   await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}/join`, { method: 'POST' })
+}
+
+export async function setClubVisibility(clubId: string, visibility: ClubVisibility): Promise<void> {
+  await cFetch<{ ok: boolean }>(`/${encodeURIComponent(clubId)}/visibility`, {
+    method: 'PUT',
+    body: JSON.stringify({ visibility }),
+  })
 }
 
 export async function respondToClubInvite(

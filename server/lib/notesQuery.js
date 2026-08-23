@@ -10,9 +10,10 @@
 //   OR time_sec <= position     (you've reached it)
 //   OR author = caller          (your own note)
 //   OR caller has finished       (finished-bypass)
-// A REPLY inherits its PARENT's time_sec gate (a reply to an ahead-note is ahead
-// whatever its own timestamp) - a safe PARENT unlocks its replies, but a reply
-// never carries its own safe flag. Other users' `personal` notes are filtered
+// A REPLY always inherits its PARENT's time_sec gate. When the reply author
+// explicitly attaches their own position, that later gate must pass too. A safe
+// PARENT bypasses only the parent gate; a reply never carries its own safe flag.
+// Other users' `personal` notes are filtered
 // out at load time and never reach the gate at all. Locked TIMESTAMPED TOP-LEVEL
 // notes become
 // anonymous stubs { id, timeSec }; replies never get stubs (the parent's stub
@@ -50,7 +51,7 @@ function ensure() {
 export async function loadNotes(serverId, libraryItemId, clubId, callerId, includeDeleted = false) {
   await ensure()
   const args = [serverId, libraryItemId, clubId]
-  let sql = `SELECT id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, body, created_at, deleted
+  let sql = `SELECT id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, spoiler, body, created_at, updated_at, deleted
              FROM book_notes
              WHERE server_id = ? AND library_item_id = ? AND club_id = ?`
   // Personal notes are private to their author. In the public scope, filter so a
@@ -73,8 +74,10 @@ export async function loadNotes(serverId, libraryItemId, clubId, callerId, inclu
     parentId: String(row.parent_id ?? ''),
     timeSec: row.time_sec == null ? null : Number(row.time_sec),
     safe: Boolean(row.safe),
+    spoiler: Boolean(row.spoiler),
     body: String(row.body ?? ''),
     createdAt: Number(row.created_at),
+    updatedAt: row.updated_at == null ? null : Number(row.updated_at),
     deleted: Boolean(row.deleted),
   }))
 }
@@ -84,7 +87,7 @@ export async function loadNotes(serverId, libraryItemId, clubId, callerId, inclu
 export async function getNote(serverId, id) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, body, created_at, deleted
+    sql: `SELECT id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, spoiler, body, created_at, updated_at, deleted
           FROM book_notes WHERE server_id = ? AND id = ? LIMIT 1`,
     args: [serverId, id],
   })
@@ -100,8 +103,10 @@ export async function getNote(serverId, id) {
     parentId: String(row.parent_id ?? ''),
     timeSec: row.time_sec == null ? null : Number(row.time_sec),
     safe: Boolean(row.safe),
+    spoiler: Boolean(row.spoiler),
     body: String(row.body ?? ''),
     createdAt: Number(row.created_at),
+    updatedAt: row.updated_at == null ? null : Number(row.updated_at),
     deleted: Boolean(row.deleted),
   }
 }
@@ -112,7 +117,8 @@ export async function getNote(serverId, id) {
 //   Top-level: safe OR author OR finished OR timeSec == null OR timeSec <= pos.
 //   Reply:     own author OR finished bypass; ELSE the parent unlocks it iff the
 //              parent is present AND (parent.safe OR parent.timeSec == null OR
-//              parent.timeSec <= pos). A missing parent = locked. The parent's
+//              parent.timeSec <= pos), AND its own optional timeSec gate passes.
+//              A missing parent = locked. The parent's
 //              AUTHOR bypass does NOT unlock a stranger's reply, and a reply
 //              never carries its own `safe`.
 //
@@ -126,14 +132,12 @@ export function isUnlocked(note, byId, pos, meId, isFinished) {
     if (note.userId === meId || isFinished) return true
     const parent = byId.get(note.parentId)
     if (!parent) return false
-    return parent.safe || parent.timeSec == null || parent.timeSec <= pos
+    const parentPasses = parent.safe || parent.timeSec == null || parent.timeSec <= pos
+    const replyPasses = note.timeSec == null || note.timeSec <= pos
+    return parentPasses && replyPasses
   }
   return (
-    note.safe ||
-    note.userId === meId ||
-    isFinished ||
-    note.timeSec == null ||
-    note.timeSec <= pos
+    note.safe || note.userId === meId || isFinished || note.timeSec == null || note.timeSec <= pos
   )
 }
 
@@ -182,8 +186,10 @@ export function gateNotes(rows, { position, meId, isFinished, includeLocked, aft
           parentId: note.parentId,
           timeSec: note.timeSec,
           safe: note.safe,
+          spoiler: note.spoiler,
           body: note.body,
           createdAt: note.createdAt,
+          updatedAt: note.updatedAt,
         })
       }
       continue
@@ -232,7 +238,10 @@ export async function resolveGatePosition(ctx, libraryItemId, positionParam, fin
 // HSNote. Callers validate body/timeSec/parent/visibility first. `safe` is
 // forced false for replies (only top-level notes may be spoiler-safe - a reply
 // never carries its own safe flag; it inherits its parent's gate).
-export async function insertNote(serverId, { userId, username, libraryItemId, clubId, visibility, parentId, timeSec, safe, body }) {
+export async function insertNote(
+  serverId,
+  { userId, username, libraryItemId, clubId, visibility, parentId, timeSec, safe, spoiler, body },
+) {
   await ensure()
   const id = crypto.randomUUID()
   const createdAt = Date.now()
@@ -241,8 +250,8 @@ export async function insertNote(serverId, { userId, username, libraryItemId, cl
   const safeVal = !isReply && safe ? 1 : 0
   await db.execute({
     sql: `INSERT INTO book_notes
-            (id, server_id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, body, created_at, deleted)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+            (id, server_id, user_id, username, library_item_id, club_id, visibility, parent_id, time_sec, safe, spoiler, body, created_at, updated_at, deleted)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)`,
     args: [
       id,
       serverId,
@@ -254,6 +263,7 @@ export async function insertNote(serverId, { userId, username, libraryItemId, cl
       parentId || '',
       timeSec == null ? null : timeSec,
       safeVal,
+      spoiler ? 1 : 0,
       body,
       createdAt,
     ],
@@ -268,9 +278,23 @@ export async function insertNote(serverId, { userId, username, libraryItemId, cl
     parentId: parentId || '',
     timeSec: timeSec == null ? null : timeSec,
     safe: Boolean(safeVal),
+    spoiler: Boolean(spoiler),
     body,
     createdAt,
+    updatedAt: null,
   }
+}
+
+/** Revise an author's note text, spoiler flag, and optional attached position. */
+export async function updateNote(serverId, id, { body, spoiler, timeSec }) {
+  await ensure()
+  const updatedAt = Date.now()
+  await db.execute({
+    sql: `UPDATE book_notes SET body = ?, spoiler = ?, time_sec = ?, updated_at = ?
+          WHERE server_id = ? AND id = ? AND deleted = 0`,
+    args: [body, spoiler ? 1 : 0, timeSec == null ? null : timeSec, updatedAt, serverId, id],
+  })
+  return getNote(serverId, id)
 }
 
 // Soft-delete a note (keeps reply threads intact). Returns true if a row moved

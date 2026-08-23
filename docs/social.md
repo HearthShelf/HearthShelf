@@ -273,11 +273,13 @@ CREATE TABLE IF NOT EXISTS book_notes (
   library_item_id TEXT NOT NULL,
   club_id         TEXT NOT NULL DEFAULT '',       -- '' for public/personal; a club id for club notes
   visibility      TEXT NOT NULL DEFAULT 'public', -- 'club' | 'public' | 'personal'
-  parent_id       TEXT NOT NULL DEFAULT '',       -- '' = top-level; replies gate at the PARENT's time_sec
+  parent_id       TEXT NOT NULL DEFAULT '',       -- '' = top-level; replies always gate at the parent
   time_sec        REAL,                           -- NULL = general (ungated) note
   safe            INTEGER NOT NULL DEFAULT 0,     -- author-declared spoiler-free -> bypasses the position gate
+  spoiler         INTEGER NOT NULL DEFAULT 0,     -- visual tap-to-reveal cover; independent of position gating
   body            TEXT NOT NULL,                  -- <= 2000 chars, server-validated
   created_at      INTEGER NOT NULL,               -- ms
+  updated_at      INTEGER,                        -- ms of latest edit; NULL until edited
   deleted         INTEGER NOT NULL DEFAULT 0      -- soft delete keeps threads intact
 );
 CREATE INDEX IF NOT EXISTS idx_book_notes_item
@@ -318,6 +320,8 @@ CREATE TABLE IF NOT EXISTS clubs (
   created_by      TEXT NOT NULL,
   is_open         INTEGER NOT NULL DEFAULT 1,     -- open-join v1; column shaped for invite-only later
   archived        INTEGER NOT NULL DEFAULT 0,
+  allow_comment_editing INTEGER NOT NULL DEFAULT 1,
+  allow_replies   INTEGER NOT NULL DEFAULT 1,
   created_at      INTEGER NOT NULL,
   rec_basis       TEXT NOT NULL DEFAULT 'club-history' -- 'off' | 'club-history' | 'all-members-finished'
 );
@@ -376,14 +380,20 @@ route modules per the house per-domain pattern (`routes/notes.js`,
 | `/hs/social/listening-now` | GET `?libraryItemId=` / POST `{libraryItemIds}` (bulk, capped 100) | `{ available, users }` / `{ available, byItem }`, filtered by the new presence resolution; ~3 min recency threshold; label the UI "listening recently" |
 | `/hs/social/community-config` | GET/PUT | + `defaultShareListening`, `notesEnabled`, `clubsEnabled`, `clubsAiEnabled` (PUT admin-only) |
 | `/hs/notes?libraryItemId=&clubId=&position=&after=&finished=` | GET | `{ enabled, notes:[HSNote], locked:[{id,timeSec}], hiddenAhead, now }`; club scope requires membership (403); `locked` only for club scope. Public scope returns the caller's own `personal` notes plus everyone's `public` notes; a `personal` note is invisible to all other callers (never in `notes`, `locked`, or `hiddenAhead`). `safe` notes are always in `notes` regardless of `position` |
-| `/hs/notes` | POST | `{ libraryItemId, clubId?, visibility?, parentId?, timeSec?, safe?, body }` -> HSNote; rate-limited. `visibility` defaults `'public'` (`'club'` forced when `clubId` set); reject `club`+no-club or `public`/`personal`+club; `safe` only on top-level notes (ignored on replies) |
+| `/hs/notes` | POST | `{ libraryItemId, clubId?, visibility?, parentId?, timeSec?, safe?, spoiler?, body }` -> HSNote; rate-limited. `visibility` defaults `'public'` (`'club'` forced when `clubId` set); reject `club`+no-club or `public`/`personal`+club; `safe` only on top-level notes. Reply `timeSec` is opt-in and adds its own gate after the parent gate |
+| `/hs/notes/:id` | PATCH | author only, `{ body, spoiler, timeSec }`; club member edits obey that club's `allowCommentEditing` policy (owner may always edit their own comment) |
 | `/hs/notes/:id` | DELETE | author, club owner (own club), or admin -> soft delete |
+| `/hs/notes/:id/reactions` | GET/POST | GET returns each reaction kind and its reactor roster; POST `{ kind, on }` explicitly adds/removes the caller's reaction |
 | `/hs/clubs?libraryItemId=` | GET | `{ enabled, mine:[...], joinable:[...] }`; `joinable` = open clubs whose CURRENT book is the item; without the param, `mine` only |
 | `/hs/clubs` | POST | `{ name, libraryItemId? }`; creator becomes owner; optional first current book; rate-limited |
 | `/hs/clubs/:id/books` | POST | owner only, `{ libraryItemId }` -> becomes current (promotes a queued book too); previous current gets `finished_at` stamped |
 | `/hs/clubs/:id/queue` | POST | owner only, `{ libraryItemId }` -> add to up-next queue; `{ ok, added }` (added:false if the book is already in the club) |
 | `/hs/clubs/:id/queue/:itemId` | DELETE | owner only -> remove a queued book; `{ ok, removed }` |
-| `/hs/clubs/:id/join` / `/leave` | POST | membership row; join UI states "members see your progress in this club's books" |
+| `/hs/clubs` | GET | caller's `mine` plus `joinable`; `directory=1` requests the server-wide public directory, while `libraryItemId` requests public clubs currently reading that book |
+| `/hs/clubs` | POST | `{ name, libraryItemId?, visibility: 'closed'|'public' }`; omitted visibility remains public for older-client compatibility |
+| `/hs/clubs/:id/join` / `/leave` | POST | public clubs can be joined directly; closed clubs require an invitation; membership exposes progress in that club's books |
+| `/hs/clubs/:id/visibility` | PUT | owner only, `{ visibility: 'closed'|'public' }`; public is discoverable/open-join, closed is invite-only |
+| `/hs/clubs/:id/settings` | PUT | owner or admin, `{ allowCommentEditing, allowReplies }`; per-club discussion policy, enforced server-side |
 | `/hs/clubs/:id/kick` | POST | owner only, `{ userId }` |
 | `/hs/clubs/:id?bookId=&position=` | GET | `{ club, books:[HSClubBook], queue:[HSClubBook], members:[{userId,username,currentTime,duration,isFinished,listeningNow}], notes:{notes,locked,hiddenAhead}, unreadCount }`; `books` excludes queued; `bookId` defaults to the current book; `members` progress is for that book; `locked` stubs only for the current book |
 | `/hs/clubs/:id/read` | PUT | `{ lastReadAt }` -> `max()` cursor bump (per club) |
