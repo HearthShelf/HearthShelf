@@ -2719,6 +2719,77 @@
   min-height: 34px;
   padding: 6px 13px;
 }
+/* Finished-book rating prompt: answered in the tray, so the stars sit inline in
+   the row rather than opening anything. */
+.notification-rating {
+  margin-top: 9px;
+}
+.notification-rating-stars {
+  display: flex;
+  gap: 2px;
+  margin-left: -6px;
+}
+.notification-rating-star {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    transform 0.12s ease;
+}
+.notification-rating-star:hover:not(:disabled),
+.notification-rating-star:focus-visible {
+  transform: scale(1.08);
+}
+.notification-rating-star.on {
+  color: var(--brand-hearth);
+}
+.notification-rating-star:disabled {
+  cursor: default;
+}
+.notification-rating-skip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 13px;
+  margin-top: 3px;
+}
+.notification-rating-skip button {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.notification-rating-skip button:hover:not(:disabled) {
+  color: var(--text);
+}
+.notification-rating-stop {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.notification-rating-stop .notification-actions {
+  margin-top: 7px;
+}
+.notification-rating-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+  min-height: 34px;
+  color: var(--brand-hearth);
+  font-size: 12.5px;
+  font-weight: 700;
+}
 .notification-status {
   display: inline-block;
   margin-top: 8px;

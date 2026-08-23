@@ -497,6 +497,16 @@ export function SettingsPage() {
                     />
                   }
                 />
+                <SetRow
+                  title="Rate a finished book"
+                  desc="Ask how it was when you finish a book. Shows in your tray only."
+                  control={
+                    <Toggle
+                      on={np.types.rating.enabled}
+                      onClick={() => setTypeEnabled('rating', !np.types.rating.enabled)}
+                    />
+                  }
+                />
               </div>
 
               {np.types.release.enabled && (
