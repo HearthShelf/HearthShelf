@@ -498,10 +498,12 @@ export async function handleClubs(req, res, url, ctx) {
     // finishedAt null too and must not be mistaken for it.
     const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) || null
     const requestedBookId = url.searchParams.get('bookId') || ''
-    // Which book we're viewing: the requested one if it's in this club, else the
-    // current book, else the most recent past book.
+    // Which book we're viewing: the requested one if it's anywhere in this
+    // club, including Up next. Members may read ahead, and carousel clients need
+    // their progress in that queued book rather than silently falling back to
+    // the club's current book.
     const viewedBook =
-      (requestedBookId && books.find((b) => b.libraryItemId === requestedBookId)) ||
+      (requestedBookId && [...books, ...queue].find((b) => b.libraryItemId === requestedBookId)) ||
       current ||
       books[books.length - 1] ||
       null
