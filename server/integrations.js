@@ -1,7 +1,7 @@
 // Integrations config: the external services HearthShelf can talk to.
 //   - ReadMeABook (RMAB): acquisition backend (url + login token)
 //   - Audplexus: library-sync diagnostics (url + key)
-//   - Audible: catalog search region
+//   - Audible: catalog search region + an on/off switch (audibleEnabled)
 //
 // Precedence: ENV OVERRIDES DB, per field. For each field, if its environment
 // variable is set, that value is used and the field is locked (the admin UI
@@ -70,6 +70,10 @@ function envOverrides() {
     const r = region.toLowerCase()
     out.audibleRegion = VALID_REGIONS.includes(r) ? r : 'us'
   }
+  // Opt-OUT: only an explicit falsey value disables it, so setting the var to
+  // anything truthy (or leaving it unset) keeps today's behaviour.
+  const enabled = envVal('AUDIBLE_ENABLED')
+  if (enabled != null) out.audibleEnabled = !/^(0|false|no|off)$/i.test(enabled.trim())
   return out
 }
 
@@ -106,6 +110,8 @@ async function getStored() {
     audplexusUrl: row.audplexus_url ?? null,
     audplexusKey: row.audplexus_key ?? null,
     audibleRegion: VALID_REGIONS.includes(region) ? region : 'us',
+    // Default ON for rows written before this column existed.
+    audibleEnabled: row.audible_enabled == null ? true : Boolean(row.audible_enabled),
   }
 }
 
@@ -126,6 +132,7 @@ function applyStoredPatch(stored, patch, env) {
     const region = (patch.audibleRegion || '').toLowerCase()
     next.audibleRegion = VALID_REGIONS.includes(region) ? region : next.audibleRegion
   }
+  if (editable('audibleEnabled')) next.audibleEnabled = Boolean(patch.audibleEnabled)
   if (editable('rmabLoginToken')) {
     if (patch.rmabLoginToken === null) next.rmabLoginToken = null
     else if (typeof patch.rmabLoginToken === 'string' && patch.rmabLoginToken !== '') {
@@ -161,7 +168,7 @@ export async function setIntegrations(patch) {
   await db.execute({
     sql: `UPDATE integrations_config
           SET rmab_url = ?, rmab_login_token = ?, audplexus_url = ?, audplexus_key = ?,
-              audible_region = ?, updated_at = ?
+              audible_region = ?, audible_enabled = ?, updated_at = ?
           WHERE id = 1`,
     args: [
       next.rmabUrl,
@@ -169,6 +176,7 @@ export async function setIntegrations(patch) {
       next.audplexusUrl,
       next.audplexusKey,
       next.audibleRegion,
+      next.audibleEnabled ? 1 : 0,
       Date.now(),
     ],
   })
@@ -190,6 +198,7 @@ export async function publicIntegrations() {
     audplexusConfigured: Boolean(c.audplexusUrl && c.audplexusKey),
     audplexusHasKey: Boolean(c.audplexusKey),
     audibleRegion: c.audibleRegion,
+    audibleEnabled: c.audibleEnabled,
     validRegions: VALID_REGIONS,
     // Per-field env locks (true = environment-managed, read-only in the UI).
     env: {
@@ -198,6 +207,7 @@ export async function publicIntegrations() {
       audplexusUrl: 'audplexusUrl' in env,
       audplexusKey: 'audplexusKey' in env,
       audibleRegion: 'audibleRegion' in env,
+      audibleEnabled: 'audibleEnabled' in env,
     },
   }
 }

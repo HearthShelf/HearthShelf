@@ -391,6 +391,17 @@ export async function handleAudible(req, res, url, ctx) {
   // Resolve a durable /upcoming/:asin link to the library detail route after
   // the book has landed in ABS. This uses ABS's local database, so it is an
   // exact ASIN match and does not depend on a catalog search or a stale roster.
+  // Everything below this point calls Audible's public catalog API. When the
+  // admin has turned Audible off (Config > Integrations), answer as though the
+  // catalog simply has nothing rather than making the call - clients already
+  // treat an empty roster as "no upcoming/missing data" and degrade to
+  // owned-only views, so this needs no client cooperation to be safe.
+  //
+  // Deliberately placed AFTER /library-item: that branch resolves an ASIN
+  // against ABS's OWN database, so links already handed out keep working with
+  // the catalog disabled.
+  const audibleOff = async () => !(await getIntegrations()).audibleEnabled
+
   if (p === '/hs/audible/library-item') {
     const asin = (url.searchParams.get('asin') ?? '').trim()
     if (!asin) return (json(res, 400, { error: 'asin_required' }), true)
@@ -402,6 +413,12 @@ export async function handleAudible(req, res, url, ctx) {
   if (p === '/hs/audible/search') {
     const q = (url.searchParams.get('q') ?? url.searchParams.get('query') ?? '').trim()
     const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1)
+    if (await audibleOff()) {
+      return (
+        json(res, 200, { query: q, results: [], totalResults: 0, page, hasMore: false }),
+        true
+      )
+    }
     if (q.length < 2) {
       return (
         json(res, 200, { query: q, results: [], totalResults: 0, page, hasMore: false }),
@@ -420,6 +437,9 @@ export async function handleAudible(req, res, url, ctx) {
   if (p === '/hs/audible/product') {
     const asin = (url.searchParams.get('asin') ?? '').trim()
     if (!asin) return (json(res, 400, { error: 'asin_required' }), true)
+    // 404 rather than an empty body: callers already handle "no such product",
+    // and a fabricated empty product would render as a blank book page.
+    if (await audibleOff()) return (json(res, 404, { error: 'not_found' }), true)
     const key = `product|${region}|${asin}`
     const cached = cacheGet(key)
     if (cached) return (json(res, 200, cached), true)
@@ -446,6 +466,11 @@ export async function handleAudible(req, res, url, ctx) {
   // ambiguous rather than guessing the wrong series.
   if (p === '/hs/audible/series') {
     const name = (url.searchParams.get('q') ?? '').trim()
+    // Empty roster = "no catalog data for this series", which every client
+    // already treats as owned-only (no missing books, no countdowns).
+    if (await audibleOff()) {
+      return (json(res, 200, { name, seriesAsin: null, books: [] }), true)
+    }
     const seriesId = (url.searchParams.get('seriesId') ?? '').trim()
     // A caller holding only the Audible series ASIN (a series subscription -
     // the follow stores the ASIN, not an ABS series id) can ask by it directly.

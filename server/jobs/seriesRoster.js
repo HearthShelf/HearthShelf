@@ -14,6 +14,7 @@ import { resolveSeriesAsin, fetchSeriesBooks, currentRegion } from '../routes/au
 import { saveSeriesRoster } from '../lib/seriesRosterStore.js'
 import { backfillAbsSeriesIds } from '../lib/subscriptionsStore.js'
 import { getServerId } from '../db.js'
+import { getIntegrations } from '../integrations.js'
 import { stampOwned } from '../lib/seriesOwned.js'
 
 // Do the owned books in one series come from authors with nothing in common?
@@ -64,6 +65,14 @@ const between = (ms, signal) =>
 const PACING_MS = Number(process.env.HS_JOB_SERIES_PACING_MS || '250')
 
 export async function runSeriesRoster(logger, signal) {
+  // The whole point of this sweep is to precompute Audible rosters, so there is
+  // nothing to do when the admin has turned Audible off - and running it anyway
+  // would keep calling the catalog API on a schedule, which is exactly what the
+  // switch is meant to stop.
+  if (!(await getIntegrations()).audibleEnabled) {
+    logger.info('Audible catalog is turned off in Config > Integrations. Skipping.')
+    return 'Skipped: Audible disabled'
+  }
   if (!(await absDbAvailable())) {
     logger.warn('ABS database not available (HS_ABS_DB_PATH) - cannot enumerate series. Skipping.')
     return 'Skipped: ABS database not mounted'

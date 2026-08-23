@@ -132,6 +132,7 @@ const SCHEMA = [
      audplexus_url     TEXT,
      audplexus_key     TEXT,
      audible_region    TEXT,
+     audible_enabled   INTEGER NOT NULL DEFAULT 1,
      updated_at        INTEGER NOT NULL
    )`,
   // HS backup schedule + retention (see docs/data-lifecycle/backups.md). A single
@@ -832,6 +833,10 @@ const MIGRATIONS = [
   `ALTER TABLE hosted_user_keys ADD COLUMN synced_username TEXT`,
   `ALTER TABLE server_identity ADD COLUMN server_name TEXT`,
   `ALTER TABLE ai_config ADD COLUMN discover_enabled INTEGER NOT NULL DEFAULT 1`,
+  // Audible catalog lookups are opt-OUT: existing installs have been using them
+  // all along, so defaulting to 1 keeps their behaviour unchanged. Turning it off
+  // stops the server calling Audible's public API at all - see routes/audible.js.
+  `ALTER TABLE integrations_config ADD COLUMN audible_enabled INTEGER NOT NULL DEFAULT 1`,
   // Telemetry moved from opt-in to opt-out. `chosen` marks that an admin actually
   // answered. Existing rows get 0 - their enabled=0 came from the OLD default, not
   // from a decision, so the wizard may ask them once rather than assuming a "no"

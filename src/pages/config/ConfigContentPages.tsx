@@ -998,6 +998,26 @@ function AudibleIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
         <p className="sr-d" style={{ marginBottom: 'var(--s4)' }}>
           The Audible marketplace HearthShelf searches for discovery and requests.
         </p>
+        {/* The on/off switch saves immediately rather than waiting for the Save
+            button below, which belongs to the region field. Turning this off
+            stops the server calling Audible at all: no upcoming books, missing
+            books, or release countdowns, and the nightly roster sweep is
+            skipped. */}
+        <EnvField label="Use the Audible catalog" locked={cfg.env.audibleEnabled}>
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={cfg.audibleEnabled}
+              disabled={cfg.env.audibleEnabled || save.isPending}
+              onChange={(e) => save.mutate({ audibleEnabled: e.target.checked })}
+            />
+            <span className="text-sm">
+              Look up books and series on Audible to show upcoming releases, books missing from a
+              series, and release countdowns. Turn this off to keep HearthShelf to your own library
+              only.
+            </span>
+          </label>
+        </EnvField>
         <EnvField label="Region" locked={cfg.env.audibleRegion}>
           <select
             className="fld"
