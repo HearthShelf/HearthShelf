@@ -13,20 +13,29 @@
 //   - Mail clients strip <style> blocks and ignore most modern CSS. Everything
 //     here is INLINE styles on table/div elements, which is the only thing that
 //     renders consistently across Gmail, Outlook and Apple Mail.
-//   - No external images or webfonts: remote content is blocked by default in
-//     most clients, so the wordmark is text and the palette is hex literals.
+//   - No REMOTE images or webfonts: mail clients block remote content by
+//     default, so the flame is embedded as a data URI and the wordmark falls
+//     back to Georgia where Libre Baskerville isn't installed.
 //   - Dark-on-light. Several clients invert or recolour dark backgrounds
 //     unpredictably, and a light card renders the same everywhere.
 //   - Every message ships a text/plain alternative. Some clients prefer it, and
 //     it is what accessibility tooling and plain-text readers use.
 
-// Hearth ember - the app's default accent (see EMBER in the mobile theme).
-const ACCENT = '#e0654a'
+import { FLAME_PNG_BASE64 } from './emailFlame.js'
+
+// Brand values, taken from the marketing site's tokens (--brand-hearth /
+// --wordmark-shelf in HearthShelf-Website) and the design-system flame ramp, so
+// an email reads as the same product as the sign-in page.
+const HEARTH_GOLD = '#bd863f'
 const INK = '#1f1d1b'
 const MUTED = '#6b6459'
 const HAIRLINE = '#e6e1d8'
 const PAGE_BG = '#f6f3ee'
 const CARD_BG = '#ffffff'
+// The wordmark's cream is designed for a dark page and is invisible on this
+// light card, so "Shelf" takes the ink colour here. The gold/weight contrast
+// between the two halves is what carries the mark.
+const WORDMARK_SHELF = INK
 
 export function escapeHtml(value) {
   return String(value ?? '')
@@ -67,7 +76,7 @@ export function renderEmail({
   const safeFootnote = escapeHtml(footnote)
 
   const quoteBlock = quote
-    ? `<div style="margin:0 0 20px;padding:12px 16px;background:${PAGE_BG};border-left:3px solid ${ACCENT};border-radius:4px;color:${MUTED};font-size:15px;line-height:1.5;">${safeQuote}</div>`
+    ? `<div style="margin:0 0 20px;padding:12px 16px;background:${PAGE_BG};border-left:3px solid ${HEARTH_GOLD};border-radius:4px;color:${MUTED};font-size:15px;line-height:1.5;">${safeQuote}</div>`
     : ''
 
   // A bulletproof-ish button: a table cell with a background, which Outlook
@@ -75,7 +84,7 @@ export function renderEmail({
   const button = actionUrl
     ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px;">
          <tr>
-           <td align="center" bgcolor="${ACCENT}" style="border-radius:8px;">
+           <td align="center" bgcolor="${HEARTH_GOLD}" style="border-radius:8px;">
              <a href="${safeUrl}" style="display:inline-block;padding:12px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">${safeLabel}</a>
            </td>
          </tr>
@@ -100,7 +109,16 @@ export function renderEmail({
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background:${CARD_BG};border:1px solid ${HAIRLINE};border-radius:12px;">
           <tr>
             <td style="padding:24px 28px 0;">
-              <p style="margin:0 0 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:700;letter-spacing:0.2px;color:${ACCENT};">HearthShelf</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+                <tr>
+                  <td style="padding-right:10px;vertical-align:middle;">
+                    <img src="data:image/png;base64,${FLAME_PNG_BASE64}" width="26" height="29" alt="HearthShelf" style="display:block;border:0;outline:none;text-decoration:none;">
+                  </td>
+                  <td style="vertical-align:middle;font-family:'Libre Baskerville',Georgia,'Times New Roman',serif;font-size:19px;line-height:1;">
+                    <span style="color:${HEARTH_GOLD};font-weight:400;">Hearth</span><span style="color:${WORDMARK_SHELF};font-weight:700;">Shelf</span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <tr>
