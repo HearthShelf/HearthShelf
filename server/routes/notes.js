@@ -31,6 +31,7 @@ import {
   deliverReaction,
   deliverReply,
   isValidReactionKind,
+  normalizeReactionKind,
 } from '../lib/noteReactions.js'
 
 const NOTES_RATE_LIMIT = '60/hour'
@@ -77,7 +78,10 @@ export async function handleNotes(req, res, url, ctx) {
       return (json(res, 403, { error: 'forbidden' }), true)
     }
     const body = await readBody(req)
-    const kind = String(body?.kind ?? 'up')
+    // Normalize FIRST, then validate, then store the normalized value - so what
+    // was checked is exactly what is written, and skin-tone variants of one
+    // emoji converge on a single tally.
+    const kind = normalizeReactionKind(body?.kind ?? 'up')
     if (!isValidReactionKind(kind)) return (json(res, 400, { error: 'invalid_kind' }), true)
     const on = body?.on !== false
     const { added, reactions } = await setReaction(ctx.serverId, note, ctx.userId, kind, on)

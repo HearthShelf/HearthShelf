@@ -1,11 +1,17 @@
 // Reactions on club notes: storing them, tallying them onto a page of notes,
 // and telling the author when someone reacts.
 //
-// `kind` is a string rather than a boolean "liked" so the set can grow (heart,
-// laugh) without a migration or a version gate. A kind this server has never
-// heard of is stored and counted like any other - it simply renders without an
-// icon on a client that doesn't know it yet. That is deliberate: rejecting
-// unknown kinds would make every new reaction a breaking server upgrade.
+// `kind` is a raw emoji rather than a boolean "liked" or a fixed name, so the
+// set grows without a migration or a version gate: the kind IS the glyph, and a
+// reaction this server has never seen renders correctly on every client. Three
+// legacy names ('up' | 'heart' | 'laugh') predate emoji kinds and are still
+// accepted so existing rows keep working.
+//
+// Validation is shared with the clients via @hearthshelf/core rather than
+// duplicated here - this is the security boundary for a value that lands in a
+// unique index, so it must not drift between surfaces. It is deliberately
+// strict: emoji codepoints only, capped in length, skin-tone modifiers folded
+// away. See core's lib/noteReactions.ts for why each rule is there.
 //
 // No spoiler gate applies here, unlike mentions. You can only react to a note
 // you can already read, and the notification goes to that note's AUTHOR, who
@@ -20,6 +26,10 @@ import { notifyPrefsFor, shouldNotify } from './notificationPrefs.js'
 import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
+import {
+  isValidReactionKind as isValidKind,
+  normalizeReactionKind,
+} from '@hearthshelf/core'
 
 let ready = null
 function ensure() {
@@ -30,12 +40,17 @@ function ensure() {
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
 const EXCERPT_MAX = 140
 
-/** Kinds a client may send. Unknown kinds are stored, but anything that isn't a
- *  short, plain token is refused so the column can't become a junk drawer. */
-const KIND_RE = /^[a-z][a-z0-9_-]{0,23}$/
+/**
+ * Normalize a kind for storage, folding skin-tone variants onto their base so a
+ * note's counts don't split across five near-identical chips. Always call this
+ * BEFORE isValidReactionKind, and store exactly what it returned - validating
+ * one string and writing another is how a check gets bypassed.
+ */
+export { normalizeReactionKind }
 
+/** Whether a normalized kind may be stored. */
 export function isValidReactionKind(kind) {
-  return typeof kind === 'string' && KIND_RE.test(kind)
+  return isValidKind(kind)
 }
 
 function escapeHtml(value) {
