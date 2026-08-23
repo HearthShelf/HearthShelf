@@ -741,8 +741,8 @@ export async function getYearsInReviewForUser(userId) {
 }
 
 // Resolve a book by its media id (books.id, = mediaProgresses.mediaItemId) to its
-// title + canonical length + owning library-item id, for the "most re-read"
-// highlight badge (bookCompletionsStore stores only the media id). libraryItemId
+// title + canonical length + owning library-item id + first author, for the
+// "most re-read" highlight badge and the finished-book rating prompt (bookCompletionsStore stores only the media id). libraryItemId
 // lets the client render a cover; it's the newest libraryItems row that points at
 // this book (a book is normally owned once). Returns null when the db isn't
 // mounted or the book no longer exists in the library. Cached per media id.
@@ -756,7 +756,10 @@ export async function getBookByMediaId(mediaItemId) {
         sql: `SELECT b.title AS title, b.duration AS dur,
                      (SELECT li.id FROM libraryItems li
                        WHERE li.mediaId = b.id AND li.mediaType = 'book'
-                       LIMIT 1) AS libraryItemId
+                       LIMIT 1) AS libraryItemId,
+                     (SELECT a.name FROM authors a
+                        JOIN bookAuthors ba ON ba.authorId = a.id
+                       WHERE ba.bookId = b.id LIMIT 1) AS author
                 FROM books b
                WHERE b.id = ?
                LIMIT 1`,
@@ -768,6 +771,7 @@ export async function getBookByMediaId(mediaItemId) {
         title: String(row.title ?? ''),
         durationSec: Number(row.dur) || 0,
         libraryItemId: row.libraryItemId == null ? null : String(row.libraryItemId),
+        author: row.author == null ? null : String(row.author),
       }
     } catch {
       return null
