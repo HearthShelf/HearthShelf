@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
 import { VisibilityToggle, SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
+import { ReactionBar } from '@/components/social/ReactionBar'
 import { useSettingsStore } from '@/store/settingsStore'
 
 // A relative "2h ago" / date label for a note's created_at.
@@ -22,17 +23,6 @@ function agoLabel(ms: number): string {
   const days = Math.floor(hr / 24)
   if (days < 7) return `${days}d ago`
   return new Date(ms).toLocaleDateString()
-}
-
-/** Whether the reader reacted with any kind - so liking again doesn't stack a
- *  second reaction on top of a heart left from another client. */
-function likedByMe(note: HSNote): boolean {
-  return (note.reactions ?? []).some((r) => r.mine)
-}
-
-/** Every reaction on a note, across kinds. */
-function reactionTotal(note: HSNote): number {
-  return (note.reactions ?? []).reduce((sum, r) => sum + r.count, 0)
 }
 
 function NoteBubble({
@@ -68,19 +58,7 @@ function NoteBubble({
         </div>
         <div className="note-text">{note.body}</div>
         <div className="note-actions">
-          {/* Thumbs up is the kind offered here; a heart or laugh from another
-              client still counts in the total and reads as "you reacted". */}
-          {onReact && (
-            <button
-              className={'note-act' + (likedByMe(note) ? ' on' : '')}
-              onClick={() => onReact(note, 'up', !likedByMe(note))}
-              aria-pressed={likedByMe(note)}
-              title={likedByMe(note) ? 'Remove your reaction' : 'Like this comment'}
-            >
-              <Icon name="thumb_up" style={{ fontSize: 15 }} />{' '}
-              {reactionTotal(note) > 0 ? reactionTotal(note) : 'Like'}
-            </button>
-          )}
+          {onReact && <ReactionBar note={note} onReact={onReact} />}
           {onReply && (
             <button className="note-act" onClick={onReply}>
               <Icon name="reply" style={{ fontSize: 15 }} /> Reply

@@ -29,21 +29,11 @@ import { Avatar } from '@/components/common/Avatar'
 import { Icon } from '@/components/common/Icon'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
 import { SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
+import { ReactionBar } from '@/components/social/ReactionBar'
 
 // A member is "almost done" once they're at least 90% through the current book.
 // When the whole club has nothing queued next, that's the cue to recommend one.
 const ALMOST_DONE = 0.9
-/** Whether the reader reacted with any kind - so liking again doesn't stack a
- *  second reaction on top of a heart left from another client. */
-function likedByMe(note: HSNote): boolean {
-  return (note.reactions ?? []).some((r) => r.mine)
-}
-
-/** Every reaction on a note, across kinds. */
-function reactionTotal(note: HSNote): number {
-  return (note.reactions ?? []).reduce((sum, r) => sum + r.count, 0)
-}
-
 function memberFraction(m: HSClubMember): number {
   if (m.isFinished === true) return 1
   if (m.currentTime != null && m.duration != null && m.duration > 0) {
@@ -294,15 +284,10 @@ export function ClubPanel({
           {/* The row is no longer gated on onReply: a reply can't be replied to,
               but it can still be reacted to. */}
           <div className="note-actions">
-            <button
-              className={'note-act' + (likedByMe(note) ? ' on' : '')}
-              onClick={() => react.mutate({ note, kind: 'up', on: !likedByMe(note) })}
-              aria-pressed={likedByMe(note)}
-              title={likedByMe(note) ? 'Remove your reaction' : 'Like this comment'}
-            >
-              <Icon name="thumb_up" style={{ fontSize: 14 }} />{' '}
-              {reactionTotal(note) > 0 ? reactionTotal(note) : 'Like'}
-            </button>
+            <ReactionBar
+              note={note}
+              onReact={(n, kind, on) => react.mutate({ note: n, kind, on })}
+            />
             {onReply && (
               <button className="note-act" onClick={onReply}>
                 <Icon name="reply" style={{ fontSize: 14 }} /> Reply

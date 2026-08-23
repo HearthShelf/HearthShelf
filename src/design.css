@@ -12289,6 +12289,139 @@ select.fld {
   color: var(--accent);
 }
 
+/* ---- Reaction picker ---------------------------------------------------- */
+
+.note-reactions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* Emoji chips carry a glyph rather than an icon-font symbol, so they need a
+   readable size of their own next to the small muted note actions. */
+.note-reactions button.note-react {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.note-reactions button.note-react > span:first-child {
+  font-size: 15px;
+}
+
+.note-reactions button.note-react.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Anchors the popover to its button, so it opens beside the comment it belongs
+   to however far down the thread that is. */
+.note-react-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.note-react-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: min(320px, 78vw);
+  max-height: 360px;
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--sheet);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 28%);
+}
+
+/* Opened downward, for a comment sitting too near the top of the viewport for
+   the popover to fit above it. */
+.note-react-pop.down {
+  bottom: auto;
+  top: calc(100% + 6px);
+}
+
+@media (max-width: 560px) {
+  .note-react-pop {
+    left: auto;
+    right: 0;
+  }
+}
+
+.note-react-quick {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.note-react-search {
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+}
+
+.note-react-grid-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.note-react-group {
+  margin: 6px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.note-react-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 2px;
+}
+
+.note-react-empty {
+  margin: 8px 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.note-react-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.note-react-cell:hover {
+  background: var(--fill);
+}
+
 .note-reply {
   margin-left: 46px;
 }
