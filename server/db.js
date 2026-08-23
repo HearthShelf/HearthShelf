@@ -741,6 +741,19 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_book_completions_user
      ON book_completions (server_id, user_id, completions)`,
 
+  // Books the user declined to rate ("Skip rating" on the prompt). The prompt's
+  // own dedupe is the existence of the notification row, which the skip DELETES -
+  // so without this the hourly job would recreate the prompt on the next pass and
+  // keep re-asking for as long as the finish stays inside the freshness window.
+  // A rated book needs no row here: book_ratings already answers it.
+  `CREATE TABLE IF NOT EXISTS rating_prompt_skips (
+     server_id     TEXT NOT NULL DEFAULT 'local',
+     user_id       TEXT NOT NULL,
+     item_key      TEXT NOT NULL,          -- ABS library item id (what a rating is keyed by)
+     skipped_at    INTEGER NOT NULL,       -- ms epoch
+     PRIMARY KEY (server_id, user_id, item_key)
+   )`,
+
   // Durable per-user achievement unlocks. HS owns this - ABS has no concept of
   // achievements, and an unlock's timestamp is a fact only HS records. The
   // definitions live in code (lib/achievements/registry.js); these rows are just

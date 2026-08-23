@@ -9,9 +9,9 @@
 import { useAuthStore } from '@/store/authStore'
 import type { HSRatingMap } from '@hearthshelf/core'
 
-async function rFetch<T>(options: RequestInit = {}): Promise<T> {
+async function rFetch<T>(options: RequestInit = {}, path = '/hs/ratings'): Promise<T> {
   const token = useAuthStore.getState().token
-  const res = await fetch('/hs/ratings', {
+  const res = await fetch(path, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -50,4 +50,23 @@ export async function setRating(itemKey: string, rating: number | null): Promise
     body: JSON.stringify({ itemKey, rating }),
   })
   return r.ratings ?? {}
+}
+
+/**
+ * Record "Skip rating" for a book so nothing asks about it again.
+ *
+ * Separate from dismissing the notification: the notification row is what the
+ * prompt job dedupes against, so deleting it alone would let the next hourly
+ * pass recreate the prompt. Best-effort - a failed skip costs at most one
+ * repeat prompt, which is not worth blocking the dismissal over.
+ */
+export async function skipRatingPrompt(itemKey: string): Promise<void> {
+  try {
+    await rFetch<{ ok: boolean }>(
+      { method: 'POST', body: JSON.stringify({ itemKey }) },
+      '/hs/rating-prompts/skip',
+    )
+  } catch {
+    // Swallowed on purpose; see above.
+  }
 }

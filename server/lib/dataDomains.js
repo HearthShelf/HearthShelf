@@ -151,7 +151,11 @@ export const DATA_DOMAINS = [
     backup: 'always',
     userExport: true,
     merge: 'union',
-    itemRefs: ['book_notes.library_item_id', 'note_mentions.library_item_id', 'note_reactions.library_item_id'],
+    itemRefs: [
+      'book_notes.library_item_id',
+      'note_mentions.library_item_id',
+      'note_reactions.library_item_id',
+    ],
     userRefs: 'key',
   },
   {
@@ -245,6 +249,23 @@ export const DATA_DOMAINS = [
     // afresh from the new server's finish state. Not exported yet (reveal
     // deferred, like achievements). userRefs names the user_id column; media_item_id
     // is an ABS item ref that would need re-map IF this were ever merged (it isn't).
+    // "Skip rating" choices. Small and user-owned: losing them would make the
+    // app re-ask about books the reader already declined, which is exactly the
+    // nag the table exists to prevent - so it is backed up. Not merged (ABS item
+    // ids differ across installs) and not exported (an internal suppression
+    // record, not something the reader authored).
+    key: 'rating-prompt-skips',
+    tables: ['rating_prompt_skips'],
+    files: null,
+    scope: 'server',
+    secretColumns: {},
+    backup: 'always',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: ['rating_prompt_skips.item_key'],
+    userRefs: ['rating_prompt_skips.user_id'],
+  },
+  {
     key: 'book-completions',
     tables: ['book_completions'],
     files: null,

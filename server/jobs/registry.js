@@ -5,6 +5,7 @@
 import { runSeriesRoster } from './seriesRoster.js'
 import { runReleaseNotify } from './releaseNotify.js'
 import { runStatsSnapshot } from './statsSnapshot.js'
+import { runRatingPrompt } from './ratingPrompt.js'
 import { runAbsFinishBackfill } from './absFinishBackfill.js'
 import { runQueueRecompute } from './queueRecompute.js'
 import { runBackupJob } from '../lib/backup.js'
@@ -33,6 +34,18 @@ export const JOBS = [
       'Checks followed books and series and sends in-app, email, or mobile alerts when a book is available, on release day, or a few days before.',
     defaultIntervalMs: 6 * HOUR_MS,
     run: runReleaseNotify,
+  },
+  {
+    id: 'rating-prompt',
+    name: 'Finished-book rating prompts',
+    description:
+      "Asks how a book was shortly after you finish it, so the prompt arrives while it's still fresh. Runs hourly; it only looks at books finished recently, so it stays cheap.",
+    // Hourly, unlike the nightly snapshot that also detects completions. Kept
+    // separate precisely so this can run often: the snapshot scans ABS's
+    // unindexed session table and re-evaluates achievements, which is far too
+    // heavy to repeat 24x a day for one cheap signal.
+    defaultIntervalMs: HOUR_MS,
+    run: runRatingPrompt,
   },
   {
     id: 'stats-snapshot',

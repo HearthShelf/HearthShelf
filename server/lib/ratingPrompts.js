@@ -10,6 +10,7 @@
 // phone, the web app, or by listening to the end in ABS itself - prompts once,
 // in every client's tray, deduped by the shared notifications entityId.
 
+import { db, initDb } from '../db.js'
 import { getBookByMediaId } from './absdb.js'
 import { createNotification } from '../notifications.js'
 import { notifyPrefsFor, shouldNotify } from './notificationPrefs.js'
@@ -74,6 +75,11 @@ export async function maybeCreateRatingPrompt(
   const existing = await getRatingsForKeys(serverId, userId, [itemKey])
   if (existing.get(itemKey) != null) return false
 
+  // They already said "not this one". The notification row that would otherwise
+  // dedupe this was deleted by the skip itself, so without this check the hourly
+  // job would re-ask every hour until the finish aged out of the window.
+  if (await hasSkippedRating(serverId, userId, itemKey)) return false
+
   // entityId is the library item, so createNotification's own dedupe collapses a
   // re-run (or a re-finish while the first prompt is still unanswered) into the
   // one row already sitting in the tray.
@@ -85,4 +91,26 @@ export async function maybeCreateRatingPrompt(
     data: { itemKey, mediaItemId: String(mediaItemId), title: book.title, author: book.author },
   })
   return true
+}
+
+/** Record that the reader declined to rate this book, so nothing asks again. */
+export async function skipRatingPrompt(serverId, userId, itemKey) {
+  await initDb()
+  await db.execute({
+    sql: `INSERT INTO rating_prompt_skips (server_id, user_id, item_key, skipped_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (server_id, user_id, item_key) DO UPDATE SET skipped_at = excluded.skipped_at`,
+    args: [serverId, String(userId), String(itemKey), Date.now()],
+  })
+}
+
+/** True when the reader already skipped rating this book. */
+export async function hasSkippedRating(serverId, userId, itemKey) {
+  await initDb()
+  const r = await db.execute({
+    sql: `SELECT 1 FROM rating_prompt_skips
+           WHERE server_id = ? AND user_id = ? AND item_key = ? LIMIT 1`,
+    args: [serverId, String(userId), String(itemKey)],
+  })
+  return Boolean(r.rows[0])
 }

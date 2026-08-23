@@ -63,6 +63,7 @@ import { handleAvatars } from './routes/avatars.js'
 import { handleNarrators } from './routes/narrators.js'
 import { handleFinishedBooks } from './routes/finished-books.js'
 import { handleRatings } from './routes/ratings.js'
+import { handleRatingPrompts } from './routes/ratingPrompts.js'
 import { handleStats } from './routes/stats.js'
 import { handleCompletions } from './routes/completions.js'
 import { handleTelemetry } from './routes/telemetry.js'
@@ -159,6 +160,7 @@ const ROUTES = [
   handleNotifications,
   handleFinishedBooks,
   handleRatings,
+  handleRatingPrompts,
   handleStats,
   handleCompletions,
   handleTelemetry,
