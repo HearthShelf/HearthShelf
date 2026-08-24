@@ -10,14 +10,15 @@
 // Inputs the builder needs, and where they come from:
 //   - library items + series: ABS, per user (ctx.absUrl + ctx.absToken)
 //   - the user's media progress: ABS /api/me
-//   - the current book per club the user is in: clubs.js (book-club rule)
+//   - the current + queued books for every club the user is in: clubs.js
+//     (book-club rule)
 
 import { buildAutoQueue } from '@hearthshelf/core/lib/queue'
 import { normalizeAutoRules } from '@hearthshelf/core/lib/settings'
 import { getUserSetting } from '../settings.js'
 import { getQueue, setQueue } from '../queue.js'
 import { getDismissals } from '../dismissals.js'
-import { listMyClubs, currentBook } from '../clubs.js'
+import { listMyClubs, currentBook, listQueue } from '../clubs.js'
 
 async function absJson(ctx, path) {
   const res = await fetch(`${ctx.absUrl}${path}`, {
@@ -62,13 +63,25 @@ function resolveCurrentItemId(stored, progressById, mediaProgress) {
   return currentItemIdFromProgress(mediaProgress)
 }
 
-// Each club the user is in contributes its current book (the book-club rule
-// queues these). Snapshot title/author come straight from club_books, so a club
-// pick queues even if it's outside the user's own library list.
+// Each club the user is in contributes its current book followed by its ordered
+// Up Next list. Supplying only the current book made the rule appear completely
+// empty for a member reading ahead: their finished current pick was filtered by
+// buildAutoQueue, while none of the club's queued books were ever supplied.
+// Snapshot title/author come straight from club_books, so a club pick queues
+// even if it is outside the user's own library list.
 async function clubBooksFor(serverId, userId) {
   const clubs = await listMyClubs(serverId, userId)
-  const books = await Promise.all(clubs.map((c) => currentBook(serverId, c.id)))
-  return books
+  const booksByClub = await Promise.all(
+    clubs.map(async (c) => {
+      const [current, queue] = await Promise.all([
+        currentBook(serverId, c.id),
+        listQueue(serverId, c.id),
+      ])
+      return current ? [current, ...queue] : queue
+    }),
+  )
+  return booksByClub
+    .flat()
     .filter((b) => b && b.libraryItemId)
     .map((b) => ({ libraryItemId: b.libraryItemId, title: b.title, author: b.author }))
 }
