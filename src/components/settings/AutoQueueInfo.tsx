@@ -17,9 +17,6 @@ import { Icon } from '@/components/common/Icon'
 // catch-up it is, so nobody waits overnight for something already in motion.
 export function AutoQueueInfo() {
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const qc = useQueryClient()
-  const setItems = useQueueStore((s) => s.setItems)
 
   const { data, refetch } = useQuery({
     queryKey: ['queue-status'],
@@ -31,27 +28,6 @@ export function AutoQueueInfo() {
 
   const updated = formatQueueUpdated(data?.updatedAt ?? null)
   const next = formatNextRebuild(data?.nextRebuildAt ?? null)
-
-  const refreshNow = async () => {
-    if (busy) return
-    setBusy(true)
-    try {
-      const q = await recomputeServerQueue()
-      // bump=false: this is a server-computed queue we're adopting, not a local
-      // edit, so it must not look newer than what the server already stored -
-      // otherwise the sync hook would push it straight back. Only `items` is
-      // adopted: the recompute never rewrites the durable hand-queued list, and
-      // setManual() unconditionally stamps updatedAt (a local-edit signal).
-      setItems(q.items, false)
-      await refetch()
-      void qc.invalidateQueries({ queryKey: ['queue'] })
-    } catch {
-      // Best-effort: offline or the server is unreachable. The panel keeps
-      // showing the last known state rather than surfacing a dead-end error.
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <div className="cfg-card" style={{ marginBottom: 0 }}>
@@ -91,17 +67,49 @@ export function AutoQueueInfo() {
               </>
             )}
           </div>
-
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => void refreshNow()}
-            disabled={busy}
-          >
-            <Icon name="refresh" /> {busy ? 'Refreshing...' : 'Refresh now'}
-          </button>
         </div>
       )}
+
+      <RecomputeQueueButton onRecomputed={() => void refetch()} />
     </div>
+  )
+}
+
+export function RecomputeQueueButton({ onRecomputed }: { onRecomputed?: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const qc = useQueryClient()
+  const setItems = useQueueStore((s) => s.setItems)
+
+  const recompute = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const q = await recomputeServerQueue()
+      // bump=false: this is a server-computed queue we're adopting, not a local
+      // edit, so it must not look newer than what the server already stored -
+      // otherwise the sync hook would push it straight back. Only `items` is
+      // adopted: the recompute never rewrites the durable hand-queued list, and
+      // setManual() unconditionally stamps updatedAt (a local-edit signal).
+      setItems(q.items, false)
+      onRecomputed?.()
+      void qc.invalidateQueries({ queryKey: ['queue'] })
+    } catch {
+      // Best-effort: offline or the server is unreachable. The panel keeps
+      // showing the last known state rather than surfacing a dead-end error.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="btn-ghost"
+      onClick={() => void recompute()}
+      disabled={busy}
+      style={{ marginTop: 12 }}
+    >
+      <Icon name="refresh" /> {busy ? 'Recomputing...' : 'Recompute Auto Queue'}
+    </button>
   )
 }

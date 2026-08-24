@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   useSettingsStore,
@@ -10,6 +10,7 @@ import type { AutoRuleId } from '@/store/queueStore'
 import type { NotifyChannel, NotifyType } from '@hearthshelf/core'
 import { useQueueStore } from '@/store/queueStore'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
+import { usePointerReorder } from '@/hooks/usePointerReorder'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getPlaylists, libraryKeys } from '@/api/libraries'
 import { getMe, changePassword, meKeys } from '@/api/me'
@@ -149,14 +150,16 @@ function RuleList({
   rules: AutoRulePref[]
   onChange: (rules: AutoRulePref[]) => void
 }) {
-  const [dragIdx, setDragIdx] = useState<number | null>(null)
-
-  const move = (from: number, to: number) => {
-    const next = rules.slice()
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    onChange(next)
-  }
+  const move = useCallback(
+    (from: number, to: number) => {
+      const next = rules.slice()
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      onChange(next)
+    },
+    [rules, onChange],
+  )
+  const ruleDrag = usePointerReorder(rules.length, move)
   const toggle = (i: number) =>
     onChange(rules.map((r, idx) => (idx === i ? { ...r, on: !r.on } : r)))
 
@@ -168,19 +171,18 @@ function RuleList({
         // dim/disable it while the parent is off (it does nothing on its own).
         const isSub = r.id === 'new-in-series-all'
         const parentOff = isSub && !rules.find((x) => x.id === 'new-in-series')?.on
+        const { style: dragStyle, ...rowProps } = ruleDrag.getRowProps(i)
         return (
           <div
-            className={'rule-row' + (dragIdx === i ? ' dragging' : '') + (isSub ? ' rule-sub' : '')}
+            className={
+              'rule-row' +
+              (ruleDrag.dragIndex === i ? ' dragging' : '') +
+              (ruleDrag.overIndex === i && ruleDrag.dragIndex !== i ? ' drag-over' : '') +
+              (isSub ? ' rule-sub' : '')
+            }
             key={r.id}
-            draggable
-            onDragStart={() => setDragIdx(i)}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => {
-              if (dragIdx !== null && dragIdx !== i) move(dragIdx, i)
-              setDragIdx(null)
-            }}
-            onDragEnd={() => setDragIdx(null)}
-            style={parentOff ? { opacity: 0.45 } : undefined}
+            {...rowProps}
+            style={{ ...dragStyle, opacity: parentOff ? 0.45 : 1 }}
           >
             <span className="rule-handle" title="Drag to reorder">
               <Icon name="drag_indicator" />
@@ -190,7 +192,9 @@ function RuleList({
               <div className="rule-t">{meta.title}</div>
               <div className="rule-d">{meta.desc}</div>
             </div>
-            <Toggle on={r.on} onClick={() => !parentOff && toggle(i)} />
+            <span onPointerDown={(e) => e.stopPropagation()}>
+              <Toggle on={r.on} onClick={() => !parentOff && toggle(i)} />
+            </span>
           </div>
         )
       })}

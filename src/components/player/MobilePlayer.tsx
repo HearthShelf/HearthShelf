@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, type ReactNode } from 'react'
+import { useState, useRef, useMemo, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayer } from '@/hooks/usePlayer'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -9,6 +9,8 @@ import { SpeedPopover, SleepPopover } from '@/components/player/PlayerPopovers'
 import { RecentListens } from '@/components/player/RecentListens'
 import { Cover } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
+import { RecomputeQueueButton } from '@/components/settings/AutoQueueInfo'
+import { usePointerReorder } from '@/hooks/usePointerReorder'
 import { formatTimestamp } from '@/lib/format'
 import type { ABSChapter, ABSLibraryItemDetail } from '@/api/types'
 
@@ -234,6 +236,17 @@ export function MobilePlayer({
   const setManual = useQueueStore((s) => s.setManual)
   const removeFromQueue = useQueueStore((s) => s.remove)
   const setQueueStoreMode = useQueueStore((s) => s.setMode)
+
+  const reorderRules = useCallback(
+    (from: number, to: number) => {
+      const next = autoRules.slice()
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      setSetting('queueAutoRules', next)
+    },
+    [autoRules, setSetting],
+  )
+  const ruleDrag = usePointerReorder(autoRules.length, reorderRules)
 
   // Which merged-list rows are hand-added (inline drag + X in Auto mode); the
   // rest are rule-generated (bolt marker, read-only).
@@ -1064,29 +1077,37 @@ export function MobilePlayer({
               padding: '2px 18px calc(18px + env(safe-area-inset-bottom))',
             }}
           >
-            {autoRules.map((r) => {
+            {autoRules.map((r, i) => {
               const copy = RULE_COPY[r.id]
               // new-in-series-all is a sub-modifier of new-in-series: indent it
               // and dim/disable it while the parent is off (does nothing alone).
               const isSub = r.id === 'new-in-series-all'
               const parentOff = isSub && !autoRules.find((x) => x.id === 'new-in-series')?.on
+              const { style: dragStyle, ...rowProps } = ruleDrag.getRowProps(i)
               return (
                 <div
                   key={r.id}
-                  onClick={() => {
-                    if (!parentOff) toggleRule(r.id)
-                  }}
+                  {...rowProps}
                   style={{
+                    ...dragStyle,
                     display: 'flex',
                     alignItems: 'center',
                     gap: 14,
                     padding: '14px 4px',
                     paddingLeft: isSub ? 22 : 4,
                     borderBottom: '1px solid var(--hairline)',
-                    cursor: parentOff ? 'default' : 'pointer',
                     opacity: parentOff ? 0.45 : 1,
+                    background:
+                      ruleDrag.dragIndex === i ||
+                      (ruleDrag.overIndex === i && ruleDrag.dragIndex !== i)
+                        ? 'var(--fill)'
+                        : undefined,
                   }}
                 >
+                  <Icon
+                    name="drag_indicator"
+                    style={{ fontSize: 22, color: 'var(--text-muted)' }}
+                  />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14.5, fontWeight: 600 }}>{copy.label}</div>
                     <div
@@ -1100,12 +1121,21 @@ export function MobilePlayer({
                       {copy.desc}
                     </div>
                   </div>
-                  <div className={'mp-sw' + (r.on ? ' on' : '')}>
+                  <button
+                    type="button"
+                    className={'mp-sw' + (r.on ? ' on' : '')}
+                    style={{ padding: 0 }}
+                    disabled={parentOff}
+                    aria-label={`${r.on ? 'Disable' : 'Enable'} ${copy.label}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => toggleRule(r.id)}
+                  >
                     <i />
-                  </div>
+                  </button>
                 </div>
               )
             })}
+            <RecomputeQueueButton />
             <div
               style={{
                 display: 'flex',

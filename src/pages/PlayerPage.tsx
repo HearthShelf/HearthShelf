@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { usePlayerStore } from '@/store/playerStore'
@@ -11,6 +11,8 @@ import { RecentListens } from '@/components/player/RecentListens'
 import { ReaderPage } from '@/pages/ReaderPage'
 import { MobilePlayer } from '@/components/player/MobilePlayer'
 import { ManualQueueEditor } from '@/components/player/ManualQueueEditor'
+import { RecomputeQueueButton } from '@/components/settings/AutoQueueInfo'
+import { usePointerReorder } from '@/hooks/usePointerReorder'
 import { useBookmarks } from '@/hooks/useBookmarks'
 import { AddToListMenu } from '@/components/library/AddToListMenu'
 import { useQueueStore, type QueueMode, type AutoRuleId } from '@/store/queueStore'
@@ -169,6 +171,17 @@ function QueuePanel({
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [showRules, setShowRules] = useState(false)
 
+  const reorderRules = useCallback(
+    (from: number, to: number) => {
+      const next = autoRules.slice()
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      setSetting('queueAutoRules', next)
+    },
+    [autoRules, setSetting],
+  )
+  const ruleDrag = usePointerReorder(autoRules.length, reorderRules)
+
   const setMode = (v: QueueMode) => {
     setSetting('queueMode', v)
     setQueueMode(v)
@@ -235,37 +248,52 @@ function QueuePanel({
         </div>
         {queueMode === 'auto' && showRules && (
           <div style={{ marginBottom: 12 }}>
-            {autoRules.map((r) => {
+            {autoRules.map((r, i) => {
               const copy = RULE_COPY[r.id]
               // new-in-series-all is a sub-modifier of new-in-series: indent it
               // and dim/disable it while the parent is off (does nothing alone).
               const isSub = r.id === 'new-in-series-all'
               const parentOff = isSub && !autoRules.find((x) => x.id === 'new-in-series')?.on
+              const { style: dragStyle, ...rowProps } = ruleDrag.getRowProps(i)
               return (
                 <div
                   key={r.id}
-                  className="pop-row"
-                  onClick={() => {
-                    if (!parentOff) toggleRule(r.id)
-                  }}
+                  className={
+                    'pop-row' +
+                    (ruleDrag.dragIndex === i ? ' dragging' : '') +
+                    (ruleDrag.overIndex === i && ruleDrag.dragIndex !== i ? ' drag-over' : '')
+                  }
+                  {...rowProps}
                   style={{
-                    cursor: parentOff ? 'default' : 'pointer',
+                    ...dragStyle,
                     padding: '8px 4px',
                     paddingLeft: isSub ? 20 : 4,
                     gap: 12,
                     opacity: parentOff ? 0.45 : 1,
                   }}
                 >
+                  <span className="q-handle" aria-label={`Priority ${i + 1}`}>
+                    <Icon name="drag_indicator" />
+                  </span>
                   <div className="pr-t" style={{ flex: 1 }}>
                     {copy.label}
                     <div className="pr-d">{copy.desc}</div>
                   </div>
-                  <div className={'toggle' + (r.on ? ' on' : '')}>
+                  <button
+                    type="button"
+                    className={'toggle' + (r.on ? ' on' : '')}
+                    style={{ border: 0, padding: 0 }}
+                    disabled={parentOff}
+                    aria-label={`${r.on ? 'Disable' : 'Enable'} ${copy.label}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => toggleRule(r.id)}
+                  >
                     <i />
-                  </div>
+                  </button>
                 </div>
               )
             })}
+            <RecomputeQueueButton />
           </div>
         )}
       </div>
