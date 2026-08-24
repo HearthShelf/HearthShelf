@@ -7987,6 +7987,118 @@ select.fld {
   border-radius: var(--r-sheet);
   padding: 30px 32px;
 }
+
+/* Contextual QuestGiver fit check on book and series detail pages. */
+.qg-assess-trigger {
+  color: color-mix(in oklab, var(--accent) 84%, white);
+  border-color: color-mix(in oklab, var(--accent) 34%, var(--hairline));
+  background: color-mix(in oklab, var(--accent) 9%, var(--fill));
+}
+.qg-assess {
+  max-width: 620px;
+}
+.qg-assess-target {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  background: var(--fill);
+}
+.qg-assess-target span,
+.qg-assess-target small,
+.qg-assess-engine {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.qg-assess-target span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+.qg-assess-target strong {
+  font-size: 17px;
+}
+.qg-assess-loading {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.qg-assess-loading .qg-spinner {
+  margin: 0;
+}
+.qg-assess-verdict {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: #a7c896;
+}
+.qg-assess-verdict > .ms {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in oklab, currentColor 14%, transparent);
+  font-size: 22px;
+}
+.qg-assess-verdict.unlikely {
+  color: #d28b7c;
+}
+.qg-assess-verdict.mixed,
+.qg-assess-verdict.unknown {
+  color: #d9a45a;
+}
+.qg-assess-verdict div {
+  display: grid;
+  gap: 2px;
+}
+.qg-assess-verdict strong {
+  font-size: 20px;
+}
+.qg-assess-verdict span {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.qg-assess-summary {
+  margin: 18px 0 12px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.qg-assess-reasons {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.qg-assess-reasons li + li {
+  margin-top: 8px;
+}
+.qg-assess-caution {
+  margin: 16px 0 0;
+  padding: 11px 13px;
+  border-radius: var(--r-row);
+  background: color-mix(in oklab, #d9a45a 10%, transparent);
+  color: #e8b07f;
+  font-size: 13px;
+}
+.qg-assess-engine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+}
+.qg-assess-engine .ms {
+  font-size: 15px;
+}
 .qg-h {
   font-size: 22px;
   font-weight: 700;

@@ -22,6 +22,31 @@ export function parseResult(text) {
   }
 }
 
+const ASSESSMENT_VERDICTS = new Set(['strong', 'good', 'mixed', 'unlikely', 'unknown'])
+const ASSESSMENT_CONFIDENCE = new Set(['high', 'medium', 'low'])
+
+export function parseAssessment(text) {
+  const m = text && text.match(/\{[\s\S]*\}/)
+  if (!m) throw new Error('no json in model output')
+  const o = JSON.parse(m[0])
+  if (
+    !o ||
+    !ASSESSMENT_VERDICTS.has(o.verdict) ||
+    !ASSESSMENT_CONFIDENCE.has(o.confidence) ||
+    typeof o.summary !== 'string' ||
+    !Array.isArray(o.reasons)
+  ) {
+    throw new Error('bad assessment shape')
+  }
+  return {
+    verdict: o.verdict,
+    confidence: o.confidence,
+    summary: o.summary.slice(0, 300),
+    reasons: o.reasons.filter((reason) => typeof reason === 'string').slice(0, 3),
+    caution: typeof o.caution === 'string' ? o.caution.slice(0, 300) : null,
+  }
+}
+
 export async function handleQuestGiver(req, res, url, ctx) {
   const p = url.pathname
 
@@ -99,6 +124,45 @@ export async function handleQuestGiver(req, res, url, ctx) {
       json(res, 502, { error: 'ai_error', detail: String(err).slice(0, 200) })
     }
     return true
+  }
+
+  if (req.method === 'POST' && p === '/hs/questgiver/assess') {
+    if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
+    const cfg = await getConfig()
+    if (!cfg.enabled) return (json(res, 403, { error: 'feature_disabled' }), true)
+    if (!(await isProviderConfigured())) return (json(res, 503, { error: 'ai_unavailable' }), true)
+
+    const rate = await check(ctx.serverId, ctx.userId, cfg.limit)
+    if (!rate.allowed) {
+      return (
+        json(res, 429, {
+          error: 'rate_limited',
+          limit: rate.limit,
+          remaining: 0,
+          period: rate.period,
+        }),
+        true
+      )
+    }
+
+    let prompt
+    try {
+      const body = JSON.parse(await readBody(req))
+      prompt = body?.prompt
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    if (typeof prompt !== 'string' || prompt.length < 10 || prompt.length > 12_000) {
+      return (json(res, 400, { error: 'invalid_prompt' }), true)
+    }
+
+    try {
+      const result = parseAssessment(await complete(prompt))
+      const after = await consume(ctx.serverId, ctx.userId, cfg.limit)
+      return (json(res, 200, { ...result, remaining: after.remaining, limit: after.limit }), true)
+    } catch (err) {
+      return (json(res, 502, { error: 'ai_error', detail: String(err).slice(0, 200) }), true)
+    }
   }
 
   if (req.method === 'GET' && p === '/hs/questgiver/health') {

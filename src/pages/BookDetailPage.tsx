@@ -28,6 +28,8 @@ import { useToast } from '@/hooks/useToast'
 import { useRatings, useSetRating } from '@/hooks/useRatings'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import { QuestGiverAssessment } from '@/components/questgiver/QuestGiverAssessment'
+import { qgBookTarget } from '@/lib/questgiverAssessment'
 
 type DetailTab = 'chapters' | 'tracks' | 'ebook' | 'files'
 
@@ -408,6 +410,11 @@ export function BookDetailPage() {
               <Icon name={finished ? 'task_alt' : 'check'} fill={finished} />{' '}
               {finished ? 'Finished' : 'Mark finished'}
             </button>
+            <QuestGiverAssessment
+              key={data.id}
+              libraryId={data.libraryId}
+              target={qgBookTarget(data)}
+            />
             <button className="pill" onClick={() => setEditing(true)}>
               <Icon name="edit" /> Edit
             </button>

@@ -28,6 +28,8 @@ import { IgnoreSeriesButton } from '@/components/requests/IgnoreSeriesButton'
 import { useDismissalsStore } from '@/store/dismissalsStore'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import { QuestGiverAssessment } from '@/components/questgiver/QuestGiverAssessment'
+import { qgSeriesTarget } from '@/lib/questgiverAssessment'
 
 // Books ordered by their series sequence number when present.
 function orderBooks(books: ABSLibraryItem[]): ABSLibraryItem[] {
@@ -272,6 +274,11 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           coverArtUrl={seriesCover}
         />
         <IgnoreSeriesButton seriesId={series.id} seriesName={series.name} />
+        <QuestGiverAssessment
+          key={series.id}
+          libraryId={books[0]?.libraryId}
+          target={qgSeriesTarget(series.name, books)}
+        />
       </div>
       {heroProg}
     </div>
@@ -307,6 +314,11 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             coverArtUrl={seriesCover}
           />
           <IgnoreSeriesButton seriesId={series.id} seriesName={series.name} />
+          <QuestGiverAssessment
+            key={series.id}
+            libraryId={books[0]?.libraryId}
+            target={qgSeriesTarget(series.name, books)}
+          />
         </div>
       </div>
 

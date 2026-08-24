@@ -18,6 +18,12 @@ import type {
   HSQuestGiverAdminConfig,
   HSQuestGiverAdminConfigUpdate,
 } from '@hearthshelf/core'
+import {
+  qgAssessHeuristic,
+  qgCraftAssessmentPrompt,
+  type QgAssessment,
+  type QgAssessmentContext,
+} from '@/lib/questgiverAssessment'
 
 export type QgConfig = HSQuestGiverConfig
 
@@ -101,6 +107,29 @@ export async function qgRecommend(
   } catch {
     // Heuristic fallback - deterministic, no backend needed.
     return { ...qgHeuristic(profile, answers, candidates), engine: 'heuristic' }
+  }
+}
+
+export async function qgAssess(context: QgAssessmentContext): Promise<QgAssessment> {
+  const fallback = qgAssessHeuristic(context)
+  // Do not spend an AI match when there is not enough history to support an
+  // answer. The deterministic result explains exactly what signal is missing.
+  if (fallback.verdict === 'unknown') return fallback
+  try {
+    const data = await qgFetch<Omit<QgAssessment, 'engine'>>('/assess', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: qgCraftAssessmentPrompt(context) }),
+    })
+    const historyCount = context.finishedBooks + context.startedBooks
+    const confidence =
+      historyCount < 4
+        ? 'low'
+        : historyCount < 8 && data.confidence === 'high'
+          ? 'medium'
+          : data.confidence
+    return { ...data, confidence, engine: 'ai' }
+  } catch {
+    return fallback
   }
 }
 
