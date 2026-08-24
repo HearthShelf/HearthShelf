@@ -10,7 +10,7 @@ import { useMarkFinished } from '@/hooks/useMarkFinished'
 import { useQueueStore } from '@/store/queueStore'
 import { useAuthStore } from '@/store/authStore'
 import { useDismissalsStore } from '@/store/dismissalsStore'
-import { updateProgress, meKeys } from '@/api/me'
+import { resetProgress as resetItemProgress, meKeys } from '@/api/me'
 import { recomputeServerQueue } from '@/api/queue'
 
 interface Pos {
@@ -120,7 +120,7 @@ export function BookContextMenu({
   // Reset a Continue-Listening book to the start AND hide it from the shelf.
   const resetProgress = async () => {
     try {
-      await updateProgress(item.id, { currentTime: 0, isFinished: false })
+      await resetItemProgress(item.id)
       await qc.invalidateQueries({ queryKey: meKeys.me })
       await dismiss('item', item.id, mTitle ?? 'book')
       onToast?.(`Reset "${mTitle}"`)

@@ -54,6 +54,13 @@ export function updateProgress(
   })
 }
 
+// Reset means removing the media-progress row, not retaining a 0% row.
+export function resetProgress(libraryItemId: string): Promise<void> {
+  return absRequest<void>(`/api/me/progress/${encodeURIComponent(libraryItemId)}`, {
+    method: 'DELETE',
+  })
+}
+
 // --- Bookmarks (user-scoped, per item) ---
 
 export function createBookmark(
