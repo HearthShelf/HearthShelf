@@ -930,6 +930,10 @@ const MIGRATIONS = [
   // on ABS logins alone (password and/or the server's own OpenID provider)
   // without unpairing. See server/routes/hosted.js.
   `ALTER TABLE hosted_config ADD COLUMN login_button_enabled INTEGER`,
+  // Club policy: move to the next book by itself once everyone who started the
+  // current book has finished it. Ships OFF so an existing club's timeline never
+  // advances without its owner asking for it. See server/jobs/clubAutoAdvance.js.
+  `ALTER TABLE clubs ADD COLUMN auto_advance INTEGER NOT NULL DEFAULT 0`,
 ]
 
 // One-time data backfills that must run AFTER their ALTERs land. Each is

@@ -42,6 +42,7 @@ function mapClubRow(row) {
     allowCommentEditing:
       row.allow_comment_editing == null ? true : Boolean(row.allow_comment_editing),
     allowReplies: row.allow_replies == null ? true : Boolean(row.allow_replies),
+    autoAdvanceOnAllFinished: Boolean(row.auto_advance),
   }
 }
 
@@ -64,7 +65,7 @@ export async function getClub(serverId, clubId) {
   if (!clubId) return null
   await ensure()
   const r = await db.execute({
-    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis, allow_comment_editing, allow_replies
+    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis, allow_comment_editing, allow_replies, auto_advance
           FROM clubs WHERE server_id = ? AND id = ? LIMIT 1`,
     args: [serverId, clubId],
   })
@@ -662,16 +663,59 @@ export async function clubActivityAt(serverId, clubId, createdAt = 0) {
   return Number(r.rows[0]?.activity_at) || Number(createdAt) || 0
 }
 
-// Update member discussion policy for one club. Both values are explicit so a
-// partial client cannot accidentally reset the other switch.
-export async function setClubSettings(serverId, clubId, { allowCommentEditing, allowReplies }) {
+// Update member discussion policy and the auto-advance switch for one club.
+// Every value is explicit so a partial client cannot accidentally reset another.
+export async function setClubSettings(
+  serverId,
+  clubId,
+  { allowCommentEditing, allowReplies, autoAdvanceOnAllFinished },
+) {
   await ensure()
   await db.execute({
-    sql: `UPDATE clubs SET allow_comment_editing = ?, allow_replies = ?
+    sql: `UPDATE clubs SET allow_comment_editing = ?, allow_replies = ?, auto_advance = ?
           WHERE server_id = ? AND id = ?`,
-    args: [allowCommentEditing ? 1 : 0, allowReplies ? 1 : 0, serverId, clubId],
+    args: [
+      allowCommentEditing ? 1 : 0,
+      allowReplies ? 1 : 0,
+      autoAdvanceOnAllFinished ? 1 : 0,
+      serverId,
+      clubId,
+    ],
   })
-  return { allowCommentEditing: Boolean(allowCommentEditing), allowReplies: Boolean(allowReplies) }
+  return {
+    allowCommentEditing: Boolean(allowCommentEditing),
+    allowReplies: Boolean(allowReplies),
+    autoAdvanceOnAllFinished: Boolean(autoAdvanceOnAllFinished),
+  }
+}
+
+// Every non-archived club with the auto-advance switch on. The nightly
+// jobs/clubAutoAdvance.js pass starts here, so a server with no such club does
+// no further work.
+export async function listAutoAdvanceClubs(serverId) {
+  await ensure()
+  const r = await db.execute({
+    sql: `SELECT id, name, created_by, is_open, archived, created_at, rec_basis, allow_comment_editing, allow_replies, auto_advance
+          FROM clubs WHERE server_id = ? AND auto_advance = 1 AND archived = 0
+          ORDER BY created_at ASC`,
+    args: [serverId],
+  })
+  return r.rows.map(mapClubRow)
+}
+
+// Stamp the club's current book as a past read and leave the slot empty. Used
+// by auto-advance when the club finished its book with nothing queued up next:
+// the timeline stays honest, and the owner queues whatever comes next. Returns
+// true if a row was stamped.
+export async function finishCurrentBook(serverId, clubId) {
+  await ensure()
+  const r = await db.execute({
+    sql: `UPDATE club_books SET finished_at = ?
+          WHERE server_id = ? AND club_id = ? AND finished_at IS NULL
+            AND queued_at IS NULL AND abandoned_at IS NULL`,
+    args: [Date.now(), serverId, clubId],
+  })
+  return (r.rowsAffected ?? 0) > 0
 }
 
 // Clubs the user belongs to, with member counts + current book resolved by the
@@ -680,7 +724,7 @@ export async function setClubSettings(serverId, clubId, { allowCommentEditing, a
 export async function listMyClubs(serverId, userId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies, c.auto_advance
           FROM clubs c
           JOIN club_members m ON m.server_id = c.server_id AND m.club_id = c.id
           WHERE c.server_id = ? AND m.user_id = ? AND c.archived = 0
@@ -697,7 +741,7 @@ export async function listJoinableClubs(serverId, libraryItemId = '') {
   if (!libraryItemId) {
     const r = await db.execute({
       sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis,
-                   c.allow_comment_editing, c.allow_replies
+                   c.allow_comment_editing, c.allow_replies, c.auto_advance
             FROM clubs c
             WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0
             ORDER BY c.created_at DESC`,
@@ -706,7 +750,7 @@ export async function listJoinableClubs(serverId, libraryItemId = '') {
     return r.rows.map(mapClubRow)
   }
   const r = await db.execute({
-    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies
+    sql: `SELECT c.id, c.name, c.created_by, c.is_open, c.archived, c.created_at, c.rec_basis, c.allow_comment_editing, c.allow_replies, c.auto_advance
           FROM clubs c
           JOIN club_books cb ON cb.server_id = c.server_id AND cb.club_id = c.id
           WHERE c.server_id = ? AND c.is_open = 1 AND c.archived = 0

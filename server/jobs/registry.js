@@ -8,6 +8,7 @@ import { runStatsSnapshot } from './statsSnapshot.js'
 import { runRatingPrompt } from './ratingPrompt.js'
 import { runAbsFinishBackfill } from './absFinishBackfill.js'
 import { runQueueRecompute } from './queueRecompute.js'
+import { runClubAutoAdvance } from './clubAutoAdvance.js'
 import { runBackupJob } from '../lib/backup.js'
 import { getBackupConfig } from '../backupConfig.js'
 
@@ -76,6 +77,17 @@ export const JOBS = [
     defaultIntervalMs: DAY_MS,
     cronSchedule: async () => QUEUE_RECOMPUTE_CRON,
     run: runQueueRecompute,
+  },
+  {
+    id: 'club-auto-advance',
+    name: 'Book club auto-advance',
+    description:
+      'Moves a book club on to its next book once everyone who started the current one has finished it, for clubs whose owner turned that on. Only runs for those clubs, so it costs nothing otherwise.',
+    // Hourly: the club should move on the same evening the last member finishes,
+    // not the next morning. The pass reads only clubs with the switch on, so a
+    // server with none does a single indexed query and stops.
+    defaultIntervalMs: HOUR_MS,
+    run: runClubAutoAdvance,
   },
   {
     id: 'hs-backup',

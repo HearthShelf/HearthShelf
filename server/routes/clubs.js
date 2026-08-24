@@ -791,7 +791,16 @@ export async function handleClubs(req, res, url, ctx) {
     if (typeof body.allowCommentEditing !== 'boolean' || typeof body.allowReplies !== 'boolean') {
       return (json(res, 400, { error: 'invalid_settings' }), true)
     }
-    const settings = await setClubSettings(ctx.serverId, clubId, body)
+    // A client from before auto-advance existed omits the field; keep the club's
+    // stored choice rather than silently switching it off.
+    const autoAdvanceOnAllFinished =
+      typeof body.autoAdvanceOnAllFinished === 'boolean'
+        ? body.autoAdvanceOnAllFinished
+        : club.autoAdvanceOnAllFinished
+    const settings = await setClubSettings(ctx.serverId, clubId, {
+      ...body,
+      autoAdvanceOnAllFinished,
+    })
     return (json(res, 200, settings), true)
   }
 
