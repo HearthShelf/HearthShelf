@@ -208,6 +208,29 @@ Consequences:
 - Book title/author are snapshotted into `club_books` at add time so history
   renders even if the item is later removed from ABS.
 
+### Auto-advance when everyone has finished
+
+A club owner can turn on "move on when everyone has finished" (`clubs.auto_advance`,
+off by default). `server/jobs/clubAutoAdvance.js` then checks that club hourly: when
+every member who **started** the current book has finished it, the book becomes a past
+read and the first up-next book is promoted. With an empty queue the club is simply left
+with no current book - the owner queues what comes next.
+
+Three decisions worth keeping:
+
+- **Started, not joined.** A member with no progress on the book does not hold the club
+  up; otherwise one uninterested member freezes the timeline forever. A book *nobody*
+  started never advances - zero finishers is not consensus.
+- **A job, not a read-path check.** The last member to finish is usually not the next one
+  to open the club, so checking on read would advance at an arbitrary moment (or never,
+  for a quiet club). A scheduled pass also lets every member get the same notification at
+  once.
+- **absdb required.** Who finished lives in ABS'"'"'s own database. Without `HS_ABS_DB_PATH`
+  mounted the job logs a warning and skips rather than guessing.
+
+Members are notified in-app and by push under the existing `clubInvite` preference
+category (a club-lifecycle event), so no new opt-out had to be invented.
+
 ### Next-book recommendations
 
 When a club is wrapping up its current book and has nothing queued, the owner
@@ -323,7 +346,8 @@ CREATE TABLE IF NOT EXISTS clubs (
   allow_comment_editing INTEGER NOT NULL DEFAULT 1,
   allow_replies   INTEGER NOT NULL DEFAULT 1,
   created_at      INTEGER NOT NULL,
-  rec_basis       TEXT NOT NULL DEFAULT 'club-history' -- 'off' | 'club-history' | 'all-members-finished'
+  rec_basis       TEXT NOT NULL DEFAULT 'club-history', -- 'off' | 'club-history' | 'all-members-finished'
+  auto_advance    INTEGER NOT NULL DEFAULT 0      -- move on when everyone who started the book finishes it
 );
 
 CREATE TABLE IF NOT EXISTS club_books (
@@ -393,7 +417,7 @@ route modules per the house per-domain pattern (`routes/notes.js`,
 | `/hs/clubs` | POST | `{ name, libraryItemId?, visibility: 'closed'|'public' }`; omitted visibility remains public for older-client compatibility |
 | `/hs/clubs/:id/join` / `/leave` | POST | public clubs can be joined directly; closed clubs require an invitation; membership exposes progress in that club's books |
 | `/hs/clubs/:id/visibility` | PUT | owner only, `{ visibility: 'closed'|'public' }`; public is discoverable/open-join, closed is invite-only |
-| `/hs/clubs/:id/settings` | PUT | owner or admin, `{ allowCommentEditing, allowReplies }`; per-club discussion policy, enforced server-side |
+| `/hs/clubs/:id/settings` | PUT | owner or admin, `{ allowCommentEditing, allowReplies, autoAdvanceOnAllFinished? }`; per-club discussion policy + auto-advance, enforced server-side. An older client omitting `autoAdvanceOnAllFinished` keeps the stored value |
 | `/hs/clubs/:id/kick` | POST | owner only, `{ userId }` |
 | `/hs/clubs/:id?bookId=&position=` | GET | `{ club, books:[HSClubBook], queue:[HSClubBook], members:[{userId,username,currentTime,duration,isFinished,listeningNow}], notes:{notes,locked,hiddenAhead}, unreadCount }`; `books` excludes queued; `bookId` defaults to the current book; `members` progress is for that book; `locked` stubs only for the current book |
 | `/hs/clubs/:id/read` | PUT | `{ lastReadAt }` -> `max()` cursor bump (per club) |

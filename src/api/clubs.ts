@@ -81,6 +81,7 @@ const EMPTY_CLUB: ClubSummary = {
   recBasis: 'club-history',
   allowCommentEditing: true,
   allowReplies: true,
+  autoAdvanceOnAllFinished: false,
 }
 
 const EMPTY_DETAIL: HSClubDetail = {
