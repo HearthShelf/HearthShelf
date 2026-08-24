@@ -13,9 +13,10 @@
 //   - Mail clients strip <style> blocks and ignore most modern CSS. Everything
 //     here is INLINE styles on table/div elements, which is the only thing that
 //     renders consistently across Gmail, Outlook and Apple Mail.
-//   - No REMOTE images or webfonts: mail clients block remote content by
-//     default, so the flame is embedded as a data URI and the wordmark falls
-//     back to Georgia where Libre Baskerville isn't installed.
+//   - No REMOTE images or webfonts: the flame is a CID inline attachment and the
+//     wordmark falls back to Georgia where Libre Baskerville isn't installed.
+//     Data-image URLs look self-contained but several mail clients strip them,
+//     leaving a broken-image placeholder.
 //   - Dark-on-light. Several clients invert or recolour dark backgrounds
 //     unpredictably, and a light card renders the same everywhere.
 //   - Every message ships a text/plain alternative. Some clients prefer it, and
@@ -58,7 +59,7 @@ export function escapeHtml(value) {
  * @param {string} [opts.actionUrl]   Destination for the button.
  * @param {string} [opts.actionLabel] Button text. Defaults to "Open HearthShelf".
  * @param {string} [opts.footnote]    Small print under the button.
- * @returns {{ html: string, text: string }}
+ * @returns {{ html: string, text: string, attachments: Array<object> }}
  */
 export function renderEmail({
   title,
@@ -112,7 +113,7 @@ export function renderEmail({
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
                 <tr>
                   <td style="padding-right:10px;vertical-align:middle;">
-                    <img src="data:image/png;base64,${FLAME_PNG_BASE64}" width="26" height="29" alt="HearthShelf" style="display:block;border:0;outline:none;text-decoration:none;">
+                    <img src="cid:hearthshelf-flame" width="26" height="29" alt="HearthShelf" style="display:block;border:0;outline:none;text-decoration:none;">
                   </td>
                   <td style="vertical-align:middle;font-family:'Libre Baskerville',Georgia,'Times New Roman',serif;font-size:19px;line-height:1;">
                     <span style="color:${HEARTH_GOLD};font-weight:400;">Hearth</span><span style="color:${WORDMARK_SHELF};font-weight:700;">Shelf</span>
@@ -151,5 +152,15 @@ export function renderEmail({
     .filter(Boolean)
     .join('\n')
 
-  return { html, text }
+  return {
+    html,
+    text,
+    attachments: [
+      {
+        filename: 'hearthshelf-flame.png',
+        content: FLAME_PNG_BASE64,
+        content_id: 'hearthshelf-flame',
+      },
+    ],
+  }
 }

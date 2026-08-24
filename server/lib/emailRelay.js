@@ -53,7 +53,17 @@ export function emailRelayEndpoint() {
 
 // Forward one parsed message to the control plane. Returns the CP response so
 // the SMTP callback can surface a clean accept/reject to ABS.
-async function forward({ issuer, serverId, serverSecret, to, subject, html, text, replyTo }) {
+async function forward({
+  issuer,
+  serverId,
+  serverSecret,
+  to,
+  subject,
+  html,
+  text,
+  replyTo,
+  attachments = [],
+}) {
   const cpBase = issuer.replace(/\/$/, '')
   const res = await fetch(`${cpBase}/email/send`, {
     method: 'POST',
@@ -66,6 +76,7 @@ async function forward({ issuer, serverId, serverSecret, to, subject, html, text
       ...(html ? { html } : {}),
       ...(text ? { text } : {}),
       ...(replyTo ? { reply_to: replyTo } : {}),
+      ...(attachments.length ? { attachments } : {}),
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -75,7 +86,14 @@ async function forward({ issuer, serverId, serverSecret, to, subject, html, text
 /** Send one HearthShelf-owned transactional message through the same paired
  * control-plane relay used by ABS SMTP. Best-effort and safe for feature routes:
  * invitation state is committed even when email delivery is unavailable. */
-export async function sendTransactionalEmail({ to, subject, html, text, replyTo = '' }) {
+export async function sendTransactionalEmail({
+  to,
+  subject,
+  html,
+  text,
+  replyTo = '',
+  attachments = [],
+}) {
   if (!to || !to.includes('@')) return { sent: false, reason: 'no_email' }
   if (emailRelayOptedOut()) return { sent: false, reason: 'relay_disabled' }
   const cfg = await getHostedConfig().catch(() => null)
@@ -91,6 +109,7 @@ export async function sendTransactionalEmail({ to, subject, html, text, replyTo 
       html,
       text,
       replyTo,
+      attachments,
     })
     if (result.status >= 200 && result.status < 300) return { sent: true }
     return {
