@@ -77,13 +77,19 @@ async function clubBooksFor(serverId, userId) {
         currentBook(serverId, c.id),
         listQueue(serverId, c.id),
       ])
-      return current ? [current, ...queue] : queue
+      const books = current ? [current, ...queue] : queue
+      return books.map((book) => ({
+        libraryItemId: book.libraryItemId,
+        title: book.title,
+        author: book.author,
+        // Keep club provenance on the queue entry even when an earlier Auto
+        // rule already added this book. Core merges these refs during de-dupe,
+        // so Finish-series priority no longer erases the carousel club badge.
+        bookClubs: [{ id: c.id, name: c.name }],
+      }))
     }),
   )
-  return booksByClub
-    .flat()
-    .filter((b) => b && b.libraryItemId)
-    .map((b) => ({ libraryItemId: b.libraryItemId, title: b.title, author: b.author }))
+  return booksByClub.flat().filter((b) => b && b.libraryItemId)
 }
 
 /**
