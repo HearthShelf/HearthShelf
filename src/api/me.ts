@@ -1,4 +1,4 @@
-import { absRequest } from '@/api/client'
+import { absRequest, ABSRequestError } from '@/api/client'
 import type {
   ABSItemsInProgressResponse,
   ABSUser,
@@ -54,9 +54,20 @@ export function updateProgress(
   })
 }
 
-// Reset means removing the media-progress row, not retaining a 0% row.
-export function resetProgress(libraryItemId: string): Promise<void> {
-  return absRequest<void>(`/api/me/progress/${encodeURIComponent(libraryItemId)}`, {
+// Reset means removing the media-progress row, not retaining a 0% row. DELETE
+// uses the row's own ID and is user-owned; it does not require library delete.
+export async function resetProgress(libraryItemId: string): Promise<void> {
+  let progress: { id?: string }
+  try {
+    progress = await absRequest<{ id?: string }>(
+      `/api/me/progress/${encodeURIComponent(libraryItemId)}`,
+    )
+  } catch (e) {
+    if (e instanceof ABSRequestError && e.status === 404) return
+    throw e
+  }
+  if (!progress.id) throw new Error('media_progress_id_missing')
+  await absRequest<void>(`/api/me/progress/${encodeURIComponent(progress.id)}`, {
     method: 'DELETE',
   })
 }
