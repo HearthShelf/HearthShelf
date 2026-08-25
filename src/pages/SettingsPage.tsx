@@ -8,6 +8,7 @@ import {
 } from '@/store/settingsStore'
 import type { AutoRuleId } from '@/store/queueStore'
 import type { NotifyChannel, NotifyType } from '@hearthshelf/core'
+import { resolveChannels } from '@hearthshelf/core'
 import { useQueueStore } from '@/store/queueStore'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { usePointerReorder } from '@/hooks/usePointerReorder'
@@ -347,6 +348,63 @@ function SetRow({
   )
 }
 
+/** The three delivery channels, in the order they appear under Delivery. */
+const CHANNEL_OPTIONS: { id: NotifyChannel; label: string }[] = [
+  { id: 'inApp', label: 'In app' },
+  { id: 'push', label: 'Push' },
+  { id: 'email', label: 'Email' },
+]
+
+/**
+ * Multi-select chips for choosing WHICH delivery channels one notification type
+ * uses. Unlike a segmented control (pick one of N) every chip toggles
+ * independently, because these are not alternatives - a reaction can reasonably
+ * be push + in-app but not email, which is the whole point of the control.
+ *
+ * A `disabled` chip still renders, greyed, carrying the reason as its title: a
+ * channel switched off globally should look unavailable rather than silently
+ * vanish, so "why isn't this reaching me" stays answerable from this screen.
+ */
+function ChannelChips<T extends string>({
+  options,
+  selected,
+  disabled,
+  onToggle,
+}: {
+  options: { id: T; label: string }[]
+  selected: Record<string, boolean>
+  disabled?: Partial<Record<T, string>>
+  onToggle: (id: T, next: boolean) => void
+}) {
+  return (
+    <div className="channel-chips">
+      {options.map((option) => {
+        const on = Boolean(selected[option.id])
+        const lock = disabled?.[option.id]
+        return (
+          <button
+            key={option.id}
+            type="button"
+            // `on` and `lock` are independent: a locked chip may be locked
+            // because it is forced ON (club invites always reach the tray) or
+            // forced OFF (the channel is disabled globally). Showing every
+            // locked chip as off would misreport what actually happens.
+            className={'channel-chip' + (on ? ' on' : '') + (lock ? ' locked' : '')}
+            role="checkbox"
+            aria-checked={on}
+            aria-disabled={Boolean(lock)}
+            disabled={Boolean(lock)}
+            title={lock || undefined}
+            onClick={() => !lock && onToggle(option.id, !on)}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // Stretch features that depend on data ABS may not expose yet.
 function ComingSoon() {
   return <span className="badge-pill abridged">Coming soon</span>
@@ -379,6 +437,61 @@ export function SettingsPage() {
       ...np,
       types: { ...np.types, release: { ...np.types.release, ...patch } },
     })
+
+  // Per-type channel choice. The stored shape is an OVERRIDE of `global`, and a
+  // type with no override inherits it - so the first edit has to materialize the
+  // currently-resolved set, otherwise flipping one channel off would silently
+  // re-pin the other two to today's global values.
+  const setTypeChannel = (type: NotifyType, channel: NotifyChannel, on: boolean) =>
+    put('notifyPrefs', {
+      ...np,
+      types: {
+        ...np.types,
+        [type]: { ...np.types[type], channels: { ...resolveChannels(np, type), [channel]: on } },
+      },
+    })
+
+  // A channel switched off globally can't be turned on for one type - the
+  // Delivery rows above are the master. Say so on the chip instead of hiding it,
+  // so "why is this not arriving" stays answerable from this screen.
+  const lockedChannels = (type: NotifyType): Partial<Record<NotifyChannel, string>> => {
+    const locks: Partial<Record<NotifyChannel, string>> = {}
+    if (!np.global.inApp) locks.inApp = 'Turn on In app under Delivery first.'
+    if (!np.global.push) locks.push = 'Turn on Mobile push under Delivery first.'
+    if (!np.global.email) locks.email = 'Turn on Email under Delivery first.'
+    // An invite you cannot see is an invite you cannot accept, which strands
+    // both you and whoever sent it. The server floors this on regardless, so the
+    // chip must not offer a choice it will not honour.
+    if (type === 'clubInvite') locks.inApp = 'Invites always show in the app.'
+    return locks
+  }
+
+  /** One notification type: its on/off switch plus which channels it uses. */
+  const typeRow = (type: NotifyType, title: string, desc: string) => {
+    const enabled = np.types[type].enabled
+    const channels = { ...resolveChannels(np, type) }
+    // Mirror the server's floor so the chip shows what will actually happen.
+    if (type === 'clubInvite') channels.inApp = true
+    return (
+      <div className="set-row set-row-both">
+        <div className="sr-meta">
+          <div className="sr-t">{title}</div>
+          <div className="sr-d">{desc}</div>
+        </div>
+        <Toggle on={enabled} onClick={() => setTypeEnabled(type, !enabled)} />
+        {enabled && (
+          <div className="sr-extra">
+            <ChannelChips
+              options={CHANNEL_OPTIONS}
+              selected={channels}
+              disabled={lockedChannels(type)}
+              onToggle={(channel, next) => setTypeChannel(type, channel, next)}
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // Toast for page-level actions (e.g. the data-export buttons).
   const { toast: pageToast, show } = useToast()
@@ -481,36 +594,37 @@ export function SettingsPage() {
 
               <div className="cn-label">Alert me about</div>
               <div className="set-group">
-                <SetRow
-                  title="Release alerts"
-                  desc="Books and series you follow."
-                  control={
-                    <Toggle
-                      on={np.types.release.enabled}
-                      onClick={() => setTypeEnabled('release', !np.types.release.enabled)}
-                    />
-                  }
-                />
-                <SetRow
-                  title="Club mentions"
-                  desc="When someone @mentions you in a book club discussion."
-                  control={
-                    <Toggle
-                      on={np.types.mention.enabled}
-                      onClick={() => setTypeEnabled('mention', !np.types.mention.enabled)}
-                    />
-                  }
-                />
-                <SetRow
-                  title="Rate a finished book"
-                  desc="Ask how it was when you finish a book. Shows in your tray only."
-                  control={
-                    <Toggle
-                      on={np.types.rating.enabled}
-                      onClick={() => setTypeEnabled('rating', !np.types.rating.enabled)}
-                    />
-                  }
-                />
+                {typeRow('release', 'Release alerts', 'Books and series you follow.')}
+                {typeRow(
+                  'clubInvite',
+                  'Book club invites',
+                  'When someone invites you to join their book club.',
+                )}
+                {typeRow(
+                  'mention',
+                  'Club mentions',
+                  'When someone @mentions you in a book club discussion.',
+                )}
+                {typeRow(
+                  'reply',
+                  'Comment replies',
+                  'When someone replies to one of your club comments.',
+                )}
+                {typeRow(
+                  'lateNote',
+                  'Comments on parts you’ve heard',
+                  'When someone comments on a spot you already listened past.',
+                )}
+                {typeRow(
+                  'reaction',
+                  'Comment reactions',
+                  'When someone reacts to one of your club comments.',
+                )}
+                {typeRow(
+                  'rating',
+                  'Rate a finished book',
+                  'Ask how it was when you finish a book.',
+                )}
               </div>
 
               {np.types.release.enabled && (
