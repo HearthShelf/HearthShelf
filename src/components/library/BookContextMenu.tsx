@@ -117,12 +117,13 @@ export function BookContextMenu({
     }
   }
 
-  // Reset a Continue-Listening book to the start AND hide it from the shelf.
+  // Reset means only "forget my listening position". "Not right now" is a
+  // separate action immediately below; coupling the two created a durable Auto
+  // dismissal, so a reset Book Club/series pick vanished from every recompute.
   const resetProgress = async () => {
     try {
       await resetItemProgress(item.id)
       await qc.invalidateQueries({ queryKey: meKeys.me })
-      await dismiss('item', item.id, mTitle ?? 'book')
       onToast?.(`Reset "${mTitle}"`)
       repullQueue()
     } catch {
