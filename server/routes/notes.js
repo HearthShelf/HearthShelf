@@ -27,6 +27,7 @@ import {
   softDeleteNote,
 } from '../lib/notesQuery.js'
 import { getClub, isClubMember, bookInClub, currentBook, listMembers } from '../clubs.js'
+import { deliverLateNote } from '../lib/lateNoteDelivery.js'
 import { recordMentions, hydrateMentions, flushPendingMentions } from '../lib/mentionDelivery.js'
 import {
   hydrateReactions,
@@ -340,14 +341,19 @@ export async function handleNotes(req, res, url, ctx) {
     // Only club members can be mentioned, and only in the club scope. Anything
     // else is dropped SILENTLY rather than rejected: telling the caller which
     // ids were refused would turn this endpoint into a membership probe.
+    // Loaded once and reused: mention resolution needs it, and so does the
+    // late-note fan-out below.
+    let clubMembers = null
     let mentionTargets = []
-    if (clubId && wantedMentions.length) {
-      const members = await listMembers(ctx.serverId, clubId)
-      const byId = new Map(members.map((m) => [m.userId, m]))
-      mentionTargets = wantedMentions
-        .map((id) => byId.get(id))
-        .filter(Boolean)
-        .map((m) => ({ userId: m.userId, username: m.username }))
+    if (clubId) {
+      clubMembers = await listMembers(ctx.serverId, clubId)
+      if (wantedMentions.length) {
+        const byId = new Map(clubMembers.map((m) => [m.userId, m]))
+        mentionTargets = wantedMentions
+          .map((id) => byId.get(id))
+          .filter(Boolean)
+          .map((m) => ({ userId: m.userId, username: m.username }))
+      }
     }
 
     const note = await insertNote(ctx.serverId, {
@@ -376,6 +382,17 @@ export async function handleNotes(req, res, url, ctx) {
         userId: ctx.userId,
         username: ctx.username,
       })
+    }
+    // Tell anyone already PAST this timestamp - the note-pop can never fire for
+    // them, so this is the only way they hear about it. Mention targets are
+    // excluded so one comment never buzzes the same person twice.
+    if (clubMembers) {
+      void deliverLateNote(
+        ctx,
+        note,
+        clubMembers,
+        mentionTargets.map((m) => m.userId),
+      )
     }
     return (json(res, 200, note), true)
   }
