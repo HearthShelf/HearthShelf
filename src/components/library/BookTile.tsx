@@ -122,6 +122,7 @@ export function BookTile({
                     libraryId={item.libraryId}
                     title={title ?? 'Untitled'}
                     author={authorName}
+                    duration={item.media.duration || undefined}
                     onToast={onToast}
                     align="left"
                     onOpenChange={setMenuOpen}

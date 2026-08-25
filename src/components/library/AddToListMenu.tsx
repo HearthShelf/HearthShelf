@@ -10,6 +10,10 @@ interface AddToListMenuProps {
   libraryId: string | null
   title: string
   author: string
+  // The book's runtime in seconds, snapshotted onto the queue entry so an
+  // up-next list can total its length. Optional: callers that don't have it
+  // omit it and the entry records no length.
+  duration?: number
   onToast?: (msg: string) => void
   // The clickable trigger. Receives the open() handler + open state so callers
   // can style their own button (tile hover action, pill, etc.).
@@ -27,6 +31,7 @@ export function AddToListMenu({
   libraryId,
   title,
   author,
+  duration,
   onToast,
   trigger,
   align = 'right',
@@ -50,7 +55,7 @@ export function AddToListMenu({
   }, [open])
 
   const queue = () => {
-    addToQueue({ libraryItemId, title, author })
+    addToQueue({ libraryItemId, title, author, duration: duration || undefined })
     onToast?.(`Added "${title}" to queue`)
   }
 

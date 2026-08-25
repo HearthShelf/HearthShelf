@@ -969,6 +969,7 @@ export function PlayerPage() {
               libraryId={detail?.libraryId ?? null}
               title={title}
               author={author ?? ''}
+              duration={duration || undefined}
               onToast={setToast}
               trigger={(toggle, isOpen) => (
                 <button

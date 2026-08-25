@@ -395,6 +395,7 @@ export function BookDetailPage() {
               libraryId={data.libraryId}
               title={title}
               author={author}
+              duration={duration || undefined}
               onToast={show}
               trigger={(toggle, isOpen) => (
                 <button className={'pill' + (isOpen ? ' on' : '')} onClick={toggle}>

@@ -214,7 +214,12 @@ export function BookContextMenu({
       <button
         className="mp-item"
         onClick={act(() => {
-          addToQueue({ libraryItemId: item.id, title: title ?? 'Untitled', author: authorName })
+          addToQueue({
+            libraryItemId: item.id,
+            title: title ?? 'Untitled',
+            author: authorName,
+            duration: item.media.duration || undefined,
+          })
           onToast?.(`Added "${title}" to queue`)
         })}
       >
