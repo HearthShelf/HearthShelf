@@ -29,7 +29,8 @@ async function mintUserKey(adminToken, absUserId) {
   }).catch(() => null)
   if (!res || !res.ok) return null
   const data = await res.json().catch(() => null)
-  const k = (typeof data?.apiKey === 'object' ? data.apiKey?.apiKey : data?.apiKey) || data?.key || null
+  const k =
+    (typeof data?.apiKey === 'object' ? data.apiKey?.apiKey : data?.apiKey) || data?.key || null
   return typeof k === 'string' && k ? { keyId: data?.apiKey?.id ?? null, key: k } : null
 }
 
@@ -78,8 +79,13 @@ export async function runQueueRecompute(logger, signal) {
     try {
       // No currentItemId: use the stored stamp so a barely-played book keeps
       // continuing its series even with no client present.
-      await resolveQueue({ serverId, userId, absUrl: ABS_URL, absToken: minted.key })
-      rebuilt++
+      const result = await resolveQueue({ serverId, userId, absUrl: ABS_URL, absToken: minted.key })
+      if (result.recomputed) rebuilt++
+      else {
+        logger.warn(
+          `User ${userId}: kept the stored queue (${result.recomputeError ?? result.recomputeReason ?? 'unknown reason'})`,
+        )
+      }
     } catch (err) {
       logger.warn(`User ${userId}: ${String(err?.message ?? err)}`)
     } finally {

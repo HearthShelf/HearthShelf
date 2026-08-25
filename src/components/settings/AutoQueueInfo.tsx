@@ -77,12 +77,14 @@ export function AutoQueueInfo() {
 
 export function RecomputeQueueButton({ onRecomputed }: { onRecomputed?: () => void }) {
   const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
   const qc = useQueryClient()
   const setItems = useQueueStore((s) => s.setItems)
 
   const recompute = async () => {
     if (busy) return
     setBusy(true)
+    setResult(null)
     try {
       const q = await recomputeServerQueue()
       // bump=false: this is a server-computed queue we're adopting, not a local
@@ -93,23 +95,34 @@ export function RecomputeQueueButton({ onRecomputed }: { onRecomputed?: () => vo
       setItems(q.items, false)
       onRecomputed?.()
       void qc.invalidateQueries({ queryKey: ['queue'] })
+      setResult(
+        q.recomputed === false
+          ? `Could not rebuild: ${q.recomputeError ?? q.recomputeReason ?? 'the server kept the stored queue'}.`
+          : `Rebuilt ${q.items.length} Auto Queue item${q.items.length === 1 ? '' : 's'}.`,
+      )
     } catch {
-      // Best-effort: offline or the server is unreachable. The panel keeps
-      // showing the last known state rather than surfacing a dead-end error.
+      setResult('Could not reach the server to rebuild the Auto Queue.')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <button
-      type="button"
-      className="btn-ghost"
-      onClick={() => void recompute()}
-      disabled={busy}
-      style={{ marginTop: 12 }}
-    >
-      <Icon name="refresh" /> {busy ? 'Recomputing...' : 'Recompute Auto Queue'}
-    </button>
+    <>
+      <button
+        type="button"
+        className="btn-ghost"
+        onClick={() => void recompute()}
+        disabled={busy}
+        style={{ marginTop: 12 }}
+      >
+        <Icon name="refresh" /> {busy ? 'Recomputing...' : 'Recompute Auto Queue'}
+      </button>
+      {result && (
+        <div role="status" style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6 }}>
+          {result}
+        </div>
+      )}
+    </>
   )
 }

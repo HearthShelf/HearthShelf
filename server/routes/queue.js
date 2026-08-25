@@ -57,8 +57,21 @@ export async function handleQueue(req, res, url, ctx) {
     } catch {
       // Empty/invalid body is fine - recompute with the stored current item.
     }
-    const { items, manual, playlistId, updatedAt } = await resolveQueue({ ...ctx, currentItemId })
-    return (json(res, 200, { items, manual, playlistId, updatedAt }), true)
+    const result = await resolveQueue({ ...ctx, currentItemId })
+    const { items, manual, playlistId, updatedAt, recomputed, recomputeReason, recomputeError } =
+      result
+    return (
+      json(res, 200, {
+        items,
+        manual,
+        playlistId,
+        updatedAt,
+        recomputed,
+        recomputeReason,
+        recomputeError,
+      }),
+      true
+    )
   }
 
   if (url.pathname !== '/hs/queue') return false

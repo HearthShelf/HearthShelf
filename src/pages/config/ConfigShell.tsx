@@ -20,6 +20,7 @@ import { ConfigServerInfo } from '@/pages/config/ConfigServerInfo'
 import { ConfigServerStats, ConfigLibraryStats } from '@/pages/config/ConfigStats'
 import { ConfigLogs } from '@/pages/config/ConfigLogs'
 import { ConfigJobs } from '@/pages/config/ConfigJobs'
+import { ConfigQueueDebugger } from '@/pages/config/ConfigQueueDebugger'
 import { ConfigMeta } from '@/pages/config/ConfigMeta'
 import { ConfigNotifications } from '@/pages/config/ConfigNotifications'
 import {
@@ -33,7 +34,7 @@ import { ConfigCommunity } from '@/pages/config/ConfigCommunity'
 import { ConfigHosted } from '@/pages/config/ConfigHosted'
 import { StatsPage } from '@/pages/StatsPage'
 import { ConfigStub } from '@/pages/config/ConfigStub'
-import { AdvancedModeProvider, AdvancedToggle } from '@/pages/config/AdvancedMode'
+import { AdvancedModeProvider, AdvancedToggle, useAdvancedMode } from '@/pages/config/AdvancedMode'
 import { AdminDataSourceProvider } from '@/admin/adminDataSource'
 
 interface NavEntry {
@@ -48,11 +49,22 @@ interface NavGroup {
 }
 
 export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
+  return (
+    <AdvancedModeProvider>
+      <AdminDataSourceProvider>
+        <ConfigShellBody menuMode={menuMode} />
+      </AdminDataSourceProvider>
+    </AdvancedModeProvider>
+  )
+}
+
+function ConfigShellBody({ menuMode = false }: { menuMode?: boolean }) {
   const { section = 'settings', userId } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
   const isMobile = useIsMobile()
   const isAdmin = user?.type === 'admin' || user?.type === 'root'
+  const { advanced } = useAdvancedMode()
   // On a phone the two-pane layout drills down: the bare /config index shows
   // the section list (menu); picking a section shows its detail with a back
   // button. Desktop keeps both panes side by side.
@@ -113,6 +125,7 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         { id: 'backups', icon: 'cloud_sync', label: 'Backups' },
         { id: 'import', icon: 'merge', label: 'Import & Merge' },
         { id: 'tasks', icon: 'schedule', label: 'Tasks' },
+        ...(advanced ? [{ id: 'queue-debug', icon: 'troubleshoot', label: 'Queue Debugger' }] : []),
         { id: 'logs', icon: 'terminal', label: 'Logs' },
       ],
     },
@@ -182,6 +195,8 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
         return <ConfigLogs />
       case 'tasks':
         return <ConfigJobs />
+      case 'queue-debug':
+        return <ConfigQueueDebugger />
       case 'meta':
         return <ConfigMeta />
       case 'notifications':
@@ -208,49 +223,45 @@ export function ConfigShell({ menuMode = false }: { menuMode?: boolean }) {
   const wrapMode = isMobile ? (mobileMenu ? ' cfg-menu' : ' cfg-detail') : ''
 
   return (
-    <AdvancedModeProvider>
-     <AdminDataSourceProvider>
-      <div className={'page config-wrap fade-in' + wrapMode}>
-        <nav className="config-nav">
-          {groups.map((g) => (
-            <div key={g.label}>
-              <div className="cn-label">{g.label}</div>
-              {g.items.map((it) => (
-                <button
-                  key={it.id}
-                  className={'cn-item' + (activeId === it.id ? ' on' : '')}
-                  onClick={() => navigate(`/config/${it.id}`)}
-                >
-                  <Icon name={it.icon} fill={activeId === it.id} />
-                  {it.label}
-                  {it.badge != null && <span className="cn-badge">{it.badge}</span>}
-                  <Icon name="chevron_right" className="cn-chev" />
-                </button>
-              ))}
-            </div>
-          ))}
-          <div className="config-foot">
-            HearthShelf · server admin
-            <br />
-            {status?.app ?? 'audiobookshelf'} {status?.serverVersion ?? '—'}
-            <br />
-            {window.location.host}
-          </div>
-        </nav>
-        {!mobileMenu && (
-          <div className="config-body">
-            {isMobile && (
-              <button className="cfg-back" onClick={() => navigate('/config')}>
-                <Icon name="arrow_back" /> All settings
+    <div className={'page config-wrap fade-in' + wrapMode}>
+      <nav className="config-nav">
+        {groups.map((g) => (
+          <div key={g.label}>
+            <div className="cn-label">{g.label}</div>
+            {g.items.map((it) => (
+              <button
+                key={it.id}
+                className={'cn-item' + (activeId === it.id ? ' on' : '')}
+                onClick={() => navigate(`/config/${it.id}`)}
+              >
+                <Icon name={it.icon} fill={activeId === it.id} />
+                {it.label}
+                {it.badge != null && <span className="cn-badge">{it.badge}</span>}
+                <Icon name="chevron_right" className="cn-chev" />
               </button>
-            )}
-            <AdvancedToggle />
-            {body()}
+            ))}
           </div>
-        )}
-      </div>
-     </AdminDataSourceProvider>
-    </AdvancedModeProvider>
+        ))}
+        <div className="config-foot">
+          HearthShelf · server admin
+          <br />
+          {status?.app ?? 'audiobookshelf'} {status?.serverVersion ?? '—'}
+          <br />
+          {window.location.host}
+        </div>
+      </nav>
+      {!mobileMenu && (
+        <div className="config-body">
+          {isMobile && (
+            <button className="cfg-back" onClick={() => navigate('/config')}>
+              <Icon name="arrow_back" /> All settings
+            </button>
+          )}
+          <AdvancedToggle />
+          {body()}
+        </div>
+      )}
+    </div>
   )
 }
 

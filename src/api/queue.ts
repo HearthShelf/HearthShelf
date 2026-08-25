@@ -11,6 +11,11 @@ export interface ServerQueue extends QueueState {
   // older updatedAt than what's already stored) - the caller should adopt the
   // returned state instead of assuming its write landed.
   applied?: boolean
+  // POST /recompute reports whether Core actually rebuilt the queue or the
+  // server returned its last stored copy after an input failure/non-Auto mode.
+  recomputed?: boolean
+  recomputeReason?: string | null
+  recomputeError?: string
 }
 
 async function queueFetch<T>(path = '/hs/queue', options: RequestInit = {}): Promise<T> {

@@ -125,9 +125,11 @@ export async function resolveQueue(ctx) {
         playlistId: saved.playlistId,
         currentItemId: saved.currentItemId,
         updatedAt: saved.updatedAt,
+        recomputed: false,
+        recomputeReason: 'mode_not_auto',
       }
     }
-    return stored
+    return { ...stored, recomputed: false, recomputeReason: 'mode_not_auto' }
   }
 
   // normalizeAutoRules backfills rules added since the user last saved (e.g.
@@ -186,10 +188,19 @@ export async function resolveQueue(ctx) {
       dismissedSeriesIds: dismissals.seriesIds,
       dismissedItemIds: dismissals.itemIds,
     })
-  } catch {
+  } catch (error) {
     // ABS unreachable or a fetch failed: keep the last good queue rather than
-    // wiping it or 500-ing the player.
-    return stored
+    // wiping it or 500-ing the player. Do not make the fallback invisible:
+    // callers and the nightly job need to distinguish "rebuilt" from "returned
+    // the old queue", and the warning is mirrored into Admin > Logs.
+    const detail = String(error?.message ?? error).slice(0, 200)
+    console.warn(`[queue] Auto recompute failed for user ${userId}: ${detail}`)
+    return {
+      ...stored,
+      recomputed: false,
+      recomputeReason: 'input_error',
+      recomputeError: detail,
+    }
   }
 
   // Server-stamped write always applies (updatedAt >= any client's), so the
@@ -209,5 +220,7 @@ export async function resolveQueue(ctx) {
     playlistId: saved.playlistId,
     currentItemId: saved.currentItemId,
     updatedAt: saved.updatedAt,
+    recomputed: true,
+    recomputeReason: null,
   }
 }

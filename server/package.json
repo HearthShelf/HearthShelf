@@ -8,6 +8,7 @@
   "scripts": {
     "prestart": "node scripts/ensure-core-dist.mjs",
     "start": "node index.js",
+    "test": "node --test tests/*.test.mjs",
     "recover-admins": "node scripts/recover-admins.js"
   },
   "dependencies": {
