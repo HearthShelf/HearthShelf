@@ -66,6 +66,23 @@ const CONTROL_PLANE_API = (
   process.env.HS_CONTROL_PLANE_API_URL || 'https://api.hearthshelf.com'
 ).replace(/\/$/, '')
 
+// The ABS version, read server-side. The SPA used to fetch ABS's /status
+// cross-origin, but that endpoint is audiobookshelf's own and sends no CORS
+// headers, so every hosted page load logged a blocked-request error and showed
+// no version. We already talk to ABS locally, so we read it here and hand it
+// back on /hs/runtime instead.
+async function absVersionFromAbs() {
+  if (!ABS_URL) return null
+  try {
+    const res = await fetch(`${ABS_URL}/status`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data?.serverVersion || null
+  } catch {
+    return null
+  }
+}
+
 // Is ABS initialised (has a root user)? ABS reports this on /api/status without
 // auth. Used by slim, where HearthShelf doesn't provision ABS itself.
 async function absInitializedFromAbs() {
@@ -356,6 +373,9 @@ export async function handleRuntime(req, res, url, ctx) {
     serverId: await getServerId(),
     // The HearthShelf backend version this box is running, for the Config UI.
     hsVersion: HS_VERSION,
+    // The audiobookshelf version, proxied so the SPA never has to reach ABS's
+    // /status cross-origin (it sends no CORS headers). null if ABS is unreachable.
+    absVersion: await absVersionFromAbs(),
     // Whether the wizard can offer a restore-from-backup path on this fresh box.
     restoreAvailable,
     // Whether a paired box offers "Sign in with HearthShelf" on its login page.
