@@ -113,8 +113,9 @@ export async function handleQuestGiver(req, res, url, ctx) {
           await markCopilotConnected()
         },
       })
-      const status = flow.state === 'failed' ? 502 : 200
-      return (json(res, status, { authenticated: false, flow }), true)
+      // A workflow failure is returned as state, not a transport failure, so
+      // clients can display the CLI's redacted diagnostic.
+      return (json(res, 200, { authenticated: false, flow }), true)
     }
     return (json(res, 405, { error: 'method_not_allowed' }), true)
   }
