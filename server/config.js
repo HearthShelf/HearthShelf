@@ -136,6 +136,18 @@ export async function setConfig(patch) {
   return publicConfig()
 }
 
+// Remove only the stored credential. An environment-managed QG_API_KEY remains
+// authoritative and cannot be cleared from the browser.
+export async function clearApiKey() {
+  await ensureRow()
+  if ('apiKey' in envOverrides()) return publicConfig()
+  await db.execute({
+    sql: 'UPDATE ai_config SET api_key = NULL, updated_at = ? WHERE id = 1',
+    args: [Date.now()],
+  })
+  return publicConfig()
+}
+
 // Public view for the admin UI - never leaks the key, just whether one is set.
 // `env` lists which fields are pinned by the environment so the UI can lock them
 // and label them "managed by environment".

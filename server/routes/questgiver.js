@@ -4,9 +4,17 @@
 
 import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
-import { complete, isProviderConfigured, listModels, providerInfo } from '../providers.js'
+import {
+  complete,
+  getCopilotAuthStatus,
+  isProviderConfigured,
+  listModels,
+  providerInfo,
+  resetCopilotRuntime,
+} from '../providers.js'
 import { check, consume } from '../ratelimit.js'
-import { getConfig, setConfig, publicConfig } from '../config.js'
+import { clearApiKey, getConfig, setConfig, publicConfig } from '../config.js'
+import { getCopilotLogin, startCopilotLogin } from '../copilotAuth.js'
 import * as store from '../store.js'
 
 // Extract the first {...} block and validate the QuestGiver result shape.
@@ -67,6 +75,45 @@ export async function handleQuestGiver(req, res, url, ctx) {
       period: rate.period,
     })
     return true
+  }
+
+  // Admin: connect the server to the admin's Copilot subscription using the
+  // device-code flow owned by the official GitHub Copilot CLI. The browser sees
+  // only the short user code; the OAuth token stays in the CLI credential store.
+  if (p === '/hs/questgiver/admin/copilot') {
+    if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
+    if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+    if (req.method === 'GET') {
+      const login = getCopilotLogin()
+      const auth =
+        login.state === 'starting' || login.state === 'waiting' || login.state === 'finishing'
+          ? { authenticated: false, login: null, host: null, authType: null }
+          : await getCopilotAuthStatus({ force: login.state === 'connected' })
+      return (json(res, 200, { ...auth, flow: login }), true)
+    }
+    if (req.method === 'POST') {
+      const cfg = await publicConfig()
+      if (cfg.env.apiKey) {
+        return (json(res, 409, { error: 'copilot_auth_managed_by_environment' }), true)
+      }
+      if (cfg.env.provider && cfg.provider !== 'copilot') {
+        return (json(res, 409, { error: 'copilot_provider_managed_by_environment' }), true)
+      }
+      const existing = await getCopilotAuthStatus()
+      if (existing.authenticated) {
+        return (json(res, 200, { ...existing, flow: { state: 'connected' } }), true)
+      }
+      const flow = await startCopilotLogin({
+        onConnected: async () => {
+          await resetCopilotRuntime()
+          await clearApiKey()
+          await setConfig({ provider: 'copilot', model: 'auto' })
+        },
+      })
+      const status = flow.state === 'failed' ? 502 : 200
+      return (json(res, status, { authenticated: false, flow }), true)
+    }
+    return (json(res, 405, { error: 'method_not_allowed' }), true)
   }
 
   // Admin: read / edit the AI config (provider, model, key, limit).

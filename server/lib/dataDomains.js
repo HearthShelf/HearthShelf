@@ -343,6 +343,22 @@ export const DATA_DOMAINS = [
     userRefs: [],
   },
   {
+    // OAuth state owned by the official Copilot CLI. It may contain a live
+    // account credential when the container has no system credential vault, so
+    // it stays instance-local and is deliberately excluded from backups and
+    // exports. A restored instance asks the admin to reconnect GitHub.
+    key: 'copilot-auth',
+    tables: [],
+    files: { root: 'copilot', pattern: 'Official Copilot CLI state' },
+    scope: 'instance',
+    secretColumns: {},
+    backup: 'never',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: [],
+  },
+  {
     key: 'integrations-config',
     tables: ['integrations_config'],
     files: null,

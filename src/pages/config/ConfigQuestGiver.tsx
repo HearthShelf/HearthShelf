@@ -5,8 +5,10 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useToast } from '@/hooks/useToast'
 import {
   getQgAdminConfig,
+  getQgCopilotAuth,
   getQgProviderModels,
   saveQgAdminConfig,
+  startQgCopilotAuth,
   type QgAdminConfig,
   type QgAdminConfigPatch,
 } from '@/api/questgiver'
@@ -55,10 +57,44 @@ export function ConfigQuestGiver() {
 
   const [form, setForm] = useState<QgAdminConfigPatch>({})
   const [keyInput, setKeyInput] = useState('')
+  const selectedProviderForQuery = data?.env.provider
+    ? (data.provider ?? '')
+    : (form.provider ?? '')
+
+  const copilotAuth = useQuery({
+    queryKey: ['qg-copilot-auth'],
+    queryFn: getQgCopilotAuth,
+    enabled: selectedProviderForQuery === 'copilot',
+    staleTime: 5000,
+    refetchInterval: (query) => {
+      const state = query.state.data?.flow.state
+      return state === 'starting' || state === 'waiting' || state === 'finishing' ? 1500 : false
+    },
+  })
+
+  const connectCopilot = useMutation({
+    mutationFn: startQgCopilotAuth,
+    onSuccess: (next) => {
+      qc.setQueryData(['qg-copilot-auth'], next)
+    },
+    onError: () => show('Could not start GitHub sign-in'),
+  })
 
   const models = useMutation({
     mutationFn: getQgProviderModels,
   })
+
+  useEffect(() => {
+    if (!copilotAuth.data?.authenticated) return
+    qc.invalidateQueries({ queryKey: ['qg-admin-config'] })
+    qc.invalidateQueries({ queryKey: ['qg-config'] })
+    if (!models.isPending && !models.data) {
+      models.mutate({ provider: 'copilot', baseUrl: '' })
+    }
+    // Run once when the connected account becomes visible; mutation observer
+    // methods are stable and do not belong in the dependency list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copilotAuth.data?.authenticated, qc])
 
   // Hydrate the editable form when a *new* server config arrives (e.g. first
   // load or after an external refetch). Guarded by updated identity so typing in
@@ -121,7 +157,9 @@ export function ConfigQuestGiver() {
 
   const selectedProvider = data.env.provider ? (data.provider ?? '') : (form.provider ?? '')
   const isCopilot = selectedProvider === 'copilot'
-  const hasCredential = selectedProvider === (data.provider ?? '') && data.hasKey
+  const hasCredential =
+    (selectedProvider === (data.provider ?? '') && data.hasKey) ||
+    (isCopilot && copilotAuth.data?.authenticated === true)
   const modelOptions = models.data?.models ?? []
   const loadModels = () => {
     const draft: QgAdminConfigPatch = {
@@ -269,32 +307,113 @@ export function ConfigQuestGiver() {
           </p>
         </div>
         <div className="field full">
-          <label>
-            {isCopilot ? 'GitHub token' : 'API key'}
-            {data.env.apiKey && <EnvLockTag />}
-          </label>
-          <input
-            className="fld"
-            type="password"
-            autoComplete="off"
-            placeholder={
-              data.env.apiKey
-                ? '•••••••• (from environment)'
-                : hasCredential
-                  ? '•••••••• (leave blank to keep)'
-                  : isCopilot
-                    ? 'Fine-grained token with Copilot Requests access'
-                    : 'Paste API key'
-            }
-            value={keyInput}
-            disabled={data.env.apiKey}
-            onChange={(e) => setKeyInput(e.target.value)}
-          />
-          {isCopilot && (
-            <p className="sr-d" style={{ marginTop: 6 }}>
-              Uses the connected GitHub account's Copilot subscription. Fine-grained personal,
-              OAuth, and GitHub App user tokens are supported; classic personal tokens are not.
-            </p>
+          {isCopilot && !data.env.apiKey ? (
+            <>
+              <label>GitHub account</label>
+              {copilotAuth.data?.authenticated ? (
+                <div className="set-row" style={{ padding: 0 }}>
+                  <div className="sr-meta">
+                    <div className="sr-t">
+                      Connected{copilotAuth.data.login ? ` as ${copilotAuth.data.login}` : ''}
+                    </div>
+                    <div className="sr-d">
+                      QuestGiver uses this account's Copilot subscription. The official Copilot CLI
+                      stores the credential; HearthShelf never receives the token.
+                    </div>
+                  </div>
+                </div>
+              ) : copilotAuth.data?.flow.state === 'waiting' ? (
+                <div>
+                  <p className="sr-d" style={{ marginBottom: 8 }}>
+                    Enter this one-time code on GitHub:
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <code style={{ fontSize: 20, fontWeight: 700, letterSpacing: 2 }}>
+                      {copilotAuth.data.flow.userCode}
+                    </code>
+                    <a
+                      className="btn btn-primary"
+                      href={copilotAuth.data.flow.verificationUri}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Icon name="open_in_new" /> Open GitHub
+                    </a>
+                  </div>
+                  <p className="sr-d" style={{ marginTop: 8 }}>
+                    Waiting for GitHub to confirm the connection…
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={
+                      connectCopilot.isPending ||
+                      copilotAuth.data?.flow.state === 'starting' ||
+                      copilotAuth.data?.flow.state === 'finishing'
+                    }
+                    onClick={() => connectCopilot.mutate()}
+                  >
+                    <Icon name="login" />
+                    {connectCopilot.isPending || copilotAuth.data?.flow.state === 'starting'
+                      ? 'Starting GitHub sign-in…'
+                      : copilotAuth.data?.flow.state === 'finishing'
+                        ? 'Finishing connection…'
+                        : 'Connect GitHub'}
+                  </button>
+                  {copilotAuth.data?.flow.error && (
+                    <p className="sr-d" style={{ marginTop: 8, color: 'var(--danger)' }}>
+                      {copilotAuth.data.flow.error}
+                    </p>
+                  )}
+                  <p className="sr-d" style={{ marginTop: 8 }}>
+                    GitHub shows a one-time device code. No token creation or copy/paste is needed.
+                  </p>
+                </div>
+              )}
+              <details style={{ marginTop: 14 }}>
+                <summary className="sr-d" style={{ cursor: 'pointer' }}>
+                  Advanced: use a token instead
+                </summary>
+                <input
+                  className="fld"
+                  style={{ marginTop: 8 }}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Fine-grained token with Copilot Requests access"
+                  value={keyInput}
+                  onChange={(e) => setKeyInput(e.target.value)}
+                />
+                <p className="sr-d" style={{ marginTop: 6 }}>
+                  Fine-grained personal, OAuth, and GitHub App user tokens are supported; classic
+                  personal tokens are not.
+                </p>
+              </details>
+            </>
+          ) : (
+            <>
+              <label>
+                {isCopilot ? 'GitHub token' : 'API key'}
+                {data.env.apiKey && <EnvLockTag />}
+              </label>
+              <input
+                className="fld"
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  data.env.apiKey
+                    ? '•••••••• (from environment)'
+                    : hasCredential
+                      ? '•••••••• (leave blank to keep)'
+                      : 'Paste API key'
+                }
+                value={keyInput}
+                disabled={data.env.apiKey}
+                onChange={(e) => setKeyInput(e.target.value)}
+              />
+            </>
           )}
         </div>
         <div className="field full">

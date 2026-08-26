@@ -74,7 +74,7 @@ test('keeps only Gemini models that support generateContent', async () => {
 test('does not reuse a saved credential after changing providers', async () => {
   await setConfig({ provider: 'openai', apiKey: 'openai-secret' })
 
-  await assert.rejects(() => listModels({ provider: 'copilot' }), /credential is not set/)
+  await assert.rejects(() => listModels({ provider: 'anthropic' }), /credential is not set/)
 
   await setConfig({ provider: 'anthropic' })
   assert.equal((await publicConfig()).hasKey, false)

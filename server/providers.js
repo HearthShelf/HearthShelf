@@ -3,9 +3,8 @@
 // come from the editable AI config (see config.js); the key never leaves the
 // server.
 
-import os from 'node:os'
-import path from 'node:path'
 import { getConfig } from './config.js'
+import { COPILOT_HOME } from './copilotAuth.js'
 
 const TIMEOUT_MS = 30000
 const MAX_MODELS = 1000
@@ -99,9 +98,11 @@ async function callGemini({ baseUrl, model, key }, prompt) {
 // token, but create a fresh, tool-free session for every QuestGiver request so
 // prompts and conversation state never cross users or features.
 let copilotState = null
+let copilotAuthCache = null
 
-async function copilotClient(key) {
-  if (copilotState?.key === key) return copilotState.ready
+async function copilotClient(key = null) {
+  const credential = key ? `token:${key}` : 'logged-in-user'
+  if (copilotState?.credential === credential) return copilotState.ready
 
   if (copilotState) {
     try {
@@ -114,14 +115,21 @@ async function copilotClient(key) {
 
   const { CopilotClient } = await import('@github/copilot-sdk')
   const client = new CopilotClient({
-    gitHubToken: key,
-    useLoggedInUser: false,
+    ...(key ? { gitHubToken: key, useLoggedInUser: false } : { useLoggedInUser: true }),
     mode: 'empty',
-    baseDirectory: path.join(os.tmpdir(), 'hearthshelf-copilot'),
+    baseDirectory: COPILOT_HOME,
     logLevel: 'error',
+    // Do not silently adopt a generic GitHub token from the server process.
+    // Admins can still pin QG_API_KEY, which is passed explicitly above.
+    env: {
+      COPILOT_GITHUB_TOKEN: undefined,
+      GH_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+      GH_CONFIG_DIR: `${COPILOT_HOME}/gh-cli`,
+    },
   })
   const state = {
-    key,
+    credential,
     client,
     ready: client.start().then(() => client),
   }
@@ -131,6 +139,41 @@ async function copilotClient(key) {
   } catch (err) {
     if (copilotState === state) copilotState = null
     throw err
+  }
+}
+
+export async function resetCopilotRuntime() {
+  const current = copilotState
+  copilotState = null
+  copilotAuthCache = null
+  if (!current) return
+  try {
+    const client = await current.ready
+    await client.stop()
+  } catch {
+    // Reset is best-effort; the next request starts a fresh runtime.
+  }
+}
+
+export async function getCopilotAuthStatus({ force = false } = {}) {
+  if (!force && copilotAuthCache && Date.now() - copilotAuthCache.at < 5000) {
+    return copilotAuthCache.value
+  }
+  try {
+    const client = await copilotClient()
+    const status = await client.getAuthStatus()
+    const value = {
+      authenticated: status.isAuthenticated === true,
+      login: status.login || null,
+      host: status.host || null,
+      authType: status.authType || null,
+    }
+    copilotAuthCache = { at: Date.now(), value }
+    return value
+  } catch {
+    const value = { authenticated: false, login: null, host: null, authType: null }
+    copilotAuthCache = { at: Date.now(), value }
+    return value
   }
 }
 
@@ -257,7 +300,7 @@ export async function listModels(overrides = {}) {
         : saved.baseUrl
   const list = MODEL_LISTERS[provider]
   if (!list) throw new Error(`Unknown or unset AI provider: "${provider}"`)
-  if (!key) throw new Error('AI credential is not set')
+  if (!key && provider !== 'copilot') throw new Error('AI credential is not set')
 
   const items = await list({ baseUrl, key })
   const unique = new Map()
@@ -273,7 +316,11 @@ export async function listModels(overrides = {}) {
 export async function isProviderConfigured() {
   const c = await getConfig()
   const provider = (c.provider || '').toLowerCase()
-  return Boolean(c.enabled && ADAPTERS[provider] && c.apiKey)
+  if (!c.enabled || !ADAPTERS[provider]) return false
+  if (provider === 'copilot') {
+    return Boolean(c.apiKey || (await getCopilotAuthStatus()).authenticated)
+  }
+  return Boolean(c.apiKey)
 }
 
 export async function providerInfo() {
@@ -291,6 +338,6 @@ export async function complete(prompt) {
   const provider = (c.provider || '').toLowerCase()
   const adapter = ADAPTERS[provider]
   if (!adapter) throw new Error(`Unknown or unset AI provider: "${provider}"`)
-  if (!c.apiKey) throw new Error('AI API key is not set')
+  if (!c.apiKey && provider !== 'copilot') throw new Error('AI API key is not set')
   return adapter({ baseUrl: c.baseUrl, model: c.model, key: c.apiKey }, prompt)
 }

@@ -93,6 +93,27 @@ export function getQgProviderModels(
   })
 }
 
+export interface QgCopilotAuth {
+  authenticated: boolean
+  login: string | null
+  host: string | null
+  authType: string | null
+  flow: {
+    state: 'idle' | 'starting' | 'waiting' | 'finishing' | 'connected' | 'failed'
+    verificationUri?: string
+    userCode?: string
+    error?: string
+  }
+}
+
+export function getQgCopilotAuth(): Promise<QgCopilotAuth> {
+  return qgFetch<QgCopilotAuth>('/admin/copilot')
+}
+
+export function startQgCopilotAuth(): Promise<QgCopilotAuth> {
+  return qgFetch<QgCopilotAuth>('/admin/copilot', { method: 'POST' })
+}
+
 // Get a recommendation. Tries the AI backend; on any failure (unconfigured,
 // rate-limited, provider error, network) falls back to the local heuristic.
 export async function qgRecommend(
