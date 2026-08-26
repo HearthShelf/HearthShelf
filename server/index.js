@@ -128,7 +128,10 @@ function applyCors(req, res) {
   if (allowed) {
     res.setHeader('Access-Control-Allow-Origin', APP_ORIGIN)
     res.setHeader('Vary', 'Origin')
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    // X-Avatar-Source rides along on the avatar PUT (uploaded vs synced-from-Clerk).
+    // A header the preflight does not list is rejected outright, which failed the
+    // whole avatar request rather than just dropping the hint.
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Avatar-Source')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     res.setHeader('Access-Control-Max-Age', '86400')
   }
