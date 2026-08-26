@@ -8,6 +8,7 @@ import {
   type QueueDebugTarget,
 } from '@/api/queueDebug'
 import { Icon } from '@/components/common/Icon'
+import { SelectField } from '@/components/common/SelectField'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { RawJson } from '@/components/config/RawJson'
 
@@ -396,19 +397,15 @@ export function ConfigQueueDebugger() {
             >
               User
             </span>
-            <select
-              className="input"
+            <SelectField
               value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-              style={{ width: '100%' }}
-            >
-              <option value="">Choose a user</option>
-              {(users.data?.users ?? []).map((user) => (
-                <option value={user.id} key={user.id}>
-                  {user.username} · {user.type}
-                </option>
-              ))}
-            </select>
+              onChange={setUserId}
+              placeholder="Choose a user"
+              options={(users.data?.users ?? []).map((user) => ({
+                value: user.id,
+                label: `${user.username} · ${user.type}`,
+              }))}
+            />
           </label>
           <label>
             <span

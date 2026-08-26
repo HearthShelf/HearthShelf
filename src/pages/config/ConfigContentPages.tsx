@@ -33,6 +33,7 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { requestKeys } from '@/api/requests'
 import { useAudplexusStatus } from '@/hooks/useAudplexus'
+import { SelectField } from '@/components/common/SelectField'
 
 const REGION_LABELS: Record<string, string> = {
   us: 'United States (.com)',
@@ -1019,18 +1020,15 @@ function AudibleIntegrationCard({ cfg }: { cfg: IntegrationsConfig }) {
           </label>
         </EnvField>
         <EnvField label="Region" locked={cfg.env.audibleRegion}>
-          <select
-            className="fld"
+          <SelectField
             value={cfg.env.audibleRegion ? cfg.audibleRegion : region}
             disabled={cfg.env.audibleRegion}
-            onChange={(e) => setRegion(e.target.value as typeof region)}
-          >
-            {cfg.validRegions.map((r) => (
-              <option key={r} value={r}>
-                {REGION_LABELS[r] ?? r}
-              </option>
-            ))}
-          </select>
+            onChange={(next) => setRegion(next as typeof region)}
+            options={cfg.validRegions.map((r) => ({
+              value: r,
+              label: REGION_LABELS[r] ?? r,
+            }))}
+          />
         </EnvField>
         {!cfg.env.audibleRegion && (
           <div className="cfg-line" style={{ gap: 8, justifyContent: 'flex-end' }}>

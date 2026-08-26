@@ -6,6 +6,7 @@ import { getUsers } from '@/api/admin'
 import { Icon } from '@/components/common/Icon'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { useToast } from '@/hooks/useToast'
+import { SelectField } from '@/components/common/SelectField'
 
 const MODES: { value: ImportMode; label: string; help: string }[] = [
   {
@@ -129,13 +130,11 @@ export function ConfigImport() {
         <div className="cfg-card">
           <div className="field full">
             <label>What are you doing?</label>
-            <select className="fld" value={mode} onChange={(e) => setMode(e.target.value as ImportMode)}>
-              {MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+            <SelectField
+              value={mode}
+              onChange={(next) => setMode(next as ImportMode)}
+              options={MODES.map((m) => ({ value: m.value, label: m.label }))}
+            />
             <p className="field-hint">{MODES.find((m) => m.value === mode)?.help}</p>
           </div>
 
@@ -224,39 +223,35 @@ export function ConfigImport() {
                         </div>
                       </td>
                       <td>
-                        <select
-                          className="fld"
+                        <SelectField
                           value={ov.action}
-                          onChange={(e) =>
+                          onChange={(next) =>
                             setOverride(u.sourceUserId, {
-                              action: e.target.value as Override['action'],
+                              action: next as Override['action'],
                               // switching to create clears the target
-                              targetUserId: e.target.value === 'map' ? ov.targetUserId : null,
+                              targetUserId: next === 'map' ? ov.targetUserId : null,
                             })
                           }
-                        >
-                          <option value="map">Merge into…</option>
-                          <option value="create">Create new</option>
-                          <option value="skip">Skip</option>
-                        </select>
+                          options={[
+                            { value: 'map', label: 'Merge into…' },
+                            { value: 'create', label: 'Create new' },
+                            { value: 'skip', label: 'Skip' },
+                          ]}
+                        />
                       </td>
                       <td>
                         {ov.action === 'map' ? (
-                          <select
-                            className="fld"
+                          <SelectField
                             value={ov.targetUserId ?? ''}
-                            onChange={(e) =>
-                              setOverride(u.sourceUserId, { targetUserId: e.target.value || null })
+                            onChange={(next) =>
+                              setOverride(u.sourceUserId, { targetUserId: next || null })
                             }
-                          >
-                            <option value="">Choose a user…</option>
-                            {targetUsers.map((tu) => (
-                              <option key={tu.id} value={tu.id}>
-                                {tu.username}
-                                {tu.email ? ` (${tu.email})` : ''}
-                              </option>
-                            ))}
-                          </select>
+                            placeholder="Choose a user…"
+                            options={targetUsers.map((tu) => ({
+                              value: tu.id,
+                              label: tu.username + (tu.email ? ` (${tu.email})` : ''),
+                            }))}
+                          />
                         ) : ov.action === 'create' ? (
                           <span className="muted">a new account</span>
                         ) : (

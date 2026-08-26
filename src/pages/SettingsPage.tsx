@@ -40,6 +40,7 @@ import { useDismissalsStore } from '@/store/dismissalsStore'
 import { AvatarUpload } from '@/components/common/AvatarUpload'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { CoverStyleDemo } from '@/components/common/CoverStyleDemo'
+import { SelectField } from '@/components/common/SelectField'
 
 type SettingsSection =
   | 'account'
@@ -98,19 +99,13 @@ function PlaylistPicker() {
     return <span className="badge-pill">No playlists yet</span>
   }
   return (
-    <select
-      className="fld"
+    <SelectField
       style={{ maxWidth: 240 }}
       value={playlistId ?? ''}
-      onChange={(e) => setPlaylistId(e.target.value || null)}
-    >
-      <option value="">Choose a playlist…</option>
-      {playlists.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name}
-        </option>
-      ))}
-    </select>
+      onChange={(next) => setPlaylistId(next || null)}
+      placeholder="Choose a playlist…"
+      options={playlists.map((p) => ({ value: p.id, label: p.name }))}
+    />
   )
 }
 

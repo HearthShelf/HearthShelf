@@ -10,6 +10,7 @@ import {
 import { Icon } from '@/components/common/Icon'
 import { formatDuration } from '@/lib/format'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
+import { SelectField } from '@/components/common/SelectField'
 
 interface ItemMatchTabProps {
   itemId: string
@@ -70,18 +71,15 @@ export function ItemMatchTab({
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <select
-          className="fld"
+        <SelectField
           style={{ flex: 'none', width: 150 }}
           value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-        >
-          {(providers?.providers.books ?? []).map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.text}
-            </option>
-          ))}
-        </select>
+          onChange={setProvider}
+          options={(providers?.providers.books ?? []).map((p) => ({
+            value: p.value,
+            label: p.text,
+          }))}
+        />
         <input
           className="fld"
           style={{ flex: 1, minWidth: 120 }}

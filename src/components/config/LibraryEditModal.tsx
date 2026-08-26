@@ -7,6 +7,7 @@ import type { ABSLibrary, ABSLibrarySettings } from '@/api/types'
 import { Icon } from '@/components/common/Icon'
 import { Modal } from '@/components/common/Modal'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
+import { SelectField } from '@/components/common/SelectField'
 
 // ABS's library icon names. HearthShelf can't render ABS's icon font, so we map
 // every name to a Material Symbol for display, but the original name round-trips
@@ -326,30 +327,27 @@ export function LibraryEditModal({
               <input className="fld" value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <Field label="Metadata provider">
-              <select
-                className="fld"
+              <SelectField
                 value={provider}
-                onChange={(e) => setProvider(e.target.value)}
-              >
-                {providers.length === 0 && <option value={provider}>{provider}</option>}
-                {providers.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.text}
-                  </option>
-                ))}
-              </select>
+                onChange={setProvider}
+                options={
+                  providers.length === 0
+                    ? [{ value: provider, label: provider }]
+                    : providers.map((p) => ({ value: p.value, label: p.text }))
+                }
+              />
             </Field>
             <Field label="Icon">
-              <select className="fld" value={icon} onChange={(e) => setIcon(e.target.value)}>
-                {ICON_OPTIONS.every((o) => o.value !== icon) && (
-                  <option value={icon}>{icon}</option>
-                )}
-                {ICON_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              <SelectField
+                value={icon}
+                onChange={setIcon}
+                options={[
+                  ...(ICON_OPTIONS.every((o) => o.value !== icon)
+                    ? [{ value: icon, label: icon }]
+                    : []),
+                  ...ICON_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                ]}
+              />
             </Field>
 
             <div className="section-head" style={{ marginTop: 'var(--s5)' }}>
@@ -486,36 +484,30 @@ export function LibraryEditModal({
             )}
             {!isBook && (
               <Field label="Podcast search region" width={180}>
-                <select
-                  className="fld"
+                <SelectField
                   value={s.podcastSearchRegion}
-                  onChange={(e) => patchS({ podcastSearchRegion: e.target.value })}
-                >
-                  {PODCAST_REGIONS.map((r) => (
-                    <option key={r} value={r}>
-                      {r.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(next) => patchS({ podcastSearchRegion: next })}
+                  options={PODCAST_REGIONS.map((r) => ({ value: r, label: r.toUpperCase() }))}
+                />
               </Field>
             )}
             <div className="cfg-line" style={{ gap: 12, alignItems: 'flex-end' }}>
               <div className="cl-meta" style={{ width: 180, flex: 'none' }}>
                 <div className="cl-t">Mark as finished when</div>
               </div>
-              <select
-                className="fld"
+              <SelectField
                 style={{ flex: 1 }}
                 value={s.markAsFinishedWhen}
-                onChange={(e) =>
+                onChange={(next) =>
                   patchS({
-                    markAsFinishedWhen: e.target.value as 'timeRemaining' | 'percentComplete',
+                    markAsFinishedWhen: next as 'timeRemaining' | 'percentComplete',
                   })
                 }
-              >
-                <option value="timeRemaining">Time remaining (seconds)</option>
-                <option value="percentComplete">Percent complete (%)</option>
-              </select>
+                options={[
+                  { value: 'timeRemaining', label: 'Time remaining (seconds)' },
+                  { value: 'percentComplete', label: 'Percent complete (%)' },
+                ]}
+              />
               <input
                 className="fld"
                 style={{ width: 90, flex: 'none' }}

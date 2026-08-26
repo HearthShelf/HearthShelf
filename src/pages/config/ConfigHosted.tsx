@@ -23,6 +23,7 @@ import {
   type InviteResult,
 } from '@/api/hosted'
 import { ServiceAccountHealth } from '@/components/hosted/ServiceAccountHealth'
+import { SelectField } from '@/components/common/SelectField'
 
 // "12:34" style mm:ss left until the pairing code expires, or null once gone.
 function timeLeft(expiresAt: string | number, nowMs: number): string | null {
@@ -462,14 +463,14 @@ export function ConfigHosted() {
             </div>
             <div className="field full">
               <label>Role</label>
-              <select
-                className="fld"
+              <SelectField
                 value={role}
-                onChange={(e) => setRole(e.target.value as 'admin' | 'user')}
-              >
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
-              </select>
+                onChange={(next) => setRole(next as 'admin' | 'user')}
+                options={[
+                  { value: 'user', label: 'User' },
+                  { value: 'admin', label: 'Admin' },
+                ]}
+              />
             </div>
             <button
               className="btn btn-primary"

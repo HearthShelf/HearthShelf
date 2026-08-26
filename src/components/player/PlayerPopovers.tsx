@@ -1,6 +1,7 @@
 import { type SleepCtl } from '@/hooks/useSleepTimer'
 import { formatTimestamp } from '@/lib/format'
 import { Icon } from '@/components/common/Icon'
+import { SelectField } from '@/components/common/SelectField'
 
 const SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 const SLEEP_PRESETS = [5, 15, 30, 45, 60, 90]
@@ -110,20 +111,14 @@ export function SleepPopover({ ctl, onClose }: { ctl: SleepCtl; onClose: () => v
         )}
         {ctl.tab === 'chapter' && (
           <>
-            <select
-              className="fld"
+            <SelectField
               style={{ marginBottom: 10 }}
-              value={ctl.eoc ? ctl.eoc.idx : curIdx}
-              onChange={(e) => ctl.setChapter(Number(e.target.value), ctl.eoc ? ctl.eoc.at : 'end')}
-            >
-              {bounds.map((c, i) =>
-                i >= curIdx ? (
-                  <option key={c.id} value={i}>
-                    {c.title}
-                  </option>
-                ) : null,
-              )}
-            </select>
+              value={String(ctl.eoc ? ctl.eoc.idx : curIdx)}
+              onChange={(next) => ctl.setChapter(Number(next), ctl.eoc ? ctl.eoc.at : 'end')}
+              options={bounds
+                .map((c, i) => ({ value: String(i), label: c.title, at: i }))
+                .filter((o) => o.at >= curIdx)}
+            />
             <div className="seg seg-full">
               <button
                 className={ctl.eoc && ctl.eoc.at === 'start' ? 'on' : ''}

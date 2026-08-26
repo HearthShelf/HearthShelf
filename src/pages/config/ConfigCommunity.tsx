@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
+import { SelectField } from '@/components/common/SelectField'
 import { useToast } from '@/hooks/useToast'
 import {
   getCommunityConfig,
@@ -39,14 +40,14 @@ function ToggleField({
     <div className="cfg-card">
       <div className="field full">
         <label>{label}</label>
-        <select
-          className="fld"
+        <SelectField
           value={value ? 'on' : 'off'}
-          onChange={(e) => onChange(e.target.value === 'on')}
-        >
-          <option value="on">{onLabel}</option>
-          <option value="off">{offLabel}</option>
-        </select>
+          onChange={(next) => onChange(next === 'on')}
+          options={[
+            { value: 'on', label: onLabel },
+            { value: 'off', label: offLabel },
+          ]}
+        />
       </div>
       <div className="banner info" style={{ marginTop: 'var(--s4)' }}>
         <Icon name="info" />

@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/useToast'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { parseGoodreadsCsv, isReadRow, type GoodreadsRow } from '@/lib/goodreadsCsv'
+import { SelectField } from '@/components/common/SelectField'
 import {
   matchRows,
   importRows,
@@ -13,6 +14,10 @@ import {
   type MatchRow,
   type ImportRow,
 } from '@/api/finishedBooks'
+
+// Distinguishes the explicit "no match" row from the unresolved prompt, which
+// would otherwise share an empty value.
+const HISTORY_ONLY = '__history_only__'
 
 // One reviewed row: the parsed CSV data plus the user's resolved match
 // decision (a chosen libraryItemId, or null to save as a stub).
@@ -158,17 +163,11 @@ export function ImportGoodreadsPage() {
           {libraries.length > 1 && (
             <div className="field full">
               <label>Library to match against</label>
-              <select
-                className="fld"
+              <SelectField
                 value={activeId ?? ''}
-                onChange={(e) => select(e.target.value)}
-              >
-                {libraries.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+                onChange={select}
+                options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+              />
             </div>
           )}
           <div className="field full">
@@ -248,22 +247,23 @@ export function ImportGoodreadsPage() {
                   </span>
                 )}
                 {r.status === 'ambiguous' && (
-                  <select
-                    className="fld"
+                  <SelectField
                     style={{ maxWidth: 280 }}
-                    value={r.resolved ? (r.resolvedLibraryItemId ?? '') : ''}
-                    onChange={(e) => resolveRow(i, e.target.value || null)}
-                  >
-                    <option value="" disabled={r.resolved}>
-                      Pick a match...
-                    </option>
-                    {r.candidates.map((c) => (
-                      <option key={c.libraryItemId} value={c.libraryItemId}>
-                        {c.title} — {c.author}
-                      </option>
-                    ))}
-                    <option value="">None of these (history only)</option>
-                  </select>
+                    value={
+                      r.resolved ? (r.resolvedLibraryItemId ?? HISTORY_ONLY) : ''
+                    }
+                    // Both the unresolved prompt and "None of these" mean "no
+                    // library item"; the sentinel keeps them distinct rows.
+                    onChange={(next) => resolveRow(i, next === HISTORY_ONLY ? null : next || null)}
+                    options={[
+                      { value: '', label: 'Pick a match...', disabled: r.resolved },
+                      ...r.candidates.map((c) => ({
+                        value: c.libraryItemId,
+                        label: `${c.title} — ${c.author}`,
+                      })),
+                      { value: HISTORY_ONLY, label: 'None of these (history only)' },
+                    ]}
+                  />
                 )}
               </div>
             ))}

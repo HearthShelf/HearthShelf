@@ -31,6 +31,7 @@ import { Icon } from '@/components/common/Icon'
 import { buildThreads, noteTimeLabel } from '@/components/social/noteLabels'
 import { SafeToggle, NoteChips } from '@/components/social/NoteComposerControls'
 import { ReactionBar } from '@/components/social/ReactionBar'
+import { SelectField } from '@/components/common/SelectField'
 
 // A member is "almost done" once they're at least 90% through the current book.
 // When the whole club has nothing queued next, that's the cue to recommend one.
@@ -332,25 +333,23 @@ export function ClubPanel({
       {/* Book history selector */}
       {books.length > 1 && (
         <div className="club-book-select">
-          <select
-            className="fld"
+          <SelectField
             value={shownBookId}
-            onChange={(e) => setViewBookId(e.target.value)}
-          >
-            {books
+            onChange={setViewBookId}
+            options={books
               .slice()
               .reverse()
-              .map((b) => (
-                <option key={b.libraryItemId} value={b.libraryItemId}>
-                  {b.finishedAt != null
+              .map((b) => ({
+                value: b.libraryItemId,
+                label: `${
+                  b.finishedAt != null
                     ? 'Past'
                     : b.abandonedAt != null
                       ? 'Set aside'
-                      : 'Now reading'}{' '}
-                  · {b.title || 'Untitled'}
-                </option>
-              ))}
-          </select>
+                      : 'Now reading'
+                } · ${b.title || 'Untitled'}`,
+              }))}
+          />
         </div>
       )}
 
@@ -572,18 +571,12 @@ function ClubRecommend({
       {(expanded || wrappingUp) && (
         <>
           <div className="club-rec-controls">
-            <select
-              className="fld"
+            <SelectField
               value={basis}
-              onChange={(e) => setBasis.mutate(e.target.value as ClubRecBasis)}
+              onChange={(next) => setBasis.mutate(next as ClubRecBasis)}
               disabled={setBasis.isPending}
-            >
-              {BASIS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={BASIS_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            />
             <button
               className="btn-sm btn-green"
               disabled={rec.isPending || activeId === null}

@@ -19,6 +19,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { LibraryEditModal } from '@/components/config/LibraryEditModal'
 import { Modal } from '@/components/common/Modal'
+import { SelectField } from '@/components/common/SelectField'
 
 export function ConfigLibraries() {
   const qc = useQueryClient()
@@ -357,15 +358,15 @@ export function ConfigLibraries() {
             <div className="cl-meta" style={{ width: 130, flex: 'none' }}>
               <div className="cl-t">Type</div>
             </div>
-            <select
-              className="fld"
+            <SelectField
               style={{ flex: 1 }}
               value={newType}
-              onChange={(e) => setNewType(e.target.value as 'book' | 'podcast')}
-            >
-              <option value="book">Audiobooks</option>
-              <option value="podcast">Podcasts</option>
-            </select>
+              onChange={(next) => setNewType(next as 'book' | 'podcast')}
+              options={[
+                { value: 'book', label: 'Audiobooks' },
+                { value: 'podcast', label: 'Podcasts' },
+              ]}
+            />
           </div>
           <div className="cfg-line" style={{ gap: 12, marginTop: 'var(--s3)' }}>
             <div className="cl-meta" style={{ width: 130, flex: 'none' }}>

@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { Modal } from '@/components/common/Modal'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
+import { SelectField } from '@/components/common/SelectField'
 
 // Preset expirations offered in the create dialog (seconds). null = never.
 const EXPIRY_OPTIONS: { label: string; seconds: number | null }[] = [
@@ -223,29 +224,25 @@ export function ConfigApiKeys() {
           </div>
           <div className="field full">
             <label>User</label>
-            <select className="fld" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.username}
-                  {u.id === me?.id ? ' (you)' : ''}
-                  {u.type === 'root' || u.type === 'admin' ? ` - ${u.type}` : ''}
-                </option>
-              ))}
-            </select>
+            <SelectField
+              value={ownerId}
+              onChange={setOwnerId}
+              options={users.map((u) => ({
+                value: u.id,
+                label:
+                  u.username +
+                  (u.id === me?.id ? ' (you)' : '') +
+                  (u.type === 'root' || u.type === 'admin' ? ` - ${u.type}` : ''),
+              }))}
+            />
           </div>
           <div className="field full">
             <label>Expires</label>
-            <select
-              className="fld"
-              value={expiryIdx}
-              onChange={(e) => setExpiryIdx(Number(e.target.value))}
-            >
-              {EXPIRY_OPTIONS.map((o, i) => (
-                <option key={o.label} value={i}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <SelectField
+              value={String(expiryIdx)}
+              onChange={(next) => setExpiryIdx(Number(next))}
+              options={EXPIRY_OPTIONS.map((o, i) => ({ value: String(i), label: o.label }))}
+            />
           </div>
           {createError && (
             <p style={{ fontSize: 13, color: 'var(--danger, #e57373)', margin: '4px 0 0' }}>
