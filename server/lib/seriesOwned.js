@@ -27,11 +27,18 @@ function squash(title) {
 function stripSeriesPrefix(title, series) {
   const wantedSeries = squash(series)
   if (!wantedSeries) return title
+  // The prefix often carries the volume number ("Federation Marine 2: Sergeant"),
+  // so match the series name with an optional trailing number - otherwise the
+  // numbered entries keep their prefix and lose their book name. Mirror of core's
+  // stripSeriesPrefix.
+  const matchesSeries = (candidate) =>
+    candidate === wantedSeries ||
+    candidate.replace(/\s*(book|volume|vol|part|#)?\s*\d+(\.\d+)?$/, '').trim() === wantedSeries
   const parts = String(title ?? '').split(/\s*[:–—-]\s+/)
   for (let i = parts.length - 1; i >= 1; i--) {
-    if (squash(parts.slice(0, i).join(' ')) === wantedSeries) return parts.slice(i).join(': ')
+    if (matchesSeries(squash(parts.slice(0, i).join(' ')))) return parts.slice(i).join(': ')
   }
-  return squash(title) === wantedSeries ? '' : title
+  return matchesSeries(squash(title)) ? '' : title
 }
 
 // Pass `series` whenever it's known: in a series whose books are all titled
