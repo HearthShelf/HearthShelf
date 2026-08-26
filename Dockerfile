@@ -45,7 +45,7 @@ FROM nginx:alpine AS slim
 # The backend imports @hearthshelf/core as COMPILED dist JS (built in the builder
 # stage), so Alpine's stock nodejs is fine - no runtime TypeScript, no Node major
 # floor.
-RUN apk add --no-cache nodejs
+RUN apk add --no-cache nodejs util-linux-misc
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx/default.conf /etc/nginx/templates/default.conf.template
@@ -87,7 +87,7 @@ FROM nginx:alpine AS aio
 # Alpine's `nodejs` runs both the bundled ABS and the QuestGiver backend - the
 # backend imports @hearthshelf/core as COMPILED dist JS (built in the builder),
 # so no newer Node is required.
-RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl
+RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl util-linux-misc
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html

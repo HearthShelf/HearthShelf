@@ -44,6 +44,24 @@ function platformPackageNames() {
   return variants.map((variant) => `@github/copilot-${variant}-${process.arch}`)
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`
+}
+
+// Copilot CLI only offers its plaintext-storage fallback when stdin and stdout
+// are real TTYs. AIO is intentionally headless, so Linux runs just the login
+// command through util-linux `script`, which allocates a pseudo-terminal. `-e`
+// preserves the Copilot process's exit code and `-f` streams prompts immediately.
+export function copilotLoginSpawn(cliPath, platform = process.platform) {
+  const cliArgs = [cliPath, 'login', '--device-code']
+  if (platform !== 'linux') return { command: process.execPath, args: cliArgs }
+  const command = [process.execPath, ...cliArgs].map(shellQuote).join(' ')
+  return {
+    command: 'script',
+    args: ['-q', '-e', '-f', '-c', command, '/dev/null'],
+  }
+}
+
 export function resolveCopilotCliPath() {
   for (const packageName of platformPackageNames()) {
     try {
@@ -147,7 +165,8 @@ export async function startCopilotLogin({ onConnected } = {}) {
     return publicLogin(flow)
   }
 
-  const child = spawn(process.execPath, [cliPath, 'login', '--device-code'], {
+  const login = copilotLoginSpawn(cliPath)
+  const child = spawn(login.command, login.args, {
     cwd: COPILOT_HOME,
     env: loginEnvironment(),
     windowsHide: true,

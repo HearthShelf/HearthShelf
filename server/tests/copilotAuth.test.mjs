@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 const {
   copilotDiagnostic,
+  copilotLoginSpawn,
   needsPlaintextStorageApproval,
   parseCopilotLoginOutput,
   resolveCopilotCliPath,
@@ -41,6 +42,17 @@ test('recognizes the headless CLI storage confirmation', () => {
     ),
     true,
   )
+})
+
+test('allocates a pseudo-terminal for headless Linux login', () => {
+  const spawn = copilotLoginSpawn('/app/server/copilot cli/index.js', 'linux')
+  assert.equal(spawn.command, 'script')
+  assert.deepEqual(spawn.args.slice(0, 4), ['-q', '-e', '-f', '-c'])
+  assert.equal(
+    spawn.args[4],
+    `'${process.execPath.replace(/'/g, `'"'"'`)}' '/app/server/copilot cli/index.js' 'login' '--device-code'`,
+  )
+  assert.equal(spawn.args[5], '/dev/null')
 })
 
 test('resolves the Copilot CLI bundled by the official SDK', () => {
