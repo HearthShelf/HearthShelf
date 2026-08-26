@@ -143,7 +143,7 @@ export async function runClubAutoAdvance(logger, signal) {
         await setCurrentBook(serverId, club.id, {
           libraryItemId: next.libraryItemId,
           addedBy: club.createdBy,
-          bookSnapshot: { title: next.title, author: next.author },
+          bookSnapshot: { title: next.title, author: next.author, duration: next.duration },
           finishPrevious: true,
         })
       } else {

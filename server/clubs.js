@@ -46,6 +46,14 @@ function mapClubRow(row) {
   }
 }
 
+// A book's length in seconds from the caller's snapshot, or null when it wasn't
+// supplied or isn't a usable number. NULL is stored rather than 0 so an unknown
+// length stays distinguishable from a genuinely empty one.
+function snapshotDuration(bookSnapshot) {
+  const seconds = Number(bookSnapshot?.duration)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : null
+}
+
 function mapBookRow(row) {
   return {
     libraryItemId: String(row.library_item_id),
@@ -57,6 +65,10 @@ function mapBookRow(row) {
     queuedAt: row.queued_at == null ? null : Number(row.queued_at),
     abandonedAt: row.abandoned_at == null ? null : Number(row.abandoned_at),
     sortOrder: Number(row.sort_order ?? 0),
+    // NULL means the length was never captured (a pre-migration row, or a book
+    // nobody owns). Leave it undefined so callers total it as unknown - a zero
+    // would quietly shorten the club's up-next estimate.
+    ...(row.duration == null ? {} : { duration: Number(row.duration) }),
   }
 }
 
@@ -137,7 +149,7 @@ export async function memberCount(serverId, clubId) {
 export async function listBooks(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order, duration
           FROM club_books WHERE server_id = ? AND club_id = ? AND queued_at IS NULL
           ORDER BY started_at ASC`,
     args: [serverId, clubId],
@@ -150,7 +162,7 @@ export async function listBooks(serverId, clubId) {
 export async function listQueue(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order, duration
           FROM club_books WHERE server_id = ? AND club_id = ?
             AND queued_at IS NOT NULL AND finished_at IS NULL
           ORDER BY sort_order ASC, queued_at ASC`,
@@ -164,7 +176,7 @@ export async function listQueue(serverId, clubId) {
 export async function currentBook(serverId, clubId) {
   await ensure()
   const r = await db.execute({
-    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order
+    sql: `SELECT library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order, duration
           FROM club_books
           WHERE server_id = ? AND club_id = ? AND finished_at IS NULL AND queued_at IS NULL
             AND abandoned_at IS NULL
@@ -210,8 +222,8 @@ export async function createClub(
   })
   if (libraryItemId) {
     await db.execute({
-      sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+      sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
       args: [
         serverId,
         id,
@@ -220,6 +232,7 @@ export async function createClub(
         bookSnapshot?.author || '',
         createdBy,
         now,
+        snapshotDuration(bookSnapshot),
       ],
     })
   }
@@ -251,12 +264,15 @@ export async function setCurrentBook(
   // Upsert the new current book; re-adding a past, set aside, or queued book
   // clears its stamps and restamps started_at now.
   await db.execute({
-    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0)
+    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order, duration)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?)
           ON CONFLICT (server_id, club_id, library_item_id)
           DO UPDATE SET finished_at = NULL, queued_at = NULL, abandoned_at = NULL,
                         started_at = excluded.started_at, title = excluded.title,
-                        author = excluded.author, added_by = excluded.added_by`,
+                        author = excluded.author, added_by = excluded.added_by,
+                        -- Keep a length we already know if this re-add didn't
+                        -- carry one, so promoting a queued book never loses it.
+                        duration = COALESCE(excluded.duration, club_books.duration)`,
     args: [
       serverId,
       clubId,
@@ -328,8 +344,8 @@ export async function enqueueBook(serverId, clubId, { libraryItemId, addedBy, bo
   const now = Date.now()
   const order = await nextQueueOrder(serverId, clubId)
   await db.execute({
-    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, ?)`,
+    sql: `INSERT INTO club_books (server_id, club_id, library_item_id, title, author, added_by, started_at, finished_at, queued_at, abandoned_at, sort_order, duration)
+          VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, ?, ?)`,
     args: [
       serverId,
       clubId,
@@ -339,6 +355,7 @@ export async function enqueueBook(serverId, clubId, { libraryItemId, addedBy, bo
       addedBy,
       now,
       order,
+      snapshotDuration(bookSnapshot),
     ],
   })
   return true

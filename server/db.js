@@ -552,6 +552,7 @@ const SCHEMA = [
      queued_at       INTEGER,
      abandoned_at    INTEGER,
      sort_order      INTEGER NOT NULL DEFAULT 0,
+     duration        REAL,
      PRIMARY KEY (server_id, club_id, library_item_id)
    )`,
   `CREATE INDEX IF NOT EXISTS idx_club_books_item
@@ -879,6 +880,12 @@ const MIGRATIONS = [
   // up as past reads; the requeue action moves those back.
   `ALTER TABLE club_books ADD COLUMN abandoned_at INTEGER`,
   `ALTER TABLE club_books ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+  // Book length in seconds, snapshotted when a book is added to a club so an
+  // up-next header can total the queue without a lookup per book. Nullable on
+  // purpose: existing rows, and picks whose length can't be read (a book nobody
+  // owns), stay NULL and report as unknown rather than as zero seconds, which
+  // would silently understate a club's totals.
+  `ALTER TABLE club_books ADD COLUMN duration REAL`,
   // Avatar provenance (see docs/database.md). Existing rows are all manual
   // uploads, so the DEFAULT 'upload' backfills them correctly; only the hosted
   // WebApp writes 'clerk' rows when it copies a user's SSO photo.

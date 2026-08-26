@@ -195,15 +195,16 @@ async function deliverClubInvite(ctx, club, target, inviteId) {
   return { emailSent: email.sent, emailReason: email.reason ?? null, pushed }
 }
 
-// Fetch a book's title/author from ABS as the caller (the routes/stats.js
-// pattern), for the club_books snapshot. Returns { title, author }, both '' on
-// any failure so a snapshot never blocks adding a book.
+// Fetch a book's title/author/length from ABS as the caller (the routes/stats.js
+// pattern), for the club_books snapshot. Returns { title, author, duration },
+// with title/author '' and duration null on any failure so a snapshot never
+// blocks adding a book.
 async function fetchBookSnapshot(ctx, libraryItemId) {
   try {
     const r = await fetch(`${ctx.absUrl}/api/items/${encodeURIComponent(libraryItemId)}`, {
       headers: { Authorization: `Bearer ${ctx.absToken}` },
     })
-    if (!r.ok) return { title: '', author: '' }
+    if (!r.ok) return { title: '', author: '', duration: null }
     const item = await r.json()
     const md = item?.media?.metadata ?? {}
     const title = typeof md.title === 'string' ? md.title : ''
@@ -216,10 +217,25 @@ async function fetchBookSnapshot(ctx, libraryItemId) {
               .filter(Boolean)
               .join(', ')
           : ''
-    return { title, author }
+    return { title, author, duration: itemDuration(item) }
   } catch {
-    return { title: '', author: '' }
+    return { title: '', author: '', duration: null }
   }
+}
+
+// A library item's length in seconds. The single-item read omits the flat
+// media.duration the list read carries, so sum the audio files; null when the
+// item has none (an ebook, or a scan that found no tracks), which stores as an
+// unknown length rather than a misleading zero.
+function itemDuration(item) {
+  const files = item?.media?.audioFiles
+  if (!Array.isArray(files) || files.length === 0) return null
+  let seconds = 0
+  for (const f of files) {
+    const d = Number(f?.duration)
+    if (Number.isFinite(d) && d > 0) seconds += d
+  }
+  return seconds > 0 ? seconds : null
 }
 
 // Assemble an HSClub summary (adds memberCount + currentBook to a club row).
