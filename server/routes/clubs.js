@@ -20,8 +20,9 @@
 //   POST   /hs/clubs/:id/invites/:inviteId/accept|decline (recipient)
 //   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail. Members get the
 //                                                  full room; a non-member gets a
-//                                                  preview of a PUBLIC club with
-//                                                  no comment bodies at all.
+//                                                  preview of a PUBLIC club: the
+//                                                  current book only, and no
+//                                                  comment bodies at all.
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
 //   PUT    /hs/clubs/:id/visibility { visibility } (owner) -> public or closed
@@ -586,7 +587,12 @@ export async function handleClubs(req, res, url, ctx) {
     // The current book carries neither terminal stamp; a set aside book has
     // finishedAt null too and must not be mistaken for it.
     const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) || null
-    const requestedBookId = url.searchParams.get('bookId') || ''
+    // A preview always shows the club's CURRENT book. Someone looking in from
+    // outside is asking "what is this club reading?", so the answer should not
+    // depend on a bookId they happened to arrive with - and pinning it here
+    // means a non-member cannot walk the club's whole back catalogue one
+    // bookId at a time.
+    const requestedBookId = isPreview ? '' : url.searchParams.get('bookId') || ''
     // Which book we're viewing: the requested one if it's anywhere in this
     // club, including Up next. Members may read ahead, and carousel clients need
     // their progress in that queued book rather than silently falling back to
@@ -594,7 +600,7 @@ export async function handleClubs(req, res, url, ctx) {
     const viewedBook =
       (requestedBookId && [...books, ...queue].find((b) => b.libraryItemId === requestedBookId)) ||
       current ||
-      books[books.length - 1] ||
+      (isPreview ? null : books[books.length - 1]) ||
       null
     const viewedBookId = viewedBook ? viewedBook.libraryItemId : ''
     const isCurrent = Boolean(current) && viewedBookId === current.libraryItemId
