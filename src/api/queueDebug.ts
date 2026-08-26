@@ -54,6 +54,14 @@ export interface QueueDebugTarget {
   notes: string[]
 }
 
+export interface QueueParityDiff {
+  kind: 'order' | 'field' | 'length'
+  position: number | null
+  libraryItemId: string | null
+  field?: string
+  detail: string
+}
+
 export interface QueueDebugReport {
   generatedAt: number
   user: { id: string; username: string; type: string }
@@ -86,6 +94,10 @@ export interface QueueDebugReport {
   }
   result: {
     parity: boolean
+    /** Empty when parity holds. Otherwise the first few concrete differences
+     *  between Core's output and the diagnostic mirror, so a mismatch names
+     *  what diverged instead of only that something did. */
+    parityDiff: QueueParityDiff[]
     sameOrder: boolean
     queue: Array<
       QueueEntry & {

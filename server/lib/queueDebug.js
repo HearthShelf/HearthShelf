@@ -129,6 +129,58 @@ function findEntryTitle(id, ...lists) {
   return null
 }
 
+// Explain a parity failure instead of only flagging one. Any difference is a
+// bug in the diagnostic mirror (queueTrace.js), not in the queue the user gets -
+// Core stays the source of truth - but knowing *which* books and *which* fields
+// disagree is the difference between a five-minute fix and a re-read of both
+// builders.
+const PARITY_SAMPLE_LIMIT = 8
+
+function describeEntry(entry) {
+  return entry ? `${entry.title || 'Untitled'} (${entry.libraryItemId})` : 'nothing'
+}
+
+function diffParity(computed, traced) {
+  const diffs = []
+  const length = Math.max(computed.length, traced.length)
+  for (let index = 0; index < length && diffs.length < PARITY_SAMPLE_LIMIT; index++) {
+    const mine = computed[index]
+    const theirs = traced[index]
+    if (!mine || !theirs || mine.libraryItemId !== theirs.libraryItemId) {
+      diffs.push({
+        kind: 'order',
+        position: index,
+        libraryItemId: mine?.libraryItemId ?? theirs?.libraryItemId ?? null,
+        detail: `Position ${index}: Core has ${describeEntry(mine)}, trace has ${describeEntry(theirs)}`,
+      })
+      continue
+    }
+    const fields = new Set([...Object.keys(mine), ...Object.keys(theirs)])
+    for (const field of fields) {
+      const a = JSON.stringify(mine[field])
+      const b = JSON.stringify(theirs[field])
+      if (a === b) continue
+      diffs.push({
+        kind: 'field',
+        position: index,
+        libraryItemId: mine.libraryItemId,
+        field,
+        detail: `${describeEntry(mine)}: field "${field}" is ${a ?? 'undefined'} in Core, ${b ?? 'undefined'} in the trace`,
+      })
+      if (diffs.length >= PARITY_SAMPLE_LIMIT) break
+    }
+  }
+  if (computed.length !== traced.length) {
+    diffs.unshift({
+      kind: 'length',
+      position: null,
+      libraryItemId: null,
+      detail: `Core built ${computed.length} entries, the trace built ${traced.length}`,
+    })
+  }
+  return diffs
+}
+
 export async function debugUserQueue(ctx, userId, targetItemId = null) {
   const user = await absJson(ctx, `/api/users/${encodeURIComponent(userId)}`)
   if (!user?.id) throw new Error('ABS returned no user for that id')
@@ -162,10 +214,8 @@ export async function debugUserQueue(ctx, userId, targetItemId = null) {
   const actualIds = queueIds(computed)
   const tracedIds = queueIds(trace.items)
   const tracedComparable = trace.items.map(({ debug: _debug, ...entry }) => entry)
-  const parity =
-    actualIds.length === tracedIds.length &&
-    actualIds.every((id, index) => id === tracedIds[index]) &&
-    JSON.stringify(computed) === JSON.stringify(tracedComparable)
+  const parityDiff = diffParity(computed, tracedComparable)
+  const parity = parityDiff.length === 0
 
   let target = trace.target
   if (targetItemId && target && !target.inVisibleLibrary) {
@@ -242,6 +292,7 @@ export async function debugUserQueue(ctx, userId, targetItemId = null) {
     },
     result: {
       parity,
+      parityDiff,
       queue,
       storedOnly: stored.items.filter((entry) => !computedSet.has(entry.libraryItemId)),
       computedOnly: computed.filter((entry) => !storedSet.has(entry.libraryItemId)),
@@ -254,7 +305,7 @@ export async function debugUserQueue(ctx, userId, targetItemId = null) {
       ...(parity
         ? []
         : [
-            'Diagnostic trace does not match the Core queue builder. Treat trace reasons as unsafe.',
+            `Diagnostic trace does not match the Core queue builder, so trace reasons are unsafe. The queue this user actually gets is still Core's. First difference: ${parityDiff[0].detail}`,
           ]),
       ...(mode === 'auto'
         ? []

@@ -15,12 +15,16 @@ function isStarted(id, progressById) {
   return !!progress && !progress.isFinished && Number(progress.progress) > 0
 }
 
+// Must produce the exact same shape as Core's entryOf, field for field. The
+// parity check compares serialized entries, so a field missing here reads as a
+// builder divergence even when the rule logic agrees.
 function entryOf(item) {
   const metadata = item.media?.metadata ?? {}
   return {
     libraryItemId: item.id,
     title: metadata.title ?? 'Untitled',
     author: metadata.authorName ?? '',
+    duration: item.media?.duration || undefined,
   }
 }
 

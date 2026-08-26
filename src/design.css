@@ -13358,3 +13358,64 @@ select.fld {
   cursor: pointer;
   flex: none;
 }
+
+/* Skinned select (SelectField). A native <select> draws its list with the OS,
+   which ignores every token here; this keeps the .fld trigger and renders the
+   list with the shared menu-pop / mp-item styling. */
+.sel-wrap {
+  width: 100%;
+}
+
+.sel-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sel-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sel-trigger.on {
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  background: var(--c);
+}
+
+.sel-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sel-value.is-placeholder {
+  color: var(--text-faint);
+}
+
+.sel-caret {
+  flex: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.sel-trigger.on .sel-caret {
+  transform: rotate(180deg);
+}
+
+.sel-pop {
+  min-width: 100%;
+}
+
+.sel-pop .mp-item.active {
+  background: var(--fill);
+}
+
+.sel-pop .mp-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
