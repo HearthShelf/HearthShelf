@@ -9,6 +9,7 @@ import {
 } from '@/api/queueDebug'
 import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
+import { RawJson } from '@/components/config/RawJson'
 
 const RULE_LABELS: Record<string, string> = {
   'finish-series': 'Current series',
@@ -210,6 +211,23 @@ function Report({ report, inspect }: { report: QueueDebugReport; inspect: (id: s
         <Fact label="Stored update" value={fmtDate(report.stored.updatedAt)} />
         <Fact label="Core trace parity" value={report.result.parity ? 'Match' : 'MISMATCH'} />
       </div>
+
+      {report.result.parityDiff.length > 0 && (
+        <div className="cfg-card" style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Where the trace diverges</div>
+          <div className="muted" style={{ marginBottom: 8 }}>
+            Core is the source of truth and still built this user&rsquo;s queue correctly. These are
+            bugs in the diagnostic mirror, which means the per-rule reasons below may be wrong.
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {report.result.parityDiff.map((diff, index) => (
+              <li key={`${diff.kind}-${diff.position ?? 'n'}-${diff.field ?? index}`}>
+                {diff.detail}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {report.rules.map((rule, index) => (
@@ -430,7 +448,12 @@ export function ConfigQueueDebugger() {
           <Icon name="error" fill /> {debug.error.message}
         </div>
       )}
-      {debug.data && !debug.isPending && <Report report={debug.data} inspect={load} />}
+      {debug.data && !debug.isPending && (
+        <>
+          <Report report={debug.data} inspect={load} />
+          <RawJson label="Raw report JSON" value={debug.data} />
+        </>
+      )}
     </>
   )
 }

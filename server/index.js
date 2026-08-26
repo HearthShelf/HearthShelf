@@ -46,6 +46,7 @@ import { handleDiscover } from './routes/discover.js'
 import { handleSettings } from './routes/settings.js'
 import { handleQueue } from './routes/queue.js'
 import { handleQueueDebug } from './routes/queueDebug.js'
+import { handleSeriesDebug } from './routes/seriesDebug.js'
 import { handleDismissals } from './routes/dismissals.js'
 import { handleSocial } from './routes/social.js'
 import { handleNotes } from './routes/notes.js'
@@ -157,6 +158,7 @@ const ROUTES = [
   handleDiscover,
   handleSettings,
   handleQueueDebug,
+  handleSeriesDebug,
   handleQueue,
   handleDismissals,
   handleSocial,

@@ -21,6 +21,7 @@ import { ConfigServerStats, ConfigLibraryStats } from '@/pages/config/ConfigStat
 import { ConfigLogs } from '@/pages/config/ConfigLogs'
 import { ConfigJobs } from '@/pages/config/ConfigJobs'
 import { ConfigQueueDebugger } from '@/pages/config/ConfigQueueDebugger'
+import { ConfigSeriesDebugger } from '@/pages/config/ConfigSeriesDebugger'
 import { ConfigMeta } from '@/pages/config/ConfigMeta'
 import { ConfigNotifications } from '@/pages/config/ConfigNotifications'
 import {
@@ -125,7 +126,6 @@ function ConfigShellBody({ menuMode = false }: { menuMode?: boolean }) {
         { id: 'backups', icon: 'cloud_sync', label: 'Backups' },
         { id: 'import', icon: 'merge', label: 'Import & Merge' },
         { id: 'tasks', icon: 'schedule', label: 'Tasks' },
-        ...(advanced ? [{ id: 'queue-debug', icon: 'troubleshoot', label: 'Queue Debugger' }] : []),
         { id: 'logs', icon: 'terminal', label: 'Logs' },
       ],
     },
@@ -159,6 +159,20 @@ function ConfigShellBody({ menuMode = false }: { menuMode?: boolean }) {
         { id: 'libstats', icon: 'insights', label: 'Library Stats' },
       ],
     },
+    // Read-only diagnostics, hidden until Advanced Options is on. Each page
+    // explains why a piece of derived data came out the way it did, so a wrong
+    // answer can be read off rather than guessed at.
+    ...(advanced
+      ? [
+          {
+            label: 'Debugger',
+            items: [
+              { id: 'queue-debug', icon: 'troubleshoot', label: 'Queue Debugger' },
+              { id: 'series-debug', icon: 'account_tree', label: 'Series Debugger' },
+            ],
+          },
+        ]
+      : []),
   ]
 
   // The Users nav item stays active on the user-detail sub-route.
@@ -197,6 +211,8 @@ function ConfigShellBody({ menuMode = false }: { menuMode?: boolean }) {
         return <ConfigJobs />
       case 'queue-debug':
         return <ConfigQueueDebugger />
+      case 'series-debug':
+        return <ConfigSeriesDebugger />
       case 'meta':
         return <ConfigMeta />
       case 'notifications':
