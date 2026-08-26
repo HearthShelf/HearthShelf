@@ -25,6 +25,7 @@
 //                                                  comment bodies at all.
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
+//   PUT    /hs/clubs/:id/name   { name } (owner) -> rename the club
 //   PUT    /hs/clubs/:id/visibility { visibility } (owner) -> public or closed
 //   PUT    /hs/clubs/:id/settings { allowCommentEditing, allowReplies } (owner/admin)
 //   POST   /hs/clubs/:id/recommend { candidates, historyGenres } (owner) -> next-book picks
@@ -93,6 +94,7 @@ import {
   deleteClub,
   setRecBasis,
   setClubVisibility,
+  renameClub,
   clubActivityAt,
   setClubSettings,
   listMyClubs,
@@ -877,6 +879,27 @@ export async function handleClubs(req, res, url, ctx) {
     const stored = await setRecBasis(ctx.serverId, clubId, body.basis)
     if (stored == null) return (json(res, 400, { error: 'invalid_basis' }), true)
     return (json(res, 200, { recBasis: stored }), true)
+  }
+
+  // PUT /hs/clubs/:id/name { name } -> rename the club (owner).
+  //
+  // Same validation as create, so a club cannot be renamed to something that
+  // could not have been created. Everything that shows the name - invites,
+  // notifications, the auto-advance job - reads it live, so a rename follows
+  // through on its own; only already-delivered messages keep the old name,
+  // which is right: a sent message should not change after the fact.
+  if (action === 'name' && req.method === 'PUT') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const body = await readJson(req)
+    if (!body) return (json(res, 400, { error: 'invalid_body' }), true)
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (name.length < 1 || name.length > NAME_MAX) {
+      return (json(res, 400, { error: 'invalid_name' }), true)
+    }
+    const stored = await renameClub(ctx.serverId, clubId, name)
+    return (json(res, 200, { ok: true, name: stored }), true)
   }
 
   // PUT /hs/clubs/:id/visibility { visibility } -> owner controls whether the

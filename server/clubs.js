@@ -646,6 +646,16 @@ export async function setRecBasis(serverId, clubId, basis) {
   return basis
 }
 
+// Rename a club. The caller validates/trims the name; returns the stored value.
+export async function renameClub(serverId, clubId, name) {
+  await ensure()
+  await db.execute({
+    sql: `UPDATE clubs SET name = ? WHERE server_id = ? AND id = ?`,
+    args: [name, serverId, clubId],
+  })
+  return name
+}
+
 // Change whether a club is server-discoverable/open-join or invite-only.
 export async function setClubVisibility(serverId, clubId, visibility) {
   if (visibility !== 'closed' && visibility !== 'public') return null
