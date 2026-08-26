@@ -11,7 +11,7 @@
 
 import { db, initDb } from './db.js'
 
-const VALID_PROVIDERS = ['openai', 'anthropic', 'gemini']
+const VALID_PROVIDERS = ['openai', 'anthropic', 'gemini', 'copilot']
 
 // An env var counts as "set" only when present and non-empty.
 function envVal(name) {
@@ -100,16 +100,21 @@ export async function setConfig(patch) {
   const next = await getStored()
   const editable = (field) => field in patch && !(field in env)
 
+  let providerChanged = false
   if (editable('provider')) {
     const p = (patch.provider || '').toLowerCase()
-    next.provider = p && VALID_PROVIDERS.includes(p) ? p : null
+    const provider = p && VALID_PROVIDERS.includes(p) ? p : null
+    providerChanged = provider !== next.provider
+    next.provider = provider
   }
   if (editable('model')) next.model = patch.model || null
   if (editable('baseUrl')) next.baseUrl = patch.baseUrl || null
   if (editable('limit')) next.limit = (patch.limit || 'off').trim() || 'off'
   if (editable('enabled')) next.enabled = Boolean(patch.enabled)
   if (editable('discoverEnabled')) next.discoverEnabled = Boolean(patch.discoverEnabled)
-  if (editable('apiKey') && typeof patch.apiKey === 'string' && patch.apiKey !== '') {
+  const hasNewKey = editable('apiKey') && typeof patch.apiKey === 'string' && patch.apiKey !== ''
+  if (providerChanged && !hasNewKey) next.apiKey = null
+  if (hasNewKey) {
     next.apiKey = patch.apiKey
   }
   await db.execute({

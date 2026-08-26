@@ -4,7 +4,7 @@
 
 import { json, readBody } from '../lib/http.js'
 import { isAdmin } from '../lib/context.js'
-import { complete, isProviderConfigured, providerInfo } from '../providers.js'
+import { complete, isProviderConfigured, listModels, providerInfo } from '../providers.js'
 import { check, consume } from '../ratelimit.js'
 import { getConfig, setConfig, publicConfig } from '../config.js'
 import * as store from '../store.js'
@@ -85,6 +85,40 @@ export async function handleQuestGiver(req, res, url, ctx) {
       return (json(res, 200, await publicConfig()), true)
     }
     return (json(res, 405, { error: 'method_not_allowed' }), true)
+  }
+
+  // Admin: discover models using either the saved provider config or an
+  // unpersisted draft from the setup form. Draft credentials are used for this
+  // request only and are never returned in the response.
+  if (req.method === 'POST' && p === '/hs/questgiver/admin/models') {
+    if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
+    if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+    let body
+    try {
+      body = JSON.parse((await readBody(req, 16 * 1024)) || '{}')
+    } catch {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    if (
+      body == null ||
+      typeof body !== 'object' ||
+      (body.provider != null && typeof body.provider !== 'string') ||
+      (body.baseUrl != null && typeof body.baseUrl !== 'string') ||
+      (body.apiKey != null && typeof body.apiKey !== 'string') ||
+      String(body.provider ?? '').length > 50 ||
+      String(body.baseUrl ?? '').length > 2048 ||
+      String(body.apiKey ?? '').length > 4096
+    ) {
+      return (json(res, 400, { error: 'invalid_body' }), true)
+    }
+    try {
+      return (json(res, 200, { models: await listModels(body) }), true)
+    } catch (err) {
+      return (
+        json(res, 502, { error: 'model_list_error', detail: String(err).slice(0, 200) }),
+        true
+      )
+    }
   }
 
   if (req.method === 'POST' && p === '/hs/questgiver/recommend') {

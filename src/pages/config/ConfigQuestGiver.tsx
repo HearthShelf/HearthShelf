@@ -5,6 +5,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useToast } from '@/hooks/useToast'
 import {
   getQgAdminConfig,
+  getQgProviderModels,
   saveQgAdminConfig,
   type QgAdminConfig,
   type QgAdminConfigPatch,
@@ -14,6 +15,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI (or compatible)',
   anthropic: 'Anthropic Claude',
   gemini: 'Google Gemini',
+  copilot: 'GitHub Copilot',
 }
 
 // Inline marker shown next to a field whose value is pinned by an environment
@@ -54,6 +56,10 @@ export function ConfigQuestGiver() {
   const [form, setForm] = useState<QgAdminConfigPatch>({})
   const [keyInput, setKeyInput] = useState('')
 
+  const models = useMutation({
+    mutationFn: getQgProviderModels,
+  })
+
   // Hydrate the editable form when a *new* server config arrives (e.g. first
   // load or after an external refetch). Guarded by updated identity so typing in
   // the form - which doesn't change `data` - never clobbers user edits.
@@ -70,7 +76,15 @@ export function ConfigQuestGiver() {
         discoverEnabled: data.discoverEnabled,
       })
       setKeyInput('')
+      if (data.provider && data.hasKey) {
+        models.mutate({ provider: data.provider, baseUrl: data.baseUrl ?? '' })
+      } else {
+        models.reset()
+      }
     }
+    // `models` is a stable mutation observer; only a new server config should
+    // rehydrate the form and refresh the account-specific model list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
   const save = useMutation({
@@ -103,6 +117,19 @@ export function ConfigQuestGiver() {
         <LoadingSpinner className="py-12" label="Loading..." />
       </>
     )
+  }
+
+  const selectedProvider = data.env.provider ? (data.provider ?? '') : (form.provider ?? '')
+  const isCopilot = selectedProvider === 'copilot'
+  const hasCredential = selectedProvider === (data.provider ?? '') && data.hasKey
+  const modelOptions = models.data?.models ?? []
+  const loadModels = () => {
+    const draft: QgAdminConfigPatch = {
+      provider: selectedProvider,
+      baseUrl: data.env.baseUrl ? (data.baseUrl ?? '') : (form.baseUrl ?? ''),
+    }
+    if (keyInput.trim()) draft.apiKey = keyInput.trim()
+    models.mutate(draft)
   }
 
   return (
@@ -185,7 +212,11 @@ export function ConfigQuestGiver() {
             className="fld"
             value={data.env.provider ? (data.provider ?? '') : (form.provider ?? '')}
             disabled={data.env.provider}
-            onChange={(e) => set('provider', e.target.value)}
+            onChange={(e) => {
+              set('provider', e.target.value)
+              set('model', '')
+              models.reset()
+            }}
           >
             <option value="">None (use heuristic)</option>
             {data.validProviders.map((p) => (
@@ -199,14 +230,49 @@ export function ConfigQuestGiver() {
           <label>Model{data.env.model && <EnvLockTag />}</label>
           <input
             className="fld"
-            placeholder="e.g. claude-sonnet-4-6"
+            list="questgiver-provider-models"
+            placeholder={isCopilot ? 'auto' : 'Choose or enter a model'}
             value={data.env.model ? (data.model ?? '') : (form.model ?? '')}
             disabled={data.env.model}
             onChange={(e) => set('model', e.target.value)}
           />
+          <datalist id="questgiver-provider-models">
+            {modelOptions.map((option) => (
+              <option key={option.id} value={option.id} label={option.name} />
+            ))}
+          </datalist>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={
+                !selectedProvider || models.isPending || (!hasCredential && !keyInput.trim())
+              }
+              onClick={loadModels}
+            >
+              <Icon name="refresh" /> {models.isPending ? 'Loading models…' : 'Load models'}
+            </button>
+            {models.isSuccess && (
+              <span className="sr-d">
+                {modelOptions.length} model{modelOptions.length === 1 ? '' : 's'} available
+              </span>
+            )}
+            {models.isError && (
+              <span className="sr-d" style={{ color: 'var(--danger)' }}>
+                Could not load models. Check the credential and provider URL.
+              </span>
+            )}
+          </div>
+          <p className="sr-d" style={{ marginTop: 6 }}>
+            Models are loaded from the connected provider. You can still enter an exact model ID for
+            a compatible server that does not publish a model list.
+          </p>
         </div>
         <div className="field full">
-          <label>API key{data.env.apiKey && <EnvLockTag />}</label>
+          <label>
+            {isCopilot ? 'GitHub token' : 'API key'}
+            {data.env.apiKey && <EnvLockTag />}
+          </label>
           <input
             className="fld"
             type="password"
@@ -214,14 +280,22 @@ export function ConfigQuestGiver() {
             placeholder={
               data.env.apiKey
                 ? '•••••••• (from environment)'
-                : data.hasKey
+                : hasCredential
                   ? '•••••••• (leave blank to keep)'
-                  : 'Paste API key'
+                  : isCopilot
+                    ? 'Fine-grained token with Copilot Requests access'
+                    : 'Paste API key'
             }
             value={keyInput}
             disabled={data.env.apiKey}
             onChange={(e) => setKeyInput(e.target.value)}
           />
+          {isCopilot && (
+            <p className="sr-d" style={{ marginTop: 6 }}>
+              Uses the connected GitHub account's Copilot subscription. Fine-grained personal,
+              OAuth, and GitHub App user tokens are supported; classic personal tokens are not.
+            </p>
+          )}
         </div>
         <div className="field full">
           <label>Base URL (optional){data.env.baseUrl && <EnvLockTag />}</label>
@@ -229,9 +303,14 @@ export function ConfigQuestGiver() {
             className="fld"
             placeholder="For OpenAI-compatible endpoints (OpenRouter, Ollama, …)"
             value={data.env.baseUrl ? (data.baseUrl ?? '') : (form.baseUrl ?? '')}
-            disabled={data.env.baseUrl}
+            disabled={data.env.baseUrl || isCopilot}
             onChange={(e) => set('baseUrl', e.target.value)}
           />
+          {isCopilot && (
+            <p className="sr-d" style={{ marginTop: 6 }}>
+              GitHub Copilot does not use a custom Base URL.
+            </p>
+          )}
         </div>
       </div>
 

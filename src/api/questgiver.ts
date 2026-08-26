@@ -79,6 +79,20 @@ export function saveQgAdminConfig(patch: QgAdminConfigPatch): Promise<QgAdminCon
   })
 }
 
+export interface QgProviderModel {
+  id: string
+  name: string
+}
+
+export function getQgProviderModels(
+  draft: Pick<QgAdminConfigPatch, 'provider' | 'baseUrl' | 'apiKey'>,
+): Promise<{ models: QgProviderModel[] }> {
+  return qgFetch<{ models: QgProviderModel[] }>('/admin/models', {
+    method: 'POST',
+    body: JSON.stringify(draft),
+  })
+}
+
 // Get a recommendation. Tries the AI backend; on any failure (unconfigured,
 // rate-limited, provider error, network) falls back to the local heuristic.
 export async function qgRecommend(
