@@ -4,7 +4,7 @@
 // server.
 
 import { getConfig } from './config.js'
-import { COPILOT_HOME } from './copilotAuth.js'
+import { COPILOT_HOME, hasCopilotConnection } from './copilotAuth.js'
 
 const TIMEOUT_MS = 30000
 const MAX_MODELS = 1000
@@ -156,6 +156,12 @@ export async function resetCopilotRuntime() {
 }
 
 export async function getCopilotAuthStatus({ force = false } = {}) {
+  // The runtime can discover a developer's ambient `gh`/Copilot login on a
+  // desktop. Only trust logged-in-user auth after an admin has completed
+  // HearthShelf's own connection flow in this QG_DATA_DIR.
+  if (!(await hasCopilotConnection())) {
+    return { authenticated: false, login: null, host: null, authType: null }
+  }
   if (!force && copilotAuthCache && Date.now() - copilotAuthCache.at < 5000) {
     return copilotAuthCache.value
   }
@@ -300,7 +306,11 @@ export async function listModels(overrides = {}) {
         : saved.baseUrl
   const list = MODEL_LISTERS[provider]
   if (!list) throw new Error(`Unknown or unset AI provider: "${provider}"`)
-  if (!key && provider !== 'copilot') throw new Error('AI credential is not set')
+  if (!key) {
+    if (provider !== 'copilot' || !(await getCopilotAuthStatus()).authenticated) {
+      throw new Error('AI credential is not set')
+    }
+  }
 
   const items = await list({ baseUrl, key })
   const unique = new Map()
@@ -338,6 +348,10 @@ export async function complete(prompt) {
   const provider = (c.provider || '').toLowerCase()
   const adapter = ADAPTERS[provider]
   if (!adapter) throw new Error(`Unknown or unset AI provider: "${provider}"`)
-  if (!c.apiKey && provider !== 'copilot') throw new Error('AI API key is not set')
+  if (!c.apiKey) {
+    if (provider !== 'copilot' || !(await getCopilotAuthStatus()).authenticated) {
+      throw new Error('AI API key is not set')
+    }
+  }
   return adapter({ baseUrl: c.baseUrl, model: c.model, key: c.apiKey }, prompt)
 }

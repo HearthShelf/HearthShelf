@@ -7,11 +7,12 @@
 // personal ~/.copilot directory.
 
 import { spawn } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { access, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const COPILOT_HOME = path.join(process.env.QG_DATA_DIR || '/app/data', 'copilot')
+const CONNECTION_MARKER = path.join(COPILOT_HOME, 'hearthshelf-connected')
 
 const LOGIN_START_TIMEOUT_MS = 20_000
 const MAX_OUTPUT_LENGTH = 16 * 1024
@@ -21,7 +22,12 @@ const LOGIN_PATTERN = /visit\s+(https:\/\/\S+)\s+and enter code\s+([A-Z0-9-]+)/i
 let activeLogin = null
 
 function loginEnvironment() {
-  const env = { ...process.env, COPILOT_HOME, GH_CONFIG_DIR: path.join(COPILOT_HOME, 'gh-cli') }
+  const env = {
+    ...process.env,
+    COPILOT_HOME,
+    COPILOT_DISABLE_KEYTAR: '1',
+    GH_CONFIG_DIR: path.join(COPILOT_HOME, 'gh-cli'),
+  }
   // `copilot login` otherwise accepts these instead of starting an interactive
   // account connection. QuestGiver only uses an env token when the admin puts it
   // in QG_API_KEY, which is passed explicitly by providers.js.
@@ -71,6 +77,20 @@ function publicLogin(flow = activeLogin) {
 
 export function getCopilotLogin() {
   return publicLogin()
+}
+
+export async function hasCopilotConnection() {
+  try {
+    await access(CONNECTION_MARKER)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function markCopilotConnected() {
+  await mkdir(COPILOT_HOME, { recursive: true, mode: 0o700 })
+  await writeFile(CONNECTION_MARKER, `${new Date().toISOString()}\n`, { mode: 0o600 })
 }
 
 export async function startCopilotLogin({ onConnected } = {}) {

@@ -14,7 +14,7 @@ import {
 } from '../providers.js'
 import { check, consume } from '../ratelimit.js'
 import { clearApiKey, getConfig, setConfig, publicConfig } from '../config.js'
-import { getCopilotLogin, startCopilotLogin } from '../copilotAuth.js'
+import { getCopilotLogin, markCopilotConnected, startCopilotLogin } from '../copilotAuth.js'
 import * as store from '../store.js'
 
 // Extract the first {...} block and validate the QuestGiver result shape.
@@ -101,6 +101,8 @@ export async function handleQuestGiver(req, res, url, ctx) {
       }
       const existing = await getCopilotAuthStatus()
       if (existing.authenticated) {
+        await clearApiKey()
+        await setConfig({ provider: 'copilot', model: 'auto' })
         return (json(res, 200, { ...existing, flow: { state: 'connected' } }), true)
       }
       const flow = await startCopilotLogin({
@@ -108,6 +110,7 @@ export async function handleQuestGiver(req, res, url, ctx) {
           await resetCopilotRuntime()
           await clearApiKey()
           await setConfig({ provider: 'copilot', model: 'auto' })
+          await markCopilotConnected()
         },
       })
       const status = flow.state === 'failed' ? 502 : 200

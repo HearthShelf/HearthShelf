@@ -76,6 +76,8 @@ export function ConfigQuestGiver() {
     mutationFn: startQgCopilotAuth,
     onSuccess: (next) => {
       qc.setQueryData(['qg-copilot-auth'], next)
+      qc.invalidateQueries({ queryKey: ['qg-admin-config'] })
+      qc.invalidateQueries({ queryKey: ['qg-config'] })
     },
     onError: () => show('Could not start GitHub sign-in'),
   })
@@ -320,6 +322,17 @@ export function ConfigQuestGiver() {
                       QuestGiver uses this account's Copilot subscription. The official Copilot CLI
                       stores the credential; HearthShelf never receives the token.
                     </div>
+                    {data.hasKey && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ marginTop: 8 }}
+                        disabled={connectCopilot.isPending}
+                        onClick={() => connectCopilot.mutate()}
+                      >
+                        Use connected account instead of saved token
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : copilotAuth.data?.flow.state === 'waiting' ? (
@@ -382,13 +395,18 @@ export function ConfigQuestGiver() {
                   style={{ marginTop: 8 }}
                   type="password"
                   autoComplete="off"
-                  placeholder="Fine-grained token with Copilot Requests access"
+                  placeholder={
+                    data.hasKey
+                      ? '•••••••• (leave blank to keep)'
+                      : 'Fine-grained token with Copilot Requests access'
+                  }
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
                 />
                 <p className="sr-d" style={{ marginTop: 6 }}>
                   Fine-grained personal, OAuth, and GitHub App user tokens are supported; classic
-                  personal tokens are not.
+                  personal tokens are not. A saved token takes priority until you choose the
+                  connected account above.
                 </p>
               </details>
             </>
