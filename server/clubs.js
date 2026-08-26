@@ -187,6 +187,20 @@ export async function currentBook(serverId, clubId) {
   return row ? mapBookRow(row) : null
 }
 
+// Store a book's runtime, for rows that predate the duration column or were
+// added while ABS was unreachable. Only fills a NULL - never overwrites a
+// stored length, so a lazy backfill can't fight the value captured at add time.
+export async function fillBookDuration(serverId, clubId, libraryItemId, seconds) {
+  await ensure()
+  const value = Number(seconds)
+  if (!Number.isFinite(value) || value <= 0) return
+  await db.execute({
+    sql: `UPDATE club_books SET duration = ?
+          WHERE server_id = ? AND club_id = ? AND library_item_id = ? AND duration IS NULL`,
+    args: [value, serverId, clubId, libraryItemId],
+  })
+}
+
 // Is a given library item in the club's reading history (past or current)?
 export async function bookInClub(serverId, clubId, libraryItemId) {
   if (!libraryItemId) return false

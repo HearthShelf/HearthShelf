@@ -75,6 +75,7 @@ import {
   listBooks,
   listQueue,
   currentBook,
+  fillBookDuration,
   createClub,
   setCurrentBook,
   enqueueBook,
@@ -236,6 +237,49 @@ function itemDuration(item) {
     if (Number.isFinite(d) && d > 0) seconds += d
   }
   return seconds > 0 ? seconds : null
+}
+
+// Fill in the runtime of club books that don't have one yet, reading it from
+// ABS and storing it so the next load is free.
+//
+// Why lazily rather than a migration backfill: the duration column was added
+// after these rows existed, and a book's length is only knowable by asking ABS
+// per item - which the migration can't do (it has no user token, and an item
+// may not even be in every member's library). Doing it on read means a club
+// page heals itself the first time someone opens it.
+//
+// Best-effort by design: it mutates the in-memory rows and stores what it
+// learns, but every failure is swallowed. A club must still load when ABS is
+// slow or down - the header just shows the count without a time, exactly as it
+// did before. Only NULL rows are fetched, so a healed club costs nothing.
+async function backfillDurations(ctx, clubId, ...rowGroups) {
+  const missing = new Map()
+  for (const rows of rowGroups) {
+    for (const row of rows ?? []) {
+      if (row && row.duration == null && row.libraryItemId) {
+        if (!missing.has(row.libraryItemId)) missing.set(row.libraryItemId, [])
+        missing.get(row.libraryItemId).push(row)
+      }
+    }
+  }
+  if (missing.size === 0) return
+  await Promise.all(
+    [...missing.entries()].map(async ([libraryItemId, rows]) => {
+      try {
+        const r = await fetch(`${ctx.absUrl}/api/items/${encodeURIComponent(libraryItemId)}`, {
+          headers: { Authorization: `Bearer ${ctx.absToken}` },
+        })
+        if (!r.ok) return
+        const seconds = itemDuration(await r.json())
+        if (!seconds) return
+        for (const row of rows) row.duration = seconds
+        await fillBookDuration(ctx.serverId, clubId, libraryItemId, seconds)
+      } catch {
+        // Leave it unknown; the header reports a partial total and we retry on
+        // the next load.
+      }
+    }),
+  )
 }
 
 // Assemble an HSClub summary (adds memberCount + currentBook to a club row).
@@ -518,6 +562,9 @@ export async function handleClubs(req, res, url, ctx) {
       listBooks(ctx.serverId, clubId),
       listQueue(ctx.serverId, clubId),
     ])
+    // Heal rows added before book lengths were stored, so the Up next header can
+    // total the queue.
+    await backfillDurations(ctx, clubId, books, queue)
     // The current book carries neither terminal stamp; a set aside book has
     // finishedAt null too and must not be mistaken for it.
     const current = books.find((b) => b.finishedAt == null && b.abandonedAt == null) || null
