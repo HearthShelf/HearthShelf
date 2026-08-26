@@ -18,7 +18,10 @@
 //   POST   /hs/clubs/:id/invites { userIds }   (owner) -> in-app + email + push
 //   DELETE /hs/clubs/:id/invites/:inviteId     (owner) -> revoke pending
 //   POST   /hs/clubs/:id/invites/:inviteId/accept|decline (recipient)
-//   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail (membership req.)
+//   GET    /hs/clubs/:id?bookId=&position=       -> HSClubDetail. Members get the
+//                                                  full room; a non-member gets a
+//                                                  preview of a PUBLIC club with
+//                                                  no comment bodies at all.
 //   PUT    /hs/clubs/:id/read   { lastReadAt }   -> max() cursor bump
 //   PUT    /hs/clubs/:id/rec-basis { basis } (owner) -> set recommendation basis
 //   PUT    /hs/clubs/:id/visibility { visibility } (owner) -> public or closed
@@ -553,10 +556,25 @@ export async function handleClubs(req, res, url, ctx) {
     return (json(res, 200, { ok: true }), true)
   }
 
-  // GET /hs/clubs/:id?bookId=&position= -> detail (membership required)
+  // GET /hs/clubs/:id?bookId=&position= -> detail.
+  //
+  // Members get the full room. A non-member gets a PREVIEW of a public,
+  // non-archived club: the reading timeline, the member roster and everyone's
+  // progress, but never a single comment body. The preview exists so someone can
+  // look inside a public club before joining it, which is the only way to judge
+  // whether it is worth joining.
+  //
+  // The body withholding is done HERE, at the source, not in the client: a
+  // preview response carries no note bodies in any field, so there is nothing a
+  // client could reveal by mistake. Reading the discussion for real goes through
+  // GET /hs/notes, which independently re-checks membership. A closed or
+  // archived club still 403s - neither is previewable.
   if (action === '' && req.method === 'GET') {
     if (!cfg.clubsEnabled) return (json(res, 200, { enabled: false }), true)
-    if (!membership) return (json(res, 403, { error: 'not_member' }), true)
+    const isPreview = !membership
+    if (isPreview && (!club.isOpen || club.archived)) {
+      return (json(res, 403, { error: 'not_member' }), true)
+    }
 
     const [books, queue] = await Promise.all([
       listBooks(ctx.serverId, clubId),
@@ -645,7 +663,27 @@ export async function handleClubs(req, res, url, ctx) {
     // Locked stubs are returned only for the current book.
     let notes = { notes: [], locked: [], hiddenAhead: 0 }
     let unread = 0
-    if (viewedBookId) {
+    if (viewedBookId && isPreview) {
+      // Preview: the discussion is withheld wholesale, regardless of how far
+      // the caller has listened - not joining is the gate here, not position.
+      // Each stub carries who commented and where in the book, never the text,
+      // so an outsider can see how alive a club is without being spoiled.
+      // loadNotes(includeDeleted=false) already drops soft-deleted rows.
+      const rows = await loadNotes(ctx.serverId, viewedBookId, clubId, ctx.userId, false)
+      // One stub per TOP-LEVEL comment, carrying only who wrote it and where in
+      // the book - never the text. Replies get no stub of their own (same rule
+      // as the normal locked gate) but do count toward hiddenAhead.
+      const locked = rows
+        .filter((n) => !n.parentId)
+        .map((n) => ({
+          id: n.id,
+          timeSec: n.timeSec,
+          userId: n.userId,
+          username: n.username,
+          createdAt: n.createdAt,
+        }))
+      notes = { notes: [], locked, hiddenAhead: rows.length }
+    } else if (viewedBookId) {
       const position = Number.parseFloat(url.searchParams.get('position') ?? '')
       const { position: pos, isFinished } = await resolveGatePosition(
         ctx,
@@ -675,6 +713,10 @@ export async function handleClubs(req, res, url, ctx) {
       json(res, 200, {
         enabled: true,
         club: await clubSummary(ctx.serverId, club),
+        // false when the caller is looking in from outside: the client shows
+        // Join instead of the composer, and never renders comment bodies
+        // (there are none in the payload to render).
+        isMember: !isPreview,
         books,
         queue,
         members: memberOut,
