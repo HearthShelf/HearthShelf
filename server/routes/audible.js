@@ -248,16 +248,18 @@ function seqKeyOf(sequence) {
 // share a sequence, so the series reads as having duplicates - one proper row,
 // one coverless row with a mangled author ("Zogarth .").
 //
-// A placeholder is dropped ONLY when a real product occupies the same sequence.
-// Standing alone it is the only record of a genuinely upcoming book (announced,
-// not yet scheduled); dropping it erased that book from the series entirely.
+// A SEQUENCED placeholder is dropped only when a real product occupies its
+// sequence; standing alone it is the only record of a genuinely upcoming book.
+// An UNSEQUENCED placeholder is always dropped - Audible carries a tail of
+// announced-only stubs with no position in the series, and each one counts as a
+// book the user is "missing" forever.
 //
 // Mirror of @hearthshelf/core isPhantomRosterBook (the server runs plain .js and
 // can't import the .ts). Keep in step with src/lib/series.ts.
 function isPhantomRosterBook(book, books) {
   if (!isPlaceholderBook(book)) return false
   const slot = seqKeyOf(book.sequence)
-  if (!slot) return false
+  if (!slot) return true
   return books.some((b) => b !== book && seqKeyOf(b.sequence) === slot && !isPlaceholderBook(b))
 }
 

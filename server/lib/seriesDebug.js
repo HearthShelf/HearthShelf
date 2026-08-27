@@ -47,12 +47,18 @@ function editionScore(b) {
 // Returns one row per RAW entry so the UI can show the full Audible children
 // list and mark what was dropped, rather than only the survivors.
 function filterTrace(rawBooks, seriesName) {
-  // Pass 1: phantom placeholders (a stub whose sequence a real product occupies).
+  // Pass 1: phantom placeholders. A sequenced stub goes when a real product
+  // occupies its slot; an unsequenced stub always goes (nothing can ever place
+  // it, so it would count as a permanently missing book).
   const phantom = new Map()
+  const unsequenced = new Set()
   for (const b of rawBooks) {
     if (!isPlaceholder(b)) continue
     const slot = seqKey(b.sequence)
-    if (!slot) continue // unsequenced stub: nothing to supersede it, so it stays
+    if (!slot) {
+      unsequenced.add(b)
+      continue
+    }
     const superseder = rawBooks.find(
       (o) => o !== b && seqKey(o.sequence) === slot && !isPlaceholder(o),
     )
@@ -61,7 +67,7 @@ function filterTrace(rawBooks, seriesName) {
 
   // Pass 2: duplicate editions, among what survived pass 1. Same sequence AND
   // same normalized title == the same book re-issued; the richer entry wins.
-  const survivors = rawBooks.filter((b) => !phantom.has(b))
+  const survivors = rawBooks.filter((b) => !phantom.has(b) && !unsequenced.has(b))
   const best = new Map()
   for (const b of survivors) {
     const slot = seqKey(b.sequence)
@@ -92,6 +98,11 @@ function filterTrace(rawBooks, seriesName) {
       kept: true,
       droppedBy: null,
       droppedFor: null,
+    }
+    if (unsequenced.has(b)) {
+      row.kept = false
+      row.droppedBy = 'unsequenced-placeholder'
+      return row
     }
     const supersededBy = phantom.get(b)
     if (supersededBy) {

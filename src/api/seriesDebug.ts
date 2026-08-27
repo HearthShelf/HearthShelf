@@ -27,7 +27,7 @@ export interface SeriesDebugRosterBook {
   isPlaceholder: boolean
   editionScore: number
   kept: boolean
-  droppedBy: 'phantom-placeholder' | 'duplicate-edition' | null
+  droppedBy: 'phantom-placeholder' | 'unsequenced-placeholder' | 'duplicate-edition' | null
   /** ASIN of the entry that superseded this one. */
   droppedFor: string | null
 }

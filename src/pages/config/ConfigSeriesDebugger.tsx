@@ -191,7 +191,11 @@ function RosterRow({ book, series }: { book: SeriesDebugRosterBook; series: stri
         ) : (
           <>
             <Pill tone="warn">
-              {book.droppedBy === 'phantom-placeholder' ? 'phantom' : 'duplicate edition'}
+              {book.droppedBy === 'phantom-placeholder'
+                ? 'phantom'
+                : book.droppedBy === 'unsequenced-placeholder'
+                  ? 'unsequenced stub'
+                  : 'duplicate edition'}
             </Pill>
             {book.droppedFor && (
               <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 3 }}>
