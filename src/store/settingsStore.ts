@@ -103,6 +103,11 @@ export interface SettingsState {
   creditsChapterMaxSec: number
   chapterEndGraceSec: number
   finishedPercent: number
+  // Treat the final chapter as end matter (credits, bloopers, an author
+  // interview) whatever its length. Publishers ship one long combined track that
+  // no duration threshold separates from a real final chapter, so it is a choice
+  // rather than a guess.
+  lastChapterIsEndMatter: boolean
   // Hide the docked player bar. Off (default) keeps it; on hides it and the full
   // player is reached from the player nav / a book's Play button.
   hideMiniPlayer: boolean
@@ -244,9 +249,10 @@ export const useSettingsStore = create<SettingsState>()(
       skipBack: 15,
       skipBackCustom: 20,
       chapterBarrier: true,
-      creditsChapterMaxSec: 60,
+      creditsChapterMaxSec: 180,
       chapterEndGraceSec: 15,
       finishedPercent: 0,
+      lastChapterIsEndMatter: true,
       hideMiniPlayer: false,
 
       // Queue

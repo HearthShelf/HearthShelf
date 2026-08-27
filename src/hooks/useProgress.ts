@@ -32,6 +32,7 @@ export function useProgress() {
       ended,
       thresholds: {
         creditsChapterMaxSec: s.creditsChapterMaxSec,
+        lastChapterIsEndMatter: s.lastChapterIsEndMatter,
         chapterEndGraceSec: s.chapterEndGraceSec,
         percentComplete: s.finishedPercent > 0 ? s.finishedPercent / 100 : null,
       },

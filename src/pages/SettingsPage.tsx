@@ -870,13 +870,23 @@ export function SettingsPage() {
                   }
                 />
                 <SetRow
+                  title="Skip end credits and bloopers"
+                  desc="Treats the last chapter as the ending, however long it runs. Turn this off if you listen to bloopers and author interviews."
+                  control={
+                    <Toggle
+                      on={s.lastChapterIsEndMatter}
+                      onClick={() => put('lastChapterIsEndMatter', !s.lastChapterIsEndMatter)}
+                    />
+                  }
+                />
+                <SetRow
                   title="Count end credits as done"
-                  desc="If the last chapter is this short, reaching it finishes the book. Stops end credits and outros from leaving a book stuck at 100%. Set 0 to turn off."
+                  desc="Chapters this short at the end of a book count as credits, so reaching them finishes it. The setting above already covers the very last chapter; this catches bloopers or an outro before it. Set 0 to turn off."
                   control={
                     <NumPick
                       value={s.creditsChapterMaxSec}
                       onChange={(v) => put('creditsChapterMaxSec', v)}
-                      presets={[30, 60, 120]}
+                      presets={[60, 180, 300]}
                       min={0}
                       max={600}
                     />
