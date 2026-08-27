@@ -24,6 +24,7 @@ import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { BookTile } from '@/components/library/BookTile'
 import { SeriesCard } from '@/components/library/SeriesCard'
+import { audibleKeys, fetchSeriesGapSummaries, type SeriesGapSummary } from '@/api/audible'
 import { AzJumpRail } from '@/components/library/AzJumpRail'
 import { letterOf } from '@/lib/letterBucket'
 import { BatchEditModal } from '@/components/library/BatchEditModal'
@@ -256,6 +257,20 @@ export function LibraryPage() {
     a.sort(pSort === 'Name' ? (x, y) => x.name.localeCompare(y.name) : (x, y) => y.count - x.count)
     return a
   }, [narrators, pSort])
+
+  // Gap counts for every swept series, in ONE request. Only on the series tab;
+  // absent series render without a badge (see fetchSeriesGapSummaries).
+  const { data: gapData } = useQuery({
+    queryKey: audibleKeys.seriesSummary(),
+    queryFn: fetchSeriesGapSummaries,
+    enabled: tab === 'series',
+    staleTime: 10 * 60 * 1000,
+  })
+  const gapById = useMemo(() => {
+    const map = new Map<string, SeriesGapSummary>()
+    for (const g of gapData ?? []) map.set(g.seriesId, g)
+    return map
+  }, [gapData])
 
   const seriesList = useMemo(() => {
     const list: ABSSeries[] = [...(seriesData?.results ?? [])]
@@ -760,7 +775,7 @@ export function LibraryPage() {
           </div>
           <div className="series-grid">
             {seriesList.map((s) => (
-              <SeriesCard key={s.id} series={s} />
+              <SeriesCard key={s.id} series={s} gap={gapById.get(s.id)} />
             ))}
           </div>
         </>

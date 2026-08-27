@@ -16,6 +16,7 @@ import { json } from '../lib/http.js'
 import { getIntegrations } from '../integrations.js'
 import {
   getSeriesRoster,
+  getSeriesRosterSummaries,
   getSeriesRosterById,
   getSeriesRosterByAsin,
   saveSeriesRoster,
@@ -466,6 +467,25 @@ export async function handleAudible(req, res, url, ctx) {
   // (two series can share one). It's optional for back-compat with older clients,
   // which get the name lookup - and that returns nothing when the name is
   // ambiguous rather than guessing the wrong series.
+  // Owned/total counts for EVERY swept series, for the library's series grid.
+  // One request instead of one per card, and counts only - the full rosters
+  // would be megabytes to render a badge. Placed before /hs/audible/series so
+  // the more specific path wins.
+  //
+  // Served from stored rosters alone: a series the nightly sweep hasn't reached
+  // is absent, and the grid falls back to showing it exactly as before. A
+  // library page must never fan out into hundreds of live Audible resolves.
+  if (p === '/hs/audible/series-summary') {
+    if (await audibleOff()) return (json(res, 200, { series: [] }), true)
+    try {
+      return (json(res, 200, { series: await getSeriesRosterSummaries() }), true)
+    } catch {
+      // Counts are decoration on the grid; failing the whole page over them
+      // would be worse than showing it without the badges.
+      return (json(res, 200, { series: [] }), true)
+    }
+  }
+
   if (p === '/hs/audible/series') {
     const name = (url.searchParams.get('q') ?? '').trim()
     // Empty roster = "no catalog data for this series", which every client

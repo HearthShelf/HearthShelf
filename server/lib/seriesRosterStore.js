@@ -9,6 +9,8 @@
 // the consumer.
 
 import { db, getServerId } from '../db.js'
+import { realRosterBooks } from '@hearthshelf/core/lib/series'
+import { isUpcoming } from '@hearthshelf/core/lib/notifications'
 
 function parseBooks(raw) {
   try {
@@ -135,4 +137,66 @@ export async function getSeriesRoster(name) {
   } catch {
     return null
   }
+}
+
+// Every stored roster reduced to counts, for the library's series grid.
+//
+// The grid needs one fact per series - "you own 9 of 15, and 1 more is coming" -
+// for potentially hundreds of series at once. Reading the full rosters to do
+// that would ship megabytes of book JSON to render a badge, so the reduction
+// happens here and only the counts travel.
+//
+// STORED ROWS ONLY. A series the nightly sweep hasn't reached is simply absent
+// from the result, and the grid then shows it exactly as it does today (owned
+// count, no badge). That is the deliberate trade: a page of the library must
+// never trigger hundreds of live Audible resolves.
+//
+// Counting goes through Core's realRosterBooks so the grid agrees with the
+// series detail page - it drops phantom placeholders, unsequenced stubs and
+// duplicate editions. Counting raw books_json would re-inflate every series with
+// exactly the junk that filtering exists to remove.
+export async function getSeriesRosterSummaries() {
+  const serverId = await getServerId()
+  let rows
+  try {
+    const res = await db.execute({
+      sql: `
+        SELECT series_id, name, series_asin, series_title, books_json, resolved_at
+        FROM series_roster
+        WHERE server_id = ?
+      `,
+      args: [serverId],
+    })
+    rows = res.rows
+  } catch {
+    return []
+  }
+
+  const now = Date.now()
+  const out = []
+  for (const row of rows) {
+    const roster = rowToRoster(row)
+    if (!roster.seriesAsin) continue // unresolved: nothing to say about gaps
+    const books = realRosterBooks(roster.books, [], roster.name)
+    let missing = 0
+    let upcoming = 0
+    for (const book of books) {
+      // An unreleased book is not a gap in the library - nobody could own it.
+      // Counting it as missing would leave a caught-up series permanently
+      // incomplete, so it is reported on its own axis instead.
+      if (book.upcoming ?? isUpcoming(book, now)) {
+        upcoming++
+        continue
+      }
+      if (book.owned === false) missing++
+    }
+    out.push({
+      seriesId: roster.seriesId,
+      total: books.length,
+      missing,
+      upcoming,
+      resolvedAt: roster.resolvedAt,
+    })
+  }
+  return out
 }

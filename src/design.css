@@ -1109,6 +1109,34 @@
   color: var(--text-muted);
   margin: 4px 0 0;
 }
+/* Ownership gaps in a series - books the library doesn't hold, and books not
+   out yet. Sits below the owned-book count, which keeps its own meaning: the
+   count and the progress bar are both about what you OWN. */
+.sc-gap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11.5px;
+  margin: 5px 0 0;
+}
+.sc-gap span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.sc-gap-missing {
+  color: #e0a25b;
+  border-color: rgba(224, 162, 91, 0.32);
+  background: rgba(224, 162, 91, 0.1);
+}
+.sc-gap-soon {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
 .sc-prog {
   display: flex;
   align-items: center;

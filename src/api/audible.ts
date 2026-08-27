@@ -24,6 +24,45 @@ export const audibleKeys = {
   // follow, which stores the ASIN rather than an ABS series id).
   seriesByAsin: (seriesAsin: string) => ['audible', 'series-asin', seriesAsin] as const,
   product: (asin: string) => ['audible', 'product', asin] as const,
+  // Owned/total counts for every swept series, for the library grid.
+  seriesSummary: () => ['audible', 'series-summary'] as const,
+}
+
+/** Owned/total counts for one series, as the library grid reads them. */
+export interface SeriesGapSummary {
+  seriesId: string
+  /** Books in the series after phantom/duplicate filtering, released or not. */
+  total: number
+  /** Released books the library doesn't hold. Excludes unreleased ones - nobody
+   *  could own those, and counting them would leave a caught-up series
+   *  permanently incomplete. */
+  missing: number
+  /** Books announced but not out yet. */
+  upcoming: number
+  resolvedAt: number
+}
+
+/**
+ * Gap counts for every series the nightly sweep has resolved, in one request.
+ *
+ * The series grid needs one fact per card for hundreds of cards, so this returns
+ * counts only - the rosters themselves would be megabytes to render a badge.
+ * Series the sweep hasn't reached are simply absent, and those cards render as
+ * they did before. Degrades to an empty list: the counts are decoration, and the
+ * page must still render without them.
+ */
+export async function fetchSeriesGapSummaries(): Promise<SeriesGapSummary[]> {
+  const token = useAuthStore.getState().token
+  try {
+    const res = await fetch('/hs/audible/series-summary', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return []
+    const body = (await res.json()) as { series?: SeriesGapSummary[] }
+    return body.series ?? []
+  } catch {
+    return []
+  }
 }
 
 export async function searchAudible(query: string, page = 1): Promise<AudibleSearchResponse> {
@@ -62,9 +101,7 @@ export async function fetchAudibleSeries(
 // Served from the precomputed roster only (no live Audible resolve), so a series
 // the nightly sweep hasn't reached returns an unresolved result and the caller
 // quietly shows the follow without a next-book line.
-export async function fetchAudibleSeriesByAsin(
-  seriesAsin: string,
-): Promise<AudibleSeriesResponse> {
+export async function fetchAudibleSeriesByAsin(seriesAsin: string): Promise<AudibleSeriesResponse> {
   const empty: AudibleSeriesResponse = { name: '', seriesAsin: null, books: [] }
   if (!seriesAsin) return empty
   const token = useAuthStore.getState().token
