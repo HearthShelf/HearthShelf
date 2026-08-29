@@ -9,7 +9,8 @@
 //
 // The spoiler gate lives in lib/notesQuery.js (the one authoritative server-side
 // implementation; core's gateNotes is client-only). Public notes never return
-// locked stubs (locked is club-scope only); club notes require membership.
+// locked stubs (anonymous placeholders for ahead notes); club notes require
+// membership.
 // notes_enabled=0 (admin kill-switch) hides GET ({ enabled:false }) and 403s
 // POST. All degradations are 200 envelopes, never thrown errors.
 
@@ -195,14 +196,15 @@ export async function handleNotes(req, res, url, ctx) {
     // `after` is a post-gate filter, never a DB filter, so a reply's parent is
     // always present to gate it (see lib/notesQuery.js).
     const rows = await loadNotes(ctx.serverId, libraryItemId, clubId, ctx.userId, true)
-    // Locked stubs are club-scope only, and only for the club's CURRENT book
-    // (public-note stubs would render as timeline ticks but the public GET
-    // withholds them per docs/social.md).
     const gated = gateNotes(rows, {
       position: pos,
       meId: ctx.userId,
       isFinished,
-      includeLocked: isClubCurrentBook,
+      // Placeholders (position + nesting only, never bodies or authors) are
+      // returned in every scope so a reader can see that a discussion is
+      // waiting further in. Stubs for a club's PAST book are suppressed - a
+      // finished book has no "ahead" to unlock.
+      includeLocked: !clubId || isClubCurrentBook,
       after,
     })
     await hydrateMentions(ctx.serverId, gated.notes)

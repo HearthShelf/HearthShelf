@@ -143,8 +143,11 @@ export function isUnlocked(note, byId, pos, meId, isFinished) {
 
 // Apply the spoiler gate to a set of loaded notes. Returns:
 //   notes        - full visible notes (bodies)
-//   locked       - anonymous stubs { id, timeSec } for locked TOP-LEVEL
-//                  timestamped notes (only when includeLocked)
+//   locked       - anonymous stubs { id, timeSec, parentId? } for locked notes
+//                  AND their locked replies (only when includeLocked). A reply
+//                  has no timeSec of its own, so it reports its parent's and
+//                  carries parentId for the client to nest it under.
+//                  Bodies and authors are never included.
 //   hiddenAhead  - count of ALL locked rows (notes + replies)
 // `position` (seconds) and `isFinished` come from resolveGatePosition. `meId` is
 // the caller (author-bypass). `includeLocked` gates whether stubs are returned
@@ -198,13 +201,16 @@ export function gateNotes(rows, { position, meId, isFinished, includeLocked, aft
     // stub. Replies never get their own stub - the parent's stub marks the tick.
     // The `after` cutoff also applies to stubs so a delta poll stays consistent.
     hiddenAhead++
-    if (
-      includeLocked &&
-      !note.parentId &&
-      note.timeSec != null &&
-      (cutoff == null || note.createdAt > cutoff)
-    ) {
-      locked.push({ id: note.id, timeSec: note.timeSec })
+    // A reply carries no timeSec of its own - it is gated by its parent, so it
+    // reports the parent's position and nests under the parent's stub.
+    const parent = note.parentId ? byId.get(note.parentId) : null
+    const stubTime = note.parentId ? (parent?.timeSec ?? null) : note.timeSec
+    if (includeLocked && stubTime != null && (cutoff == null || note.createdAt > cutoff)) {
+      locked.push({
+        id: note.id,
+        timeSec: stubTime,
+        ...(note.parentId ? { parentId: note.parentId } : {}),
+      })
     }
   }
 
