@@ -34,6 +34,7 @@ export function ChapterBulkBar<T extends { title: string }>({
   const [delta, setDelta] = useState('-1')
   const [find, setFind] = useState('')
   const [replace, setReplace] = useState('')
+  const [stripPadding, setStripPadding] = useState(false)
   const [useRegex, setUseRegex] = useState(false)
   const [matchCase, setMatchCase] = useState(false)
 
@@ -77,7 +78,7 @@ export function ChapterBulkBar<T extends { title: string }>({
     if (mode === 'renumber') {
       onApply(renumberChapters(rows, selected, pattern, Number(startAt) || 0))
     } else if (mode === 'shift') {
-      onApply(shiftChapterNumbers(rows, selected, Number(delta) || 0))
+      onApply(shiftChapterNumbers(rows, selected, Number(delta) || 0, { stripPadding }))
     } else {
       onApply(replaceInChapterTitles(rows, selected, find, replace, { regex: useRegex, matchCase }))
     }
@@ -110,7 +111,7 @@ export function ChapterBulkBar<T extends { title: string }>({
     if (mode === 'renumber')
       preview = previewOf(renumberChapters(rows, selected, pattern, Number(startAt) || 0))
     else if (mode === 'shift' && !shiftTooFar)
-      preview = previewOf(shiftChapterNumbers(rows, selected, Number(delta) || 0))
+      preview = previewOf(shiftChapterNumbers(rows, selected, Number(delta) || 0, { stripPadding }))
     else if (find)
       preview = previewOf(
         replaceInChapterTitles(rows, selected, find, replace, { regex: useRegex, matchCase }),
@@ -204,6 +205,16 @@ export function ChapterBulkBar<T extends { title: string }>({
             -219 turns Chapter 220 into Chapter 1. Chapters with no number, like Intro, are left
             alone.
           </p>
+          <div className="ch-bulk-toggles">
+            <label title="Chapter 007 becomes Chapter 7. Leave the change at 0 to only drop zeros.">
+              <input
+                type="checkbox"
+                checked={stripPadding}
+                onChange={(e) => setStripPadding(e.target.checked)}
+              />
+              Drop extra zeros
+            </label>
+          </div>
           <button className="btn-sm btn-green" disabled={none || shiftTooFar} onClick={apply}>
             Apply
           </button>
