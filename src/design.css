@@ -13331,6 +13331,41 @@ select.fld {
   color: var(--text-muted);
 }
 
+.ch-bulk-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: -2px;
+}
+
+.ch-bulk-chips-lbl {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ch-chip {
+  background: var(--fill-2, var(--fill));
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.ch-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ch-bulk-chips-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .ch-bulk-toggles {
   display: flex;
   gap: 12px;

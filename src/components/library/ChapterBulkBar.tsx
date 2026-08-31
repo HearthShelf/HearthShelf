@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   renumberChapters,
   shiftChapterNumbers,
@@ -36,6 +36,37 @@ export function ChapterBulkBar<T extends { title: string }>({
   const [replace, setReplace] = useState('')
   const [useRegex, setUseRegex] = useState(false)
   const [matchCase, setMatchCase] = useState(false)
+
+  const patternRef = useRef<HTMLInputElement>(null)
+
+  // The pattern tokens, named for what they put in the title rather than for
+  // how they are written. Someone renaming a book should not have to learn a
+  // syntax to use these, so they are clickable and self-describing.
+  const tokens = [
+    { insert: '{n}', label: 'Number', hint: 'Counts up: 1, 2, 3' },
+    { insert: '{name}', label: 'Chapter name', hint: 'The name, without its old number' },
+    { insert: '{n:2}', label: 'Number as 01', hint: 'Counts up padded: 01, 02, 03' },
+  ]
+
+  // Insert at the cursor rather than appending, so a token can be dropped into
+  // the middle of a pattern the user has already typed.
+  const insertToken = (text: string) => {
+    const el = patternRef.current
+    if (!el) {
+      setPattern(pattern + text)
+      return
+    }
+    const start = el.selectionStart ?? pattern.length
+    const end = el.selectionEnd ?? pattern.length
+    const next = pattern.slice(0, start) + text + pattern.slice(end)
+    setPattern(next)
+    // Restore focus and put the caret after what we just inserted.
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + text.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
   const n = selected.length
   const none = n === 0
@@ -91,10 +122,10 @@ export function ChapterBulkBar<T extends { title: string }>({
       <div className="ch-bulk-head">
         <div className="seg">
           <button className={mode === 'renumber' ? 'on' : ''} onClick={() => setMode('renumber')}>
-            Renumber
+            Number them 1, 2, 3
           </button>
           <button className={mode === 'shift' ? 'on' : ''} onClick={() => setMode('shift')}>
-            Shift numbers
+            Add or subtract
           </button>
           <button className={mode === 'replace' ? 'on' : ''} onClick={() => setMode('replace')}>
             Find &amp; replace
@@ -104,32 +135,57 @@ export function ChapterBulkBar<T extends { title: string }>({
       </div>
 
       {mode === 'renumber' && (
-        <div className="ch-bulk-row">
-          <label className="ch-bulk-lbl">
-            Title
-            <input
-              className="fld"
-              value={pattern}
-              onChange={(e) => setPattern(e.target.value)}
-              placeholder="Chapter {n}"
-            />
-          </label>
-          <label className="ch-bulk-lbl" style={{ flex: '0 0 96px' }}>
-            Start at
-            <input
-              className="fld"
-              type="number"
-              value={startAt}
-              onChange={(e) => setStartAt(e.target.value)}
-            />
-          </label>
-          <button className="btn-sm btn-ghost" disabled={none} onClick={normalize}>
-            Keep own numbers
-          </button>
-          <button className="btn-sm btn-green" disabled={none} onClick={apply}>
-            Apply
-          </button>
-        </div>
+        <>
+          <div className="ch-bulk-row">
+            <label className="ch-bulk-lbl">
+              Title
+              <input
+                ref={patternRef}
+                className="fld"
+                value={pattern}
+                onChange={(e) => setPattern(e.target.value)}
+                placeholder="Chapter {n}"
+              />
+            </label>
+            <label className="ch-bulk-lbl" style={{ flex: '0 0 96px' }}>
+              Start at
+              <input
+                className="fld"
+                type="number"
+                value={startAt}
+                onChange={(e) => setStartAt(e.target.value)}
+              />
+            </label>
+            <button
+              className="btn-sm btn-ghost"
+              disabled={none}
+              title="Reuse the number each chapter already has, instead of counting up from Start at"
+              onClick={normalize}
+            >
+              Keep each number
+            </button>
+            <button className="btn-sm btn-green" disabled={none} onClick={apply}>
+              Apply
+            </button>
+          </div>
+          <div className="ch-bulk-chips">
+            <span className="ch-bulk-chips-lbl">Add:</span>
+            {tokens.map((t) => (
+              <button
+                key={t.insert}
+                type="button"
+                className="ch-chip"
+                title={t.hint}
+                onClick={() => insertToken(t.insert)}
+              >
+                {t.label}
+              </button>
+            ))}
+            <span className="ch-bulk-chips-hint">
+              Click to add. Anything else you type stays as it is.
+            </span>
+          </div>
+        </>
       )}
 
       {mode === 'shift' && (
@@ -144,8 +200,9 @@ export function ChapterBulkBar<T extends { title: string }>({
             />
           </label>
           <p className="ch-bulk-hint">
-            Adds this to the number already in each title. Chapters without a number, like Intro or
-            Forward, are left alone.
+            Adds this to the number each chapter already has. Use a minus sign to count down, so
+            -219 turns Chapter 220 into Chapter 1. Chapters with no number, like Intro, are left
+            alone.
           </p>
           <button className="btn-sm btn-green" disabled={none || shiftTooFar} onClick={apply}>
             Apply
