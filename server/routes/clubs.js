@@ -6,6 +6,9 @@
 //                                               -> advance current book; the
 //                                                  outgoing book becomes a past
 //                                                  read (default) or set aside
+//   POST   /hs/clubs/:id/finish                 (owner) -> stamp the current book
+//                                                  finished, leaving the slot
+//                                                  empty (no successor needed)
 //   POST   /hs/clubs/:id/queue  { libraryItemId } (owner) -> add to up-next queue
 //   DELETE /hs/clubs/:id/queue/:itemId          (owner) -> remove a queued book
 //   POST   /hs/clubs/:id/requeue { libraryItemId } (owner) -> past/set aside book
@@ -87,6 +90,7 @@ import {
   removeQueued,
   requeueBook,
   reorderQueue,
+  finishCurrentBook,
   addMember,
   removeMember,
   bumpReadCursor,
@@ -755,6 +759,19 @@ export async function handleClubs(req, res, url, ctx) {
       bookSnapshot: snapshot,
       finishPrevious: body.finishPrevious !== false,
     })
+    return (json(res, 200, await clubSummary(ctx.serverId, club)), true)
+  }
+
+  // POST /hs/clubs/:id/finish -> stamp the current book as a past read and
+  // leave the slot empty (owner). The club finished its book with nothing lined
+  // up next; without this the only way to close out a book is to start another
+  // one, so a club between books cannot record what it just finished.
+  if (action === 'finish' && req.method === 'POST') {
+    if (!cfg.clubsEnabled) return (json(res, 403, { error: 'clubs_disabled' }), true)
+    if (!isOwner) return (json(res, 403, { error: 'forbidden' }), true)
+    if (club.archived) return (json(res, 403, { error: 'archived' }), true)
+    const finished = await finishCurrentBook(ctx.serverId, clubId)
+    if (!finished) return (json(res, 409, { error: 'no_current_book' }), true)
     return (json(res, 200, await clubSummary(ctx.serverId, club)), true)
   }
 
