@@ -22,7 +22,8 @@ COPY . .
 RUN npm run build
 # Compile @hearthshelf/core to dist JS for the no-bundler server. The SPA build
 # above reads core's .ts via its alias; the server imports the compiled output.
-RUN npx tsc -p packages/core/tsconfig.build.json
+RUN npx tsc -p packages/core/tsconfig.build.json && \
+    node -e "import('./packages/core/dist/index.js')"
 
 # Install the backend's production deps (libSQL + the file: @hearthshelf/core) in
 # the same Alpine/Node base as the runtime, so the native binding matches the
