@@ -350,7 +350,7 @@ const SCHEMA = [
      ext          TEXT NOT NULL,
      version      INTEGER NOT NULL DEFAULT 1,
      updated_at   INTEGER NOT NULL,
-     -- 'upload' (the user deliberately picked this photo) or 'clerk' (copied from
+     -- 'upload' (the user deliberately picked this photo) or 'sso' (copied from
      -- their SSO photo by the hosted WebApp). Ranking uses this: a manual upload
      -- outranks a synced Clerk photo, and a Clerk sync never overwrites an upload.
      source       TEXT NOT NULL DEFAULT 'upload',
@@ -888,7 +888,9 @@ const MIGRATIONS = [
   `ALTER TABLE club_books ADD COLUMN duration REAL`,
   // Avatar provenance (see docs/database.md). Existing rows are all manual
   // uploads, so the DEFAULT 'upload' backfills them correctly; only the hosted
-  // WebApp writes 'clerk' rows when it copies a user's SSO photo.
+  // Clients write 'sso' rows when they copy a user's provider photo. Rows
+  // written before the identity-provider change hold the literal 'clerk'; both
+  // spellings mean the same thing and are read identically.
   `ALTER TABLE avatars ADD COLUMN source TEXT NOT NULL DEFAULT 'upload'`,
   // Durable hand-queued list, distinct from the ephemeral items_json Auto
   // rebuilds (see the listening_queue comment above). Existing rows default to

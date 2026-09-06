@@ -84,10 +84,16 @@ export async function readAvatar(serverId, userId) {
 }
 
 // Store (or replace) a user's avatar. Bumps the version so clients cache-bust.
-// `source` is 'upload' (a deliberate choice) or 'clerk' (copied SSO photo). A
-// manual upload always wins: a 'clerk' write over an existing 'upload' is a no-op
-// (returns { skipped: true }), so syncing a user's SSO photo never clobbers a
-// book-specific photo they picked. An 'upload' may replace anything.
+// `source` is 'upload' (a deliberate choice) or 'sso' (a photo copied from
+// whichever identity provider signed the user in). A manual upload always wins:
+// an 'sso' write over an existing 'upload' is a no-op (returns
+// { skipped: true }), so syncing a provider photo never clobbers a picture the
+// user picked. An 'upload' may replace anything.
+//
+// Rows written before HearthShelf moved off its previous identity provider hold
+// the literal 'clerk' instead of 'sso'. Both mean the same thing and are treated
+// identically; only 'sso' is written from here on. The old value is NOT migrated
+// because it is persisted on servers we do not operate.
 export async function writeAvatar(serverId, userId, contentType, buf, source = 'upload') {
   const ext = extForType(contentType)
   if (!ext) throw new Error('unsupported_type')
@@ -95,7 +101,7 @@ export async function writeAvatar(serverId, userId, contentType, buf, source = '
   await initDb()
 
   const prev = await getAvatarMeta(serverId, userId)
-  if (source === 'clerk' && prev && prev.source === 'upload') {
+  if (source !== 'upload' && prev && prev.source === 'upload') {
     return { skipped: true, version: prev.version }
   }
   // If the extension changed (e.g. png -> webp), drop the old file so we don't

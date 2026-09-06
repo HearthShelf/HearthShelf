@@ -36,11 +36,12 @@ export async function handleAvatars(req, res, url, ctx) {
   // Priority chain (explicit intent beats an automatic default):
   //   1. Manual upload      - the user deliberately picked this photo
   //   2. Gravatar, if the user EXPLICITLY turned it on (useGravatar === true)
-  //   3. Clerk photo        - the hosted WebApp's copy of their SSO photo
+  //   3. Provider photo     - a client's copy of their sign-in provider photo
   //   4. Gravatar, by default (useGravatar unset - the polite fallback)
   //   5. 404                - the client renders initials
-  // A synced Clerk photo (2/3) only exists on the hosted deployment; self-hosted
-  // has no Clerk, so the chain there is simply upload -> Gravatar -> initials.
+  // A synced provider photo (2/3) only exists where a client signs in through an
+  // identity provider and copies the photo across; a purely self-hosted setup
+  // has none, so the chain there is simply upload -> Gravatar -> initials.
   if (req.method === 'GET') {
     const serverId = await getServerId()
     const avatar = await readAvatar(serverId, targetUserId)
@@ -60,7 +61,7 @@ export async function handleAvatars(req, res, url, ctx) {
     if (avatar && avatar.source === 'upload') return serveStored()
 
     // Gravatar tri-state: true = explicit on (a preference), null/unset = default
-    // on (a fallback), false = off. The explicit choice ranks above a Clerk photo;
+    // on (a fallback), false = off. The explicit choice ranks above a provider photo;
     // the default ranks below it.
     const gravatarPref = await getUserSetting(serverId, targetUserId, 'useGravatar')
     const email = await getUserEmail(targetUserId)
@@ -76,10 +77,10 @@ export async function handleAvatars(req, res, url, ctx) {
       return true
     }
 
-    // 2. Gravatar explicitly enabled - beats a Clerk photo.
+    // 2. Gravatar explicitly enabled - beats a provider photo.
     if (gravatarPref === true && gravatar) return redirectGravatar()
 
-    // 3. A synced Clerk photo.
+    // 3. A synced provider photo.
     if (avatar) return serveStored()
 
     // 4. Gravatar by default (not explicitly turned off).
@@ -112,10 +113,16 @@ export async function handleAvatars(req, res, url, ctx) {
       return (json(res, 400, { error: 'read_failed' }), true)
     }
     if (!buf.length) return (json(res, 400, { error: 'empty' }), true)
-    // Provenance header: 'clerk' when the hosted WebApp copies a user's SSO photo,
-    // 'upload' (default) for a deliberate upload. Unknown values fall back to
-    // 'upload' so a stray header can't demote a real upload.
-    const source = req.headers['x-avatar-source'] === 'clerk' ? 'clerk' : 'upload'
+    // Provenance header: 'sso' when a client copies the photo from whichever
+    // identity provider signed the user in, 'upload' (default) for a deliberate
+    // upload. Unknown values fall back to 'upload' so a stray header can't
+    // demote a real upload.
+    //
+    // 'clerk' is still accepted as a synonym for 'sso': it is what older clients
+    // send, and this backend is self-hosted, so a server can be running a new
+    // build while a phone on the same network is still on an old one.
+    const rawSource = req.headers['x-avatar-source']
+    const source = rawSource === 'sso' || rawSource === 'clerk' ? 'sso' : 'upload'
     const { version, skipped } = await writeAvatar(serverId, targetUserId, contentType, buf, source)
     return (json(res, 200, { ok: true, version, skipped: !!skipped }), true)
   }
