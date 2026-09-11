@@ -27,6 +27,7 @@ import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
 import { renderEmail } from './emailTemplate.js'
+import { bookEmailMedia, personEmailMedia } from './emailMedia.js'
 import { isValidReactionKind as isValidKind, normalizeReactionKind } from '@hearthshelf/core'
 
 let ready = null
@@ -243,6 +244,10 @@ export async function deliverReaction(serverId, note, actor, kind) {
         const to = await getUserEmail(note.userId)
         if (to) {
           const href = `${APP_ORIGIN}/club/${encodeURIComponent(note.clubId ?? '')}?note=${encodeURIComponent(note.id)}`
+          const [person, book] = await Promise.all([
+            personEmailMedia(serverId, actor.userId, actor.username),
+            bookEmailMedia(note.libraryItemId),
+          ])
           await sendTransactionalEmail({
             to,
             subject: title,
@@ -251,6 +256,9 @@ export async function deliverReaction(serverId, note, actor, kind) {
             ...renderEmail({
               title,
               quote: body,
+              person,
+              book,
+              notificationType: 'reaction',
               actionUrl: href,
               actionLabel: 'Open the discussion',
             }),
@@ -321,6 +329,10 @@ export async function deliverReply(serverId, parent, reply, actor) {
         const to = await getUserEmail(parent.userId)
         if (to) {
           const href = `${APP_ORIGIN}/club/${encodeURIComponent(reply.clubId ?? '')}?note=${encodeURIComponent(reply.id)}`
+          const [person, book] = await Promise.all([
+            personEmailMedia(serverId, actor.userId, actor.username),
+            bookEmailMedia(reply.libraryItemId),
+          ])
           await sendTransactionalEmail({
             to,
             subject: title,
@@ -329,6 +341,9 @@ export async function deliverReply(serverId, parent, reply, actor) {
             ...renderEmail({
               title,
               quote: body,
+              person,
+              book,
+              notificationType: 'reply',
               actionUrl: href,
               actionLabel: 'Open the discussion',
             }),

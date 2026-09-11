@@ -26,6 +26,7 @@ import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
 import { renderEmail } from './emailTemplate.js'
+import { bookEmailMedia, personEmailMedia } from './emailMedia.js'
 
 let ready = null
 function ensure() {
@@ -141,6 +142,10 @@ async function deliverMention(serverId, row, note, authorUsername) {
       const to = await getUserEmail(row.targetId)
       if (to) {
         const href = `${APP_ORIGIN}/club/${encodeURIComponent(row.clubId)}?note=${encodeURIComponent(row.noteId)}`
+        const [person, book] = await Promise.all([
+          personEmailMedia(serverId, row.authorId, authorUsername),
+          bookEmailMedia(row.libraryItemId),
+        ])
         await sendTransactionalEmail({
           to,
           subject: title,
@@ -149,6 +154,9 @@ async function deliverMention(serverId, row, note, authorUsername) {
           ...renderEmail({
             title,
             quote: body,
+            person,
+            book,
+            notificationType: 'mention',
             actionUrl: href,
             actionLabel: 'Open the discussion',
           }),
@@ -205,6 +213,7 @@ export async function recordMentions(ctx, note, targets) {
       clubId: note.clubId,
       libraryItemId: note.libraryItemId,
       targetId: userId,
+      authorId: ctx.userId,
       username: String(target?.username ?? ''),
     })
   }
@@ -255,7 +264,7 @@ export async function flushPendingMentions(ctx, libraryItemId) {
   try {
     await ensure()
     const args = [ctx.serverId, ctx.userId]
-    let sql = `SELECT id, note_id, club_id, library_item_id
+    let sql = `SELECT id, note_id, club_id, library_item_id, author_id
                  FROM note_mentions
                 WHERE server_id = ? AND target_id = ? AND delivered_at IS NULL`
     if (libraryItemId) {
@@ -295,6 +304,7 @@ export async function flushPendingMentions(ctx, libraryItemId) {
             clubId: String(row.club_id),
             libraryItemId: String(row.library_item_id),
             targetId: ctx.userId,
+            authorId: String(row.author_id ?? ''),
           },
           note,
           note.username,

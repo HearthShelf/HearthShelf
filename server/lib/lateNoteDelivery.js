@@ -29,6 +29,7 @@ import { sendPushMessages } from './expoPush.js'
 import { deletePushToken, listPushTokens } from './subscriptionsStore.js'
 import { sendTransactionalEmail } from './emailRelay.js'
 import { renderEmail } from './emailTemplate.js'
+import { bookEmailMedia, personEmailMedia } from './emailMedia.js'
 
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
 const EXCERPT_MAX = 140
@@ -46,7 +47,7 @@ function excerpt(body) {
 }
 
 // Deliver one late-note alert across whichever channels the member has enabled.
-async function deliverOne(serverId, targetId, note, authorUsername) {
+async function deliverOne(serverId, targetId, note, authorId, authorUsername) {
   const prefs = await notifyPrefsFor(serverId, targetId)
   const title = `${authorUsername || 'Someone'} commented on a part you've heard`
   const body = excerpt(note.body)
@@ -93,6 +94,10 @@ async function deliverOne(serverId, targetId, note, authorUsername) {
       const to = await getUserEmail(targetId)
       if (to) {
         const href = `${APP_ORIGIN}/club/${encodeURIComponent(note.clubId ?? '')}?note=${encodeURIComponent(note.id)}`
+        const [person, book] = await Promise.all([
+          personEmailMedia(serverId, authorId, authorUsername),
+          bookEmailMedia(note.libraryItemId),
+        ])
         await sendTransactionalEmail({
           to,
           subject: title,
@@ -101,6 +106,9 @@ async function deliverOne(serverId, targetId, note, authorUsername) {
           ...renderEmail({
             title,
             quote: body,
+            person,
+            book,
+            notificationType: 'lateNote',
             actionUrl: href,
             actionLabel: 'Open the discussion',
           }),
@@ -145,7 +153,7 @@ export async function deliverLateNote(ctx, note, members, skipIds = []) {
           Boolean(progress.isFinished) ||
           (progress.currentTime != null && progress.currentTime > timeSec + BEHIND_MIN_SEC)
         if (!heard) continue
-        await deliverOne(ctx.serverId, targetId, note, ctx.username)
+        await deliverOne(ctx.serverId, targetId, note, ctx.userId, ctx.username)
       } catch {
         // One member's delivery failing must not stop the rest.
       }

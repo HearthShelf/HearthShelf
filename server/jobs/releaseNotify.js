@@ -21,6 +21,7 @@ import { sendPushMessages } from '../lib/expoPush.js'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
 import { createNotification } from '../notifications.js'
 import { renderEmail } from '../lib/emailTemplate.js'
+import { remoteBookEmailMedia } from '../lib/emailMedia.js'
 import { notifyPrefsFor, shouldNotify } from '../lib/notificationPrefs.js'
 
 const APP_ORIGIN = (process.env.HS_APP_ORIGIN || 'https://app.hearthshelf.com').replace(/\/$/, '')
@@ -113,7 +114,18 @@ export async function runReleaseNotify(logger) {
   let emailed = 0
   const invalidTokens = new Set()
 
-  const deliver = async ({ userId, entityId, asin, signal, title, body, prefs }) => {
+  const deliver = async ({
+    userId,
+    entityId,
+    asin,
+    signal,
+    title,
+    body,
+    bookTitle,
+    bookAuthor,
+    coverArtUrl,
+    prefs,
+  }) => {
     const data = { asin, signal }
     if (shouldNotify(prefs, 'release', 'inApp')) {
       await createNotification(serverId, userId, {
@@ -148,10 +160,18 @@ export async function runReleaseNotify(logger) {
       const href = asin
         ? `${APP_ORIGIN}/upcoming/${encodeURIComponent(asin)}`
         : `${APP_ORIGIN}/upcoming`
+      const book = await remoteBookEmailMedia(bookTitle, bookAuthor, coverArtUrl)
       const result = await sendTransactionalEmail({
         to,
         subject: `${title}: ${body}`,
-        ...renderEmail({ title, body, actionUrl: href, actionLabel: 'Open HearthShelf' }),
+        ...renderEmail({
+          title,
+          body,
+          book,
+          notificationType: 'release',
+          actionUrl: href,
+          actionLabel: signal === 'available' ? 'Start listening' : 'View the book',
+        }),
       })
       if (result.sent) emailed += 1
     }
@@ -180,6 +200,9 @@ export async function runReleaseNotify(logger) {
             signal: decision.signal,
             title: decision.title,
             body: decision.body,
+            bookTitle: sub.title,
+            bookAuthor: sub.author,
+            coverArtUrl: sub.coverArtUrl,
             prefs,
           })
           // Mark the signal fired regardless of destination availability, so it
@@ -213,6 +236,9 @@ export async function runReleaseNotify(logger) {
               signal: 'series-available',
               title: 'New in your series',
               body: `${b.title} (${sub.seriesTitle}) is now in your library.`,
+              bookTitle: b.title,
+              bookAuthor: b.author ?? sub.author,
+              coverArtUrl: b.coverArtUrl,
               prefs,
             })
             notified[key] = now

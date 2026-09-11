@@ -68,6 +68,8 @@ import {
 } from '@hearthshelf/core/lib/social'
 import { sendTransactionalEmail } from '../lib/emailRelay.js'
 import { renderEmail } from '../lib/emailTemplate.js'
+import { bookEmailMedia, personEmailMedia } from '../lib/emailMedia.js'
+import { notifyPrefsFor, shouldNotify } from '../lib/notificationPrefs.js'
 import { sendPushMessages } from '../lib/expoPush.js'
 import { deletePushToken, listPushTokens } from '../lib/subscriptionsStore.js'
 import {
@@ -176,32 +178,50 @@ async function deliverClubInvite(ctx, club, target, inviteId) {
   })
 
   const acceptUrl = `${APP_ORIGIN}/clubs?club=${encodeURIComponent(club.id)}&invite=${encodeURIComponent(inviteId)}`
-  const email = await sendTransactionalEmail({
-    to: target.email,
-    subject: `You’re invited to ${club.name} on HearthShelf`,
-    ...renderEmail({
-      title,
-      body,
-      actionUrl: acceptUrl,
-      actionLabel: 'Accept the invitation',
-      footnote: 'If you were not expecting this, you can ignore this message.',
-    }),
-  })
-
-  const tokens = await listPushTokens(ctx.serverId, target.userId)
-  let pushed = 0
-  if (tokens.length) {
-    const result = await sendPushMessages(
-      tokens.map((token) => ({
-        to: token.token,
+  const prefs = await notifyPrefsFor(ctx.serverId, target.userId)
+  let email = { sent: false, reason: 'preference_disabled' }
+  if (shouldNotify(prefs, 'clubInvite', 'email')) {
+    const [person, book] = await Promise.all([
+      personEmailMedia(ctx.serverId, ctx.userId, ctx.username),
+      club.currentBook
+        ? bookEmailMedia(club.currentBook.libraryItemId, {
+            title: club.currentBook.title,
+            author: club.currentBook.author,
+          })
+        : Promise.resolve(undefined),
+    ])
+    email = await sendTransactionalEmail({
+      to: target.email,
+      subject: `You’re invited to ${club.name} on HearthShelf`,
+      ...renderEmail({
         title,
         body,
-        channelId: 'social',
-        data: { kind: 'club-invite', ...data },
-      })),
-    )
-    pushed = result.sent
-    await Promise.all(result.invalidTokens.map((token) => deletePushToken(ctx.serverId, token)))
+        person,
+        book,
+        notificationType: 'clubInvite',
+        actionUrl: acceptUrl,
+        actionLabel: 'Accept the invitation',
+        footnote: 'If you were not expecting this, you can ignore this message.',
+      }),
+    })
+  }
+
+  let pushed = 0
+  if (shouldNotify(prefs, 'clubInvite', 'push')) {
+    const tokens = await listPushTokens(ctx.serverId, target.userId)
+    if (tokens.length) {
+      const result = await sendPushMessages(
+        tokens.map((token) => ({
+          to: token.token,
+          title,
+          body,
+          channelId: 'social',
+          data: { kind: 'club-invite', ...data },
+        })),
+      )
+      pushed = result.sent
+      await Promise.all(result.invalidTokens.map((token) => deletePushToken(ctx.serverId, token)))
+    }
   }
   return { emailSent: email.sent, emailReason: email.reason ?? null, pushed }
 }
