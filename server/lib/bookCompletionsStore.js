@@ -118,6 +118,66 @@ export async function getMostReReadForUser(userId) {
 // counted in the same call because the caller cannot derive it from a page.
 // Ties break on media id so paging is stable - without it, two books sharing a
 // last_finished_at could swap places between pages and duplicate or skip.
+/**
+ * Correct a book's completion count.
+ *
+ * Why this has to exist: `completions` is NOT re-derivable. The nightly snapshot
+ * compares ABS's current finish state against what we stored and bumps the
+ * counter, so once a finish is counted the intermediate values are gone. An
+ * accidental tap - opening a finished book resets progress to 1%, re-marking it
+ * finished moves finishedAt forward, and the job reads that as a genuine re-read
+ * - permanently inflates a yearly stat with nothing in the product able to undo
+ * it (HS-MOBILEAPP-35).
+ *
+ * The subtle part is `last_finished_at`, and getting it wrong makes the fix
+ * useless. It is the re-read comparison baseline: the job counts a new
+ * completion when the observed finish is strictly NEWER than this. Lowering the
+ * count while leaving the stamp alone would hold for one night and then the same
+ * finish would be counted again on the next pass. So a decrement rolls the
+ * baseline FORWARD to now - the current finish is thereby already accounted for,
+ * and only a genuinely later one counts again.
+ *
+ * Deleting the row outright is offered too, for "this was never me": the next
+ * snapshot re-seeds it at 1 from the current ABS state, which is the honest
+ * reading of a book that is still marked finished.
+ */
+export async function adjustCompletionsForUser({ userId, mediaItemId, completions }) {
+  if (!userId || !mediaItemId) return null
+  const serverId = await getServerId()
+  const target = Math.max(0, Math.round(Number(completions) || 0))
+  const now = Date.now()
+  try {
+    const existing = await db.execute({
+      sql: `SELECT completions FROM book_completions
+             WHERE server_id = ? AND user_id = ? AND media_item_id = ?`,
+      args: [serverId, String(userId), String(mediaItemId)],
+    })
+    if (!existing.rows.length) return null
+
+    // Zero means "I never finished this". Drop the row rather than storing a 0
+    // the snapshot would have to reason about; it re-seeds from ABS if the book
+    // is still finished there.
+    if (target === 0) {
+      await db.execute({
+        sql: `DELETE FROM book_completions
+               WHERE server_id = ? AND user_id = ? AND media_item_id = ?`,
+        args: [serverId, String(userId), String(mediaItemId)],
+      })
+      return { mediaItemId: String(mediaItemId), completions: 0, deleted: true }
+    }
+
+    await db.execute({
+      sql: `UPDATE book_completions
+               SET completions = ?, last_finished_at = ?, last_seen_at = ?
+             WHERE server_id = ? AND user_id = ? AND media_item_id = ?`,
+      args: [target, now, now, serverId, String(userId), String(mediaItemId)],
+    })
+    return { mediaItemId: String(mediaItemId), completions: target, deleted: false }
+  } catch {
+    return null
+  }
+}
+
 export async function getCompletionsPageForUser(userId, { limit = 25, offset = 0 } = {}) {
   if (!userId) return { rows: [], total: 0 }
   const serverId = await getServerId()
