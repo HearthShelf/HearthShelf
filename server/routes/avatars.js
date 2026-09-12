@@ -66,25 +66,46 @@ export async function handleAvatars(req, res, url, ctx) {
     const gravatarPref = await getUserSetting(serverId, targetUserId, 'useGravatar')
     const email = await getUserEmail(targetUserId)
     const gravatar = email && gravatarUrlFor(email)
-    const redirectGravatar = () => {
-      res.writeHead(302, {
-        Location: gravatar,
-        // Short cache so toggling the preference or setting a Gravatar takes
-        // effect promptly; the client also cache-busts with ?v= on upload.
-        'Cache-Control': 'public, max-age=300',
-      })
-      res.end()
-      return true
+    // Serve Gravatar's BYTES rather than redirecting to them.
+    //
+    // A 302 works in a browser, which follows it transparently, but React
+    // Native's Android image loader does not follow this one - every
+    // Gravatar-backed avatar silently fell back to initials in the phone app,
+    // everywhere avatars appear, while the same URL loaded fine in the web app.
+    // A plain fetch() of the same URL followed the redirect and returned the
+    // PNG, which is what pinned it on the image loader rather than the network.
+    //
+    // Proxying costs one upstream request on a cache miss and keeps every
+    // client on one content-type-carrying 200. On any failure, fall through to
+    // 404 so the client draws initials - a broken image would be worse.
+    const proxyGravatar = async () => {
+      try {
+        const upstream = await fetch(gravatar, { signal: AbortSignal.timeout(5000) })
+        if (!upstream.ok) return false
+        const buf = Buffer.from(await upstream.arrayBuffer())
+        res.writeHead(200, {
+          'Content-Type': upstream.headers.get('content-type') || 'image/png',
+          'Content-Length': buf.length,
+          // Short cache so toggling the preference or setting a Gravatar takes
+          // effect promptly; the client also cache-busts with ?v= on upload.
+          'Cache-Control': 'public, max-age=300',
+        })
+        res.end(buf)
+        return true
+      } catch {
+        // Gravatar unreachable or too slow - initials are a fine outcome.
+        return false
+      }
     }
 
     // 2. Gravatar explicitly enabled - beats a provider photo.
-    if (gravatarPref === true && gravatar) return redirectGravatar()
+    if (gravatarPref === true && gravatar && (await proxyGravatar())) return true
 
     // 3. A synced provider photo.
     if (avatar) return serveStored()
 
     // 4. Gravatar by default (not explicitly turned off).
-    if (gravatarPref !== false && gravatar) return redirectGravatar()
+    if (gravatarPref !== false && gravatar && (await proxyGravatar())) return true
 
     // 5. Nothing available - the client renders initials.
     return (json(res, 404, { error: 'no_avatar' }), true)
