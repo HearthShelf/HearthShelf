@@ -45,8 +45,9 @@ FROM nginx:alpine AS slim
 # Node runtime for the QuestGiver backend service (the only server beyond nginx).
 # The backend imports @hearthshelf/core as COMPILED dist JS (built in the builder
 # stage), so Alpine's stock nodejs is fine - no runtime TypeScript, no Node major
-# floor.
-RUN apk add --no-cache nodejs util-linux-misc
+# floor. ffmpeg cuts very long single-file audiobooks into ready-made parts for
+# phones and cars (server/routes/parts.js); stream copy only, never re-encoding.
+RUN apk add --no-cache nodejs ffmpeg util-linux-misc
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx/default.conf /etc/nginx/templates/default.conf.template

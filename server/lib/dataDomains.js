@@ -359,6 +359,22 @@ export const DATA_DOMAINS = [
     userRefs: [],
   },
   {
+    // Ready-made parts of very long single-file audiobooks (routes/parts.js),
+    // stream-copied from the ABS library into parts-cache/. A pure cache: it
+    // is rebuilt on demand from the library and can be tens of GB, so it is
+    // never backed up, exported or merged.
+    key: 'audio-parts-cache',
+    tables: [],
+    files: { root: 'parts-cache', pattern: '<item_id>_<plan_key>/<index>.m4a' },
+    scope: 'instance',
+    secretColumns: {},
+    backup: 'never',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: [],
+  },
+  {
     key: 'integrations-config',
     tables: ['integrations_config'],
     files: null,

@@ -105,6 +105,7 @@ From `server/db.js` (verified 2026-07-03). Scope legend: **U** = per-user
 | `subscriptions` | U | - | Release follows (books/series); merge = union of follows |
 | `push_tokens` | U | `token` | Expo push token per device; device-specific, never merged/exported |
 | `job_runs`, `job_run_logs` | per-job | - | Operational history; back up, never merge |
+| `parts-cache/` (files only, no table) | I | - | Ready-made parts of very long single-file books (`server/routes/parts.js`). A pure cache rebuilt from the library on demand and size-capped by `HS_PARTS_CACHE_MB`; never backed up, exported or merged (domain `audio-parts-cache`) |
 
 **Hosted caveat**: `hosted_config.server_secret` identifies this box to the
 control plane. Restoring an HS backup onto a *replacement* box carries the

@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
-import { startPlay, startPlayEpisode } from '@/api/playback'
+import { startPlayBook, startPlayEpisode } from '@/api/playback'
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2]
 
@@ -15,7 +15,7 @@ export function usePlayer() {
   // that and jump to a specific second (e.g. replay a session from its start).
   const playItem = useCallback(
     async (itemId: string, startAt?: number) => {
-      const session = await startPlay(itemId)
+      const session = await startPlayBook(itemId)
       openSession(session)
       if (startAt !== undefined) seek(startAt)
     },

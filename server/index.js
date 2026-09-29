@@ -18,6 +18,7 @@
 //   /hs/clubs/*       -> book clubs (multi-book groups, per-book chat)
 //   /hs/stats         -> the caller's computed listening stats (streak, week, ...)
 //   /hs/narrators/*   -> narrator photos (HearthShelf-native; ABS has none)
+//   /hs/parts/*       -> ready-made parts for very long single-file m4b books
 //   /hs/rmab/*        -> ReadMeABook acquisition proxy
 //   /hs/audible/*     -> HearthShelf's own Audible catalog search
 //   /hs/audplexus/*   -> Audplexus library-sync diagnostics (admin)
@@ -63,6 +64,7 @@ import { handleRuntime } from './routes/runtime.js'
 import { handleServiceAccounts } from './routes/serviceAccounts.js'
 import { handleAvatars } from './routes/avatars.js'
 import { handleNarrators } from './routes/narrators.js'
+import { handleParts } from './routes/parts.js'
 import { handleFinishedBooks } from './routes/finished-books.js'
 import { handleRatings } from './routes/ratings.js'
 import { handleRatingPrompts } from './routes/ratingPrompts.js'
@@ -152,6 +154,7 @@ const ROUTES = [
   handleServiceAccounts,
   handleAvatars,
   handleNarrators,
+  handleParts,
   handleHosted,
   handleApps,
   handleQuestGiver,

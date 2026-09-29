@@ -117,6 +117,7 @@ export function requiredScope(method, pathname) {
     p.startsWith('/api/search') ||
     p.startsWith('/api/me') ||
     p.startsWith('/hs/narrators') ||
+    p.startsWith('/hs/parts') ||
     p.startsWith('/hs/stats') ||
     p.startsWith('/hs/finished-books')
   ) {

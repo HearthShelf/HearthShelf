@@ -73,8 +73,11 @@ export function useSleepTimer(): SleepCtl {
   // The actual stop sequence: optional chime warning (handled in tick), then
   // rewind, then fade-or-cut, then pause.
   const fireStop = useCallback(() => {
+    // Re-read the element on every step: a multi-track book can hand playback to
+    // the next track's element while the fade is running.
     const audio = getAudioElement()
     const finish = () => {
+      const el = getAudioElement()
       if (s.sleepRewindSec > 0) {
         const back = Math.max(0, usePlayerStore.getState().currentTime - s.sleepRewindSec)
         if (s.chapterBarrier) {
@@ -85,7 +88,7 @@ export function useSleepTimer(): SleepCtl {
         }
       }
       setPlaying(false)
-      if (audio) audio.volume = usePlayerStore.getState().volume
+      if (el) el.volume = usePlayerStore.getState().volume
     }
     if (s.sleepFade && audio) {
       const steps = Math.max(1, s.sleepFadeLen)
@@ -93,7 +96,8 @@ export function useSleepTimer(): SleepCtl {
       let elapsed = 0
       const fade = window.setInterval(() => {
         elapsed += 1
-        audio.volume = Math.max(0, startVol * (1 - elapsed / steps))
+        const el = getAudioElement()
+        if (el) el.volume = Math.max(0, startVol * (1 - elapsed / steps))
         if (elapsed >= steps) {
           window.clearInterval(fade)
           finish()
