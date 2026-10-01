@@ -88,17 +88,20 @@ fi
 # relative callback like /hs/hosted/connect-return: that check requires the
 # callback path to start with RouterBasePath, and /audiobookshelf would reject our
 # HearthShelf-served relay path. Empty base path -> the check is just startsWith('/').
-echo "[aio] starting AudiobookShelf on :${ABS_PORT} (root base path)"
-(
-  cd /abs
-  PORT="${ABS_PORT}" \
-  CONFIG_PATH="${ABS_CONFIG_PATH}" \
-  METADATA_PATH="${ABS_METADATA_PATH}" \
-  ROUTER_BASE_PATH="" \
-  SOURCE=docker \
-  exec node index.js
-) &
-ABS_PID=$!
+start_abs() {
+  echo "[aio] starting AudiobookShelf on :${ABS_PORT} (root base path)"
+  (
+    cd /abs
+    PORT="${ABS_PORT}" \
+    CONFIG_PATH="${ABS_CONFIG_PATH}" \
+    METADATA_PATH="${ABS_METADATA_PATH}" \
+    ROUTER_BASE_PATH="" \
+    SOURCE=docker \
+    exec node index.js
+  ) &
+  ABS_PID=$!
+}
+start_abs
 
 # --- HearthShelf backend ---
 echo "[aio] starting HearthShelf backend on :8080"
@@ -149,9 +152,32 @@ term() {
 }
 trap 'term; exit 0' TERM INT
 
-while kill -0 "$ABS_PID" 2>/dev/null \
-   && kill -0 "$HS_PID" 2>/dev/null \
+#
+# ABS is the exception: it is a third-party Node process that can die on its own
+# (an unhandled error mid-request), and nginx + the HearthShelf backend are fine
+# without it. Restart it in place rather than dropping the whole box. If it keeps
+# dying (more than 5 exits inside 2 minutes) something is genuinely wrong, so fall
+# through and let the container exit.
+ABS_RESTARTS=0
+ABS_WINDOW_START=$(date +%s)
+while kill -0 "$HS_PID" 2>/dev/null \
    && kill -0 "$NGINX_PID" 2>/dev/null; do
+  if ! kill -0 "$ABS_PID" 2>/dev/null; then
+    wait "$ABS_PID" 2>/dev/null || true
+    now=$(date +%s)
+    if [ $((now - ABS_WINDOW_START)) -gt 120 ]; then
+      ABS_RESTARTS=0
+      ABS_WINDOW_START=$now
+    fi
+    ABS_RESTARTS=$((ABS_RESTARTS + 1))
+    if [ "$ABS_RESTARTS" -gt 5 ]; then
+      echo "[aio] AudiobookShelf keeps crashing; giving up"
+      break
+    fi
+    echo "[aio] AudiobookShelf exited unexpectedly; restarting (${ABS_RESTARTS}/5)"
+    sleep 2
+    start_abs
+  fi
   sleep 2
 done
 
