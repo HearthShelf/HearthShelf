@@ -21,7 +21,8 @@ import {
   getSeriesRosterByAsin,
   saveSeriesRoster,
 } from '../lib/seriesRosterStore.js'
-import { getLibraryItemByAsin, getOwnedSeriesBooks } from '../lib/absdb.js'
+import { getLibraryItemByAsin, getOwnedBooksBySeries, getOwnedSeriesBooks } from '../lib/absdb.js'
+import { getDismissals } from '../dismissals.js'
 import { stampOwned } from '../lib/seriesOwned.js'
 
 const PAGE_SIZE = 25
@@ -478,7 +479,15 @@ export async function handleAudible(req, res, url, ctx) {
   if (p === '/hs/audible/series-summary') {
     if (await audibleOff()) return (json(res, 200, { series: [] }), true)
     try {
-      return (json(res, 200, { series: await getSeriesRosterSummaries() }), true)
+      const [dismissals, ownedBySeries] = await Promise.all([
+        getDismissals(ctx.serverId, ctx.userId).catch(() => null),
+        getOwnedBooksBySeries(),
+      ])
+      const series = await getSeriesRosterSummaries({
+        ignoredAsins: dismissals?.rosterAsins ?? [],
+        ownedBySeries,
+      })
+      return (json(res, 200, { series }), true)
     } catch {
       // Counts are decoration on the grid; failing the whole page over them
       // would be worse than showing it without the badges.

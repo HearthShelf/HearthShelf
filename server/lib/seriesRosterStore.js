@@ -11,6 +11,7 @@
 import { db, getServerId } from '../db.js'
 import { realRosterBooks } from '@hearthshelf/core/lib/series'
 import { isUpcoming } from '@hearthshelf/core/lib/notifications'
+import { stampOwned } from './seriesOwned.js'
 
 function parseBooks(raw) {
   try {
@@ -155,7 +156,15 @@ export async function getSeriesRoster(name) {
 // series detail page - it drops phantom placeholders, unsequenced stubs and
 // duplicate editions. Counting raw books_json would re-inflate every series with
 // exactly the junk that filtering exists to remove.
-export async function getSeriesRosterSummaries() {
+//
+// The rest of what the detail page does is mirrored too, or the two counts
+// disagree (the grid said 9 missing where the page listed 4):
+//   - `ownedBySeries` (absdb getOwnedBooksBySeries) re-stamps ownership from the
+//     library as it is now, as /hs/audible/series does per request. The stored
+//     flags are only as fresh as the last sweep.
+//   - `ignoredAsins` are the caller's ignored books, which the page drops.
+//   - untitled entries are skipped; the page never lists them.
+export async function getSeriesRosterSummaries({ ignoredAsins = [], ownedBySeries = null } = {}) {
   const serverId = await getServerId()
   let rows
   try {
@@ -177,7 +186,9 @@ export async function getSeriesRosterSummaries() {
   for (const row of rows) {
     const roster = rowToRoster(row)
     if (!roster.seriesAsin) continue // unresolved: nothing to say about gaps
-    const books = realRosterBooks(roster.books, [], roster.name)
+    const owned = ownedBySeries?.get(roster.seriesId)
+    const stamped = owned?.length ? stampOwned(roster.books, owned, roster.name) : roster.books
+    const books = realRosterBooks(stamped, ignoredAsins, roster.name).filter((b) => b.title)
     let missing = 0
     let upcoming = 0
     for (const book of books) {

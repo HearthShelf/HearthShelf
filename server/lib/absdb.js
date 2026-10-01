@@ -1967,6 +1967,37 @@ export async function getOwnedSeriesBooks(seriesId) {
   }
 }
 
+// Every series' owned books in one read, keyed by ABS series id: the bulk form of
+// getOwnedSeriesBooks, so the series grid can re-stamp ownership for hundreds of
+// series without a query each. Entries are { asin, title, sequence }. An empty
+// map on any failure, which callers treat as "use the stored flags".
+export async function getOwnedBooksBySeries() {
+  const out = new Map()
+  const c = await ensureClient()
+  if (!c) return out
+  try {
+    const res = await c.execute(`
+      SELECT bs.seriesId AS seriesId, b.asin AS asin, b.title AS title, bs.sequence AS sequence
+      FROM bookSeries bs
+      JOIN books b ON b.id = bs.bookId
+    `)
+    for (const r of res.rows) {
+      const seriesId = String(r.seriesId)
+      const book = {
+        asin: r.asin == null ? '' : String(r.asin),
+        title: r.title == null ? '' : String(r.title),
+        sequence: r.sequence == null ? '' : String(r.sequence),
+      }
+      const list = out.get(seriesId)
+      if (list) list.push(book)
+      else out.set(seriesId, [book])
+    }
+  } catch {
+    out.clear()
+  }
+  return out
+}
+
 // The set of all book ASINs held in the library (lowercased). Loaded once by the
 // release-notification job to detect when a followed book has landed in ABS.
 export async function getOwnedAsins() {
