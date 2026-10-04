@@ -435,40 +435,40 @@ export async function archiveClub(serverId, clubId) {
 // Permanently delete a club and its club-scoped data.
 export async function deleteClub(serverId, clubId) {
   await ensure()
-  await db.execute('BEGIN')
-  try {
-    await db.execute({
-      sql: `DELETE FROM book_notes WHERE server_id = ? AND club_id = ?`,
-      args: [serverId, clubId],
-    })
-    await db.execute({
-      sql: `DELETE FROM club_books WHERE server_id = ? AND club_id = ?`,
-      args: [serverId, clubId],
-    })
-    await db.execute({
-      sql: `DELETE FROM club_members WHERE server_id = ? AND club_id = ?`,
-      args: [serverId, clubId],
-    })
-    await db.execute({
-      sql: `DELETE FROM notifications
-            WHERE server_id = ? AND kind = 'club_invite'
-              AND entity_id IN (SELECT id FROM club_invites WHERE server_id = ? AND club_id = ?)`,
-      args: [serverId, serverId, clubId],
-    })
-    await db.execute({
-      sql: `DELETE FROM club_invites WHERE server_id = ? AND club_id = ?`,
-      args: [serverId, clubId],
-    })
-    const r = await db.execute({
-      sql: `DELETE FROM clubs WHERE server_id = ? AND id = ?`,
-      args: [serverId, clubId],
-    })
-    await db.execute('COMMIT')
-    return (r.rowsAffected ?? 0) > 0
-  } catch (err) {
-    await db.execute('ROLLBACK')
-    throw err
-  }
+  // One batch = one transaction, run start to finish without yielding (see the
+  // transaction note in db.js).
+  const results = await db.batch(
+    [
+      {
+        sql: `DELETE FROM book_notes WHERE server_id = ? AND club_id = ?`,
+        args: [serverId, clubId],
+      },
+      {
+        sql: `DELETE FROM club_books WHERE server_id = ? AND club_id = ?`,
+        args: [serverId, clubId],
+      },
+      {
+        sql: `DELETE FROM club_members WHERE server_id = ? AND club_id = ?`,
+        args: [serverId, clubId],
+      },
+      {
+        sql: `DELETE FROM notifications
+              WHERE server_id = ? AND kind = 'club_invite'
+                AND entity_id IN (SELECT id FROM club_invites WHERE server_id = ? AND club_id = ?)`,
+        args: [serverId, serverId, clubId],
+      },
+      {
+        sql: `DELETE FROM club_invites WHERE server_id = ? AND club_id = ?`,
+        args: [serverId, clubId],
+      },
+      {
+        sql: `DELETE FROM clubs WHERE server_id = ? AND id = ?`,
+        args: [serverId, clubId],
+      },
+    ],
+    'write',
+  )
+  return (results[results.length - 1].rowsAffected ?? 0) > 0
 }
 
 // --- invitations -----------------------------------------------------------
@@ -583,45 +583,33 @@ export async function respondToClubInvite(
   username = '',
 ) {
   await ensure()
-  await db.execute('BEGIN IMMEDIATE')
-  try {
-    const invite = await getClubInvite(serverId, inviteId)
-    if (!invite || invite.inviteeUserId !== inviteeUserId || invite.status !== 'pending') {
-      await db.execute('ROLLBACK')
-      return null
-    }
-    const status = accept ? 'accepted' : 'declined'
-    const updated = await db.execute({
+  const invite = await getClubInvite(serverId, inviteId)
+  if (!invite || invite.inviteeUserId !== inviteeUserId || invite.status !== 'pending') return null
+  const status = accept ? 'accepted' : 'declined'
+  // The status flip and the membership insert are one batch (one transaction,
+  // see the note in db.js). The UPDATE re-checks status = 'pending', so a racing
+  // second response changes nothing, and the INSERT only runs when that UPDATE
+  // changed a row (changes() reports the previous statement).
+  const statements = [
+    {
       sql: `UPDATE club_invites SET status = ?, responded_at = ?
             WHERE server_id = ? AND id = ? AND status = 'pending'`,
       args: [status, Date.now(), serverId, inviteId],
+    },
+  ]
+  if (accept) {
+    statements.push({
+      sql: `INSERT INTO club_members
+              (server_id, club_id, user_id, username, role, joined_at, last_read_at)
+            SELECT ?, ?, ?, ?, 'member', ?, 0 WHERE changes() = 1
+            ON CONFLICT (server_id, club_id, user_id)
+            DO UPDATE SET username = excluded.username`,
+      args: [serverId, invite.clubId, inviteeUserId, username || invite.inviteeUsername, Date.now()],
     })
-    if ((updated.rowsAffected ?? 0) === 0) {
-      await db.execute('ROLLBACK')
-      return null
-    }
-    if (accept) {
-      await db.execute({
-        sql: `INSERT INTO club_members
-                (server_id, club_id, user_id, username, role, joined_at, last_read_at)
-              VALUES (?, ?, ?, ?, 'member', ?, 0)
-              ON CONFLICT (server_id, club_id, user_id)
-              DO UPDATE SET username = excluded.username`,
-        args: [
-          serverId,
-          invite.clubId,
-          inviteeUserId,
-          username || invite.inviteeUsername,
-          Date.now(),
-        ],
-      })
-    }
-    await db.execute('COMMIT')
-    return { ...invite, status }
-  } catch (error) {
-    await db.execute('ROLLBACK')
-    throw error
   }
+  const [updated] = await db.batch(statements, 'write')
+  if ((updated.rowsAffected ?? 0) === 0) return null
+  return { ...invite, status }
 }
 
 export async function revokeClubInvite(serverId, clubId, inviteId) {

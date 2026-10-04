@@ -22,12 +22,26 @@ const FILE = path.join(DIR, 'hearthshelf.db')
 const url = process.env.HS_DB_URL || pathToFileURL(FILE).toString()
 const authToken = process.env.HS_DB_TOKEN || undefined
 
+// The local client is a pool: @libsql/client opens extra connections when
+// requests overlap, and a PRAGMA run through execute() reaches only the one
+// connection it happened to borrow. The busy timeout must reach every
+// connection, or an overlapping request fails at once with SQLITE_BUSY instead
+// of waiting its turn - so it is passed here, where the pool applies it to each
+// connection it opens (milliseconds; remote URLs ignore it).
+const clientConfig = { url, authToken, ...(process.env.HS_DB_URL ? {} : { timeout: 5000 }) }
+
+// Transactions: use db.batch(statements, 'write'). Never execute('BEGIN') - the
+// pool rolls back a borrowed connection's open transaction when it is returned -
+// and never hold db.transaction() across other awaits: libSQL runs statements
+// synchronously on the main thread, so a second writer waiting for that lock
+// blocks the event loop the first one needs to finish, for the full busy timeout.
+//
 // The live libSQL client. Held behind a stable proxy (`db`) so a restore can
 // swap the underlying connection out from under every importer (they all import
 // the same `db` binding) after replacing the database file. reopenDb() rebuilds
 // this and re-runs pragmas + migrations. On the remote (Turso) path there is no
 // local file to swap, so reopen is a no-op there.
-let client = createClient({ url, authToken })
+let client = createClient(clientConfig)
 
 // A proxy that always forwards to the current `client`. Route modules do
 // `import { db }` once; swapping `client` here transparently reconnects them.
@@ -42,13 +56,13 @@ export const db = new Proxy(
 )
 
 // WAL lets readers and the single writer run concurrently without blocking -
-// the right mode for a small multi-user box. No-op / harmless on remote libSQL.
+// the right mode for a small multi-user box. It is stored in the file, so
+// setting it once covers every pooled connection. (The busy timeout is per
+// connection and set in clientConfig; the schema declares no foreign keys.)
 async function applyPragmas() {
   if (process.env.HS_DB_URL) return // remote primary manages its own settings
   try {
     await db.execute('PRAGMA journal_mode = WAL')
-    await db.execute('PRAGMA busy_timeout = 5000')
-    await db.execute('PRAGMA foreign_keys = ON')
   } catch {
     // Pragmas are best-effort; the DB still works without them.
   }
@@ -1178,7 +1192,7 @@ export function closeDb() {
 export async function reopenDb() {
   if (process.env.HS_DB_URL) return // remote primary; nothing to reopen
   closeDb()
-  client = createClient({ url, authToken })
+  client = createClient(clientConfig)
   await initDb()
 }
 
