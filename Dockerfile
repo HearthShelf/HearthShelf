@@ -48,6 +48,10 @@ FROM nginx:alpine AS slim
 # floor. ffmpeg cuts very long single-file audiobooks into ready-made parts for
 # phones and cars (server/routes/parts.js); stream copy only, never re-encoding.
 RUN apk add --no-cache nodejs ffmpeg util-linux-misc
+# The backend reads its copy of ABS's database through node:sqlite
+# (server/lib/absReplica.js). Fail the build, not a running box, if a future
+# base image ships a Node without it.
+RUN node -e "require('node:sqlite')"
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx/default.conf /etc/nginx/templates/default.conf.template
@@ -90,6 +94,8 @@ FROM nginx:alpine AS aio
 # backend imports @hearthshelf/core as COMPILED dist JS (built in the builder),
 # so no newer Node is required.
 RUN apk add --no-cache nodejs ffmpeg tini tzdata openssl util-linux-misc
+# See the slim stage: the backend needs node:sqlite.
+RUN node -e "require('node:sqlite')"
 
 # HearthShelf SPA + backend (same as slim).
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -121,6 +127,9 @@ COPY --from=server-deps /app/server/node_modules /app/server/node_modules
 # loads at runtime, copied straight out of the official image.
 COPY --from=abs /app /abs
 COPY --from=abs /usr/local/lib/nusqlite3 /usr/local/lib/nusqlite3
+# Preloaded into the ABS process by the entrypoint: lets ABS wait out a lock on
+# its database instead of crashing on SQLITE_BUSY (see the file's header).
+COPY abs-sqlite-busy-timeout.cjs /usr/local/lib/hearthshelf/abs-sqlite-busy-timeout.cjs
 
 # ABS runtime config. It listens on an in-container port only (nginx is the sole
 # ingress on 80); config + metadata live on the data volume.

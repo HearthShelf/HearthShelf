@@ -6,75 +6,46 @@
 // This is the ONLY place that knows ABS's internal schema - keep all ABS table
 // and column knowledge in this file so a future ABS migration is a one-file fix.
 //
-// We never write to this database. The connection runs PRAGMA query_only = ON
-// (so SQLite rejects any write at the engine level) and we only ever issue
-// SELECTs; ABS stays the sole writer of its own data.
+// We never write to this database, and our queries never run against the live
+// file: they read a private, indexed copy refreshed in the background (see
+// absReplica.js for why - a slow read on ABS's file can crash ABS). ABS stays
+// the sole writer of its own data.
 //
 // Env: HS_ABS_DB_PATH (default /config/absdatabase.sqlite). On the all-in-one
 // image ABS's /config is already mounted in-container, so the default just
 // works. On slim, the admin mounts ABS's config dir read-only and points this
 // env at the file. When the file is absent the social features simply hide.
 
-import fs from 'node:fs'
+import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@libsql/client'
 import { appLog } from './appLog.js'
+import { createAbsReplica } from './absReplica.js'
+import { DB_DIR } from '../db.js'
 
 const ABS_DB_PATH = process.env.HS_ABS_DB_PATH || '/config/absdatabase.sqlite'
 
-// Lazily opened, read-only client. Null until first use (or if unavailable).
-let client = null
-let openable = null // tri-state cache: null=unknown, true/false once probed
+const replica = createAbsReplica({
+  sourcePath: ABS_DB_PATH,
+  dir: path.join(DB_DIR, 'abs-replica'),
+  refreshMs: Number(process.env.HS_ABS_REPLICA_REFRESH_MS) || undefined,
+})
 
-function fileExists() {
-  try {
-    return fs.statSync(ABS_DB_PATH).isFile()
-  } catch {
-    return false
-  }
+// The read-only client every query below uses: the newest copy of ABS's
+// database, or null when the file isn't mounted (the features then hide).
+function ensureClient() {
+  return replica.client()
 }
 
-// Open (once) a libSQL client against the ABS db file and lock it to reads with
-// PRAGMA query_only = ON, so SQLite rejects any write on this connection and we
-// can never corrupt ABS's data. (@libsql/client doesn't accept a ?mode=ro file
-// flag, so query_only is how we enforce read-only.) Returns null if the file
-// isn't present.
-let clientReady = null
-async function ensureClient() {
-  if (client) return client
-  if (clientReady) return clientReady
-  if (!fileExists()) return null
-  clientReady = (async () => {
-    const c = createClient({ url: pathToFileURL(ABS_DB_PATH).toString() })
-    await c.execute('PRAGMA query_only = ON')
-    // Wait-and-retry for a lock instead of failing instantly with SQLITE_BUSY.
-    // ABS is the sole writer of this db and syncs progress from every device; our
-    // read scans (leaderboard, presence, member progress) must not fail-fast and
-    // thrash when they land during an ABS write. 5s matches our own hearthshelf.db
-    // busy_timeout. query_only stays ON so we still can never write.
-    await c.execute('PRAGMA busy_timeout = 5000')
-    client = c
-    return c
-  })()
-  try {
-    return await clientReady
-  } catch {
-    clientReady = null
-    return null
-  }
-}
-
-// Is the ABS database present and queryable? Cached after the first probe so a
-// missing file doesn't cost a stat on every request. Any failure -> unavailable.
+// Is the ABS database present and queryable?
 export async function absDbAvailable() {
-  if (openable !== null) return openable
   const c = await ensureClient()
-  if (!c) return (openable = false)
+  if (!c) return false
   try {
     await c.execute('SELECT 1')
-    return (openable = true)
+    return true
   } catch {
-    return (openable = false)
+    return false
   }
 }
 

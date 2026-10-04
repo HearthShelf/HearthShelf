@@ -97,6 +97,7 @@ start_abs() {
     METADATA_PATH="${ABS_METADATA_PATH}" \
     ROUTER_BASE_PATH="" \
     SOURCE=docker \
+    NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require /usr/local/lib/hearthshelf/abs-sqlite-busy-timeout.cjs" \
     exec node index.js
   ) &
   ABS_PID=$!

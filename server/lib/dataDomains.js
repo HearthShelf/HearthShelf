@@ -375,6 +375,22 @@ export const DATA_DOMAINS = [
     userRefs: [],
   },
   {
+    // A private copy of AudiobookShelf's own database (lib/absReplica.js) that
+    // the social/stats queries read instead of ABS's live file. Rebuilt from ABS
+    // every few seconds, and it is ABS's data, so it is never backed up,
+    // exported or merged.
+    key: 'abs-db-replica',
+    tables: [],
+    files: { root: 'abs-replica', pattern: 'abs-<timestamp>-<seq>.sqlite' },
+    scope: 'instance',
+    secretColumns: {},
+    backup: 'never',
+    userExport: false,
+    merge: 'skip',
+    itemRefs: [],
+    userRefs: [],
+  },
+  {
     key: 'integrations-config',
     tables: ['integrations_config'],
     files: null,

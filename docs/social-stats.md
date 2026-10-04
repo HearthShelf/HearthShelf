@@ -30,8 +30,11 @@ All of ABS's internal schema knowledge lives in one file, `server/lib/absdb.js`,
 so a future ABS schema change is a one-file fix. See `docs/database.md` >
 "Reading ABS's database (read-only)" for the storage details. In short:
 
-- Opens `absdatabase.sqlite` and runs `PRAGMA query_only = ON`, so SQLite rejects
-  any write - HearthShelf can never corrupt ABS's data. ABS stays the sole writer.
+- Queries run against HearthShelf's own indexed copy of `absdatabase.sqlite`,
+  refreshed from the read-only-opened live file at most every 15s, never the
+  live file itself: a slow scan on ABS's file blocks its writes, and ABS crashes
+  when a write waits too long. ABS stays the sole writer. Social data can lag
+  ABS by up to that refresh interval.
 - Path is `HS_ABS_DB_PATH` (default `/config/absdatabase.sqlite`). On the
   all-in-one image ABS's `/config` is already in-container, so the default works
   with no extra setup. On the slim image, mount ABS's config dir read-only

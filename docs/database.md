@@ -31,8 +31,20 @@ backend reads ABS's own SQLite database (`absdatabase.sqlite`) directly and
 `server/lib/absdb.js`; nothing else touches ABS's tables, so a future ABS schema
 change is a one-file fix.
 
-- The connection is opened with `?mode=ro`, so SQLite refuses any write - we can
-  never corrupt ABS's data. ABS stays the sole writer of its own database.
+- HearthShelf never queries ABS's live file. `server/lib/absReplica.js` copies
+  it into `${QG_DATA_DIR}/abs-replica/` (opened read-only, under one short read
+  lock) whenever it has changed, at most every 15s (`HS_ABS_REPLICA_REFRESH_MS`),
+  adds the indexes our queries need, and every query reads that copy. ABS keeps
+  its database in rollback-journal mode, where a reader blocks every write, and
+  ABS crashes when a write waits too long. Querying the live file let one slow
+  leaderboard or presence scan crash ABS. Now the most ABS can be kept waiting
+  is one file copy. ABS stays the sole writer of its own database.
+- The copy is a cache: never backed up or exported (data domain
+  `abs-db-replica`), rebuilt from scratch on every boot.
+- On the AIO image, ABS also starts with a longer lock wait
+  (`abs-sqlite-busy-timeout.cjs`, `HS_ABS_SQLITE_BUSY_TIMEOUT_MS`, default 15s),
+  so any brief lock makes it wait instead of crash, and the entrypoint restarts
+  ABS in place if it exits (giving up after 5 exits in 2 minutes).
 - Path comes from `HS_ABS_DB_PATH` (default `/config/absdatabase.sqlite`). On the
   all-in-one image ABS's `/config` is already mounted in-container, so the default
   works with no extra config. On the slim image, mount ABS's config dir read-only
