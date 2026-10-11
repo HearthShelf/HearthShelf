@@ -201,7 +201,8 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   // Next up = first unfinished in reading order, else the first book.
   const nextUpIdx = books.findIndex((b) => !progressById.get(b.id)?.isFinished)
   const nextUp = nextUpIdx === -1 ? books[0] : books[nextUpIdx]
-  const nextUpNum = (nextUpIdx === -1 ? 0 : nextUpIdx) + 1
+  const nextUpNum =
+    (nextUp && seriesSeqLabel(nextUp)) || String((nextUpIdx === -1 ? 0 : nextUpIdx) + 1)
 
   // Shared progress widgets (segment track + bottom hours bar).
   const progEl = (
