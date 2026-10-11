@@ -35,8 +35,36 @@ interface ABSMeResponse extends ABSUser {
   permissions?: Record<string, boolean>
 }
 
-export function getMe(): Promise<ABSMeResponse> {
-  return absRequest<ABSMeResponse>('/api/me')
+// Every reader of mediaProgress gets a `progress` fraction worked out from the
+// live position (see progressFraction), never ABS's separately stored value.
+export async function getMe(): Promise<ABSMeResponse> {
+  const me = await absRequest<ABSMeResponse>('/api/me')
+  return {
+    ...me,
+    mediaProgress: (me.mediaProgress ?? []).map((p) => ({ ...p, progress: progressFraction(p) })),
+  }
+}
+
+/**
+ * How far through an item a progress row is, 0..1, from its live position.
+ *
+ * ABS stores `progress` separately from `currentTime` and only rewrites it when a
+ * writer sends a `progress` value. A position-only update (another client's
+ * PATCH) moves `currentTime` and leaves `progress` where it was, so a book 18h in
+ * could still report the fraction from where its session started. The position
+ * is what every writer keeps current, so derive from it whenever it is usable.
+ */
+export function progressFraction(p: {
+  duration?: number
+  progress?: number
+  currentTime?: number
+  isFinished?: boolean
+}): number {
+  if (p.isFinished) return 1
+  const duration = p.duration ?? 0
+  const position = p.currentTime ?? 0
+  if (duration > 0 && position > 0) return Math.min(1, position / duration)
+  return Math.min(1, Math.max(0, p.progress ?? 0))
 }
 
 export function getItemsInProgress(): Promise<ABSItemsInProgressResponse> {

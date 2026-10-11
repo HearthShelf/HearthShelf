@@ -174,9 +174,16 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     if (p?.isFinished) done++
     const frac = p?.isFinished ? 1 : (p?.progress ?? 0)
     sum += frac
-    const hours = (b.media.duration ?? 0) / 3600
-    totalHours += hours
-    listenedHours += hours * frac
+    const durationSec = b.media.duration ?? 0
+    totalHours += durationSec / 3600
+    // The live position against this book's own length: the progress row's
+    // duration can come from an older session and disagree with the item's.
+    const listenedSec = p?.isFinished
+      ? durationSec
+      : p?.currentTime
+        ? Math.min(durationSec || p.currentTime, p.currentTime)
+        : durationSec * frac
+    listenedHours += listenedSec / 3600
   }
   const completion = seriesCompletion({
     ownedProgressSum: sum,

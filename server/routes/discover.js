@@ -10,6 +10,7 @@ import * as store from '../store.js'
 import { getRatings } from '../lib/ratingsStore.js'
 
 // UTC period keys for the monthly shelf + daily popular cache. Stable across a
+import { progressFraction } from '../lib/progressFraction.js'
 // restart (purely date-derived), so the cache survives process bounces.
 function monthKey() {
   const d = new Date()
@@ -41,7 +42,7 @@ async function computePopular(ctx) {
           const id = mp.libraryItemId
           if (!id) continue
           if (mp.isFinished) finished.set(id, (finished.get(id) ?? 0) + 1)
-          else if ((mp.progress ?? 0) > 0) inProgress.set(id, (inProgress.get(id) ?? 0) + 1)
+          else if (progressFraction(mp) > 0) inProgress.set(id, (inProgress.get(id) ?? 0) + 1)
         }
       } catch {
         // skip a user we can't read; keep aggregating the rest

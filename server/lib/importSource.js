@@ -175,6 +175,7 @@ export async function readLiveSource(absUrl, adminToken) {
         isFinished: Boolean(mp.isFinished),
         finishedAt: mp.finishedAt != null ? Number(mp.finishedAt) : null,
         currentTime: Number(mp.currentTime) || 0,
+        duration: Number(mp.duration) || 0,
         ebookLocation: mp.ebookLocation ?? null,
         ebookProgress: mp.ebookProgress != null ? Number(mp.ebookProgress) : null,
         hideFromContinueListening: Boolean(mp.hideFromContinueListening),

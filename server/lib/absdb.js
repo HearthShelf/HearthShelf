@@ -122,7 +122,7 @@ export async function readImportInventory(client) {
 
   // Progress rows. lastUpdate from updatedAt (epoch ms).
   const progRes = await c.execute(
-    `SELECT userId, mediaItemId, mediaItemType, isFinished, finishedAt, currentTime,
+    `SELECT userId, mediaItemId, mediaItemType, isFinished, finishedAt, currentTime, duration,
             ebookLocation, ebookProgress, hideFromContinueListening, updatedAt
        FROM mediaProgresses`,
   )
@@ -133,6 +133,7 @@ export async function readImportInventory(client) {
     isFinished: Boolean(r.isFinished),
     finishedAt: toMs(r.finishedAt),
     currentTime: Number(r.currentTime) || 0,
+    duration: Number(r.duration) || 0,
     ebookLocation: r.ebookLocation != null ? String(r.ebookLocation) : null,
     ebookProgress: r.ebookProgress != null ? Number(r.ebookProgress) : null,
     hideFromContinueListening: Boolean(r.hideFromContinueListening),
@@ -1511,7 +1512,9 @@ export async function getFinishedUsersBulk(libraryItemIds = []) {
         JOIN users u ON u.id = mp.userId
         WHERE li.id IN (${placeholders})
           AND li.mediaType = 'book'
-          AND (mp.isFinished = 1 OR mp.progress > 0)
+          -- There is no progress column (ABS keeps the fraction in extraData and
+          -- refreshes it when a writer sends one); the live position is the truth.
+          AND (mp.isFinished = 1 OR mp.currentTime > 0)
           AND u.type != 'guest'
           AND u.isActive = 1
         ORDER BY mp.isFinished DESC, mp.finishedAt DESC

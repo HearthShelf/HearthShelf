@@ -15,6 +15,7 @@ import { readStashedSource, clearStashedSource, getImportReport } from './import
 import { createBackup } from './backup.js'
 import { mergeHsDomains } from './importHsDomains.js'
 import { buildTargetIndex, matchItem, mergeProgress, progressUnchanged, bookmarksToAdd } from '@hearthshelf/core'
+import { progressFraction } from './progressFraction.js'
 
 const ABS_URL = (process.env.ABS_SERVER_URL || 'http://127.0.0.1:13378').replace(/\/$/, '')
 
@@ -82,6 +83,7 @@ async function readUserProgress(userKey) {
         isFinished: Boolean(mp.isFinished),
         finishedAt: mp.finishedAt != null ? Number(mp.finishedAt) : null,
         currentTime: Number(mp.currentTime) || 0,
+        duration: Number(mp.duration) || 0,
         ebookLocation: mp.ebookLocation ?? null,
         ebookProgress: mp.ebookProgress != null ? Number(mp.ebookProgress) : null,
         hideFromContinueListening: Boolean(mp.hideFromContinueListening),
@@ -253,9 +255,17 @@ export async function importExecute({ reportId, userOverrides, ctx }) {
         }
         const merged = mergeProgress(sourceRow, existing)
         if (progressUnchanged(merged, existing)) continue // idempotent skip
+        // ABS only refreshes its stored fraction when one is sent, so a position
+        // written alone leaves the target showing whatever fraction it had.
+        const duration = Number(sp.duration) || Number(existing?.duration) || 0
+        const currentTime = merged.currentTime ?? 0
         payloads.push({
           libraryItemId: targetItemId,
-          currentTime: merged.currentTime ?? 0,
+          currentTime,
+          ...(duration > 0 && {
+            duration,
+            progress: progressFraction({ currentTime, duration, isFinished: merged.isFinished }),
+          }),
           isFinished: Boolean(merged.isFinished),
           finishedAt: merged.finishedAt ?? null,
           ebookLocation: merged.ebookLocation ?? null,

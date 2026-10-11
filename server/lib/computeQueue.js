@@ -19,6 +19,7 @@ import { getUserSetting } from '../settings.js'
 import { getQueue, setQueue } from '../queue.js'
 import { getDismissals } from '../dismissals.js'
 import { listMyClubs, currentBook, listQueue } from '../clubs.js'
+import { withFreshProgress } from './progressFraction.js'
 
 async function absJson(ctx, path) {
   const res = await fetch(`${ctx.absUrl}${path}`, {
@@ -161,7 +162,7 @@ export async function resolveQueue(ctx) {
     const allItems = itemLists.flatMap(([it]) => it?.results ?? [])
     const allSeries = itemLists.flatMap(([, se]) => se?.results ?? [])
 
-    const mediaProgress = me?.mediaProgress ?? []
+    const mediaProgress = (me?.mediaProgress ?? []).map(withFreshProgress)
     const progressById = new Map(mediaProgress.map((p) => [p.libraryItemId, p]))
 
     // The book to continue from. A client that just started a book wins (it
