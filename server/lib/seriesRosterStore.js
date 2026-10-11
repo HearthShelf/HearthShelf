@@ -9,7 +9,7 @@
 // the consumer.
 
 import { db, getServerId } from '../db.js'
-import { realRosterBooks } from '@hearthshelf/core/lib/series'
+import { missingSeriesBooks, realRosterBooks } from '@hearthshelf/core/lib/series'
 import { isUpcoming } from '@hearthshelf/core/lib/notifications'
 import { stampOwned } from './seriesOwned.js'
 
@@ -189,17 +189,20 @@ export async function getSeriesRosterSummaries({ ignoredAsins = [], ownedBySerie
     const owned = ownedBySeries?.get(roster.seriesId)
     const stamped = owned?.length ? stampOwned(roster.books, owned, roster.name) : roster.books
     const books = realRosterBooks(stamped, ignoredAsins, roster.name).filter((b) => b.title)
+    // The gap is computed by the SAME function the series page lists from, with
+    // the same owned books, so the badge can never promise books the page does
+    // not show. Counting raw `owned === false` flags skipped the page's title
+    // reconciliation (an owned book the flags missed still clears its entry) and
+    // the two disagreed (9 here, 4 on the page).
+    const gap = missingSeriesBooks(stamped, owned ?? [], ignoredAsins, roster.name)
     let missing = 0
     let upcoming = 0
-    for (const book of books) {
+    for (const book of gap) {
       // An unreleased book is not a gap in the library - nobody could own it.
       // Counting it as missing would leave a caught-up series permanently
       // incomplete, so it is reported on its own axis instead.
-      if (book.upcoming ?? isUpcoming(book, now)) {
-        upcoming++
-        continue
-      }
-      if (book.owned === false) missing++
+      if (book.upcoming ?? isUpcoming(book, now)) upcoming++
+      else missing++
     }
     out.push({
       seriesId: roster.seriesId,
