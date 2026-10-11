@@ -19,10 +19,15 @@ import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
+import { SeqNum } from '@/components/common/SeqNum'
+import { seriesSeqLabel, interleaveMissing } from '@/lib/seriesSeqLabel'
 import { SectionHead } from '@/components/common/SectionHead'
 import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
-import { SeriesMissingBooks } from '@/components/requests/SeriesMissingBooks'
+import { MissingRow } from '@/components/requests/SeriesMissingBooks'
+import { RequestConfirmModal } from '@/components/requests/RequestConfirmModal'
+import type { CatalogResult } from '@/components/requests/RequestTile'
+import { useRmabEnabled } from '@/hooks/useRmab'
 import { FollowSeriesButton } from '@/components/requests/FollowSeriesButton'
 import { IgnoreSeriesButton } from '@/components/requests/IgnoreSeriesButton'
 import { useDismissalsStore } from '@/store/dismissalsStore'
@@ -95,8 +100,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
     sequence: seriesSeqFromName(b.media.metadata.seriesName),
   }))
 
-  // The full Audible roster for this series (cached; SeriesMissingBooks reuses the
-  // same query). The unowned gap enlarges the completion denominator so the % and
+  // The full Audible roster for this series (cached). The unowned gap enlarges the completion denominator so the % and
   // the segment track reflect the whole series, not just what's owned.
   const { data: audible } = useQuery({
     queryKey: audibleKeys.series(series.id, series.name),
@@ -128,6 +132,8 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
   // Following list without an ABS token to resolve it against.
   const seriesCover = audible?.books.find((b) => b.coverArtUrl)?.coverArtUrl
   const upcomingCount = missing.length - missingReleased.length
+  const canRequest = useRmabEnabled()
+  const [confirm, setConfirm] = useState<CatalogResult | null>(null)
 
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -382,7 +388,20 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
           </div>
         )}
         <div className="series-list">
-          {books.map((b, i) => {
+          {interleaveMissing(books, selected.size === 0 ? missing : []).map((row, i) => {
+            if (row.kind === 'missing') {
+              return (
+                <MissingRow
+                  key={row.book.asin}
+                  book={row.book}
+                  num={i + 1}
+                  now={now}
+                  canRequest={canRequest}
+                  onRequest={setConfirm}
+                />
+              )
+            }
+            const b = row.book
             const m = b.media.metadata
             const p = progressById.get(b.id)
             const fin = p?.isFinished
@@ -416,7 +435,7 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
                       <Icon name="check" fill style={{ opacity: isSel ? 1 : 0 }} />
                     </button>
                   ) : (
-                    <div className="sl-num">{i + 1}</div>
+                    <SeqNum label={seriesSeqLabel(b) || String(i + 1)} />
                   )}
                   <Cover itemId={b.id} title={m.title ?? 'Untitled'} fs={6} className="sl-cover" />
                   <div className="sl-meta">
@@ -469,17 +488,16 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
               </BookContextMenu>
             )
           })}
-          {selected.size === 0 && (
-            <SeriesMissingBooks
-              seriesId={series.id}
-              seriesName={series.name}
-              ownedBooks={ownedBooks}
-              inline
-              startSeq={books.length}
-            />
-          )}
         </div>
       </div>
+      {confirm && (
+        <RequestConfirmModal
+          book={confirm}
+          canRequest={canRequest}
+          intro
+          onClose={() => setConfirm(null)}
+        />
+      )}
     </div>
   )
 }
