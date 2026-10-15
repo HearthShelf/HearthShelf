@@ -30,7 +30,7 @@ import path from 'node:path'
 import { json, sendFileWithRange } from '../lib/http.js'
 import { resolveContext } from '../lib/context.js'
 import { appLog } from '../lib/appLog.js'
-import { partSettings, partSource, planParts } from '../lib/partPlan.js'
+import { includedAudioFiles, partSettings, partSource, planParts } from '../lib/partPlan.js'
 import { createPartCache, partCacheKey, PartError } from '../lib/partCache.js'
 
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,100}$/
@@ -95,6 +95,20 @@ async function loadPlan(ctx, itemId) {
   const settings = partSettings()
   const source = partSource(item, settings)
   let plan = null
+  if (!source) {
+    // Leave a trace either way, so "the web player never asked for parts" can be
+    // told apart from "the server said this book doesn't need them".
+    const files = includedAudioFiles(item)
+    const f = files[0]
+    appLog.info(
+      'parts',
+      `item ${itemId} plays as is (${files.length} audio file(s)` +
+        (files.length === 1
+          ? `, ${f?.mimeType || f?.metadata?.ext || 'unknown type'}, ${Math.round(Number(f?.duration) / 3600)}h`
+          : '') +
+        ')',
+    )
+  }
   if (source) {
     const parts = planParts({
       duration: source.duration,
@@ -102,6 +116,10 @@ async function loadPlan(ctx, itemId) {
       targetSeconds: settings.targetSeconds,
     })
     plan = { source, parts, key: partCacheKey(itemId, source, parts) }
+    appLog.info(
+      'parts',
+      `item ${itemId} uses ${parts.length} parts (${Math.round(source.duration / 3600)}h single file)`,
+    )
   }
 
   if (planCache.size >= PLAN_CACHE_MAX) {

@@ -10,24 +10,12 @@
 // Authenticates the same way every other server-to-server call does: server_id +
 // server_secret, posted to the control plane at cfg.issuer (recorded at pairing).
 
-import fs from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { getHostedConfig } from './hosted.js'
+import { HS_VERSION } from './hsVersion.js'
 import { getServerId } from '../db.js'
 import { recordRevocationSignal } from './keyRevocation.js'
 
 const ABS_URL = process.env.ABS_SERVER_URL || ''
-
-// This backend's version, read once from server/package.json (same idiom as
-// routes/runtime.js). null if unreadable.
-const HS_VERSION = (() => {
-  try {
-    const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url))
-    return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || null
-  } catch {
-    return null
-  }
-})()
 
 const log = (...a) => console.log('[version]', ...a)
 
@@ -82,7 +70,9 @@ async function reportVersion() {
     // real prompt is the banner in the hosted app; this is just operator-friendly.
     const latest = data?.latest?.version
     if (latest && HS_VERSION && latest !== HS_VERSION) {
-      log(`update available: running v${HS_VERSION}, latest is v${latest} (${data.latest.severity})`)
+      log(
+        `update available: running v${HS_VERSION}, latest is v${latest} (${data.latest.severity})`,
+      )
     }
     return data
   } catch {
@@ -99,9 +89,7 @@ async function reportVersion() {
 // negligible traffic (one request per box per day).
 export async function startVersionReporting() {
   await reportVersion()
-  const everyMs = Number(
-    process.env.HS_VERSION_REPORT_INTERVAL_MS || String(24 * 60 * 60 * 1000),
-  ) // 24h
+  const everyMs = Number(process.env.HS_VERSION_REPORT_INTERVAL_MS || String(24 * 60 * 60 * 1000)) // 24h
   const timer = setInterval(() => {
     reportVersion().catch(() => {})
   }, everyMs)
