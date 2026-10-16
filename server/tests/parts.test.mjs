@@ -20,6 +20,7 @@ import {
   spawnFfmpeg,
   spawnProbe,
   needsReencode,
+  transcodeArgs,
   PartError,
 } from '../lib/partCache.js'
 import { parseRange, sendFileWithRange } from '../lib/http.js'
@@ -725,6 +726,91 @@ test(
       assert.equal(probe?.codec, 'aac')
       assert.equal(probe?.profile, 'LC')
       assert.ok(Math.abs(probeDuration(out) - 15) < 0.5)
+    } finally {
+      server.close()
+    }
+  },
+)
+
+test('a converted part never shares a cache key with a copied one', () => {
+  const src = { ino: '1', duration: 100 }
+  const parts = [{ start: 0, duration: 100 }]
+  assert.notEqual(partCacheKey('li', src, parts), partCacheKey('li', src, parts, 'aac-lc'))
+  assert.equal(partCacheKey('li', src, parts), partCacheKey('li', src, parts, undefined))
+})
+
+test('a converting job cuts and converts in one pass', async () => {
+  const dir = await tmpDir()
+  const runs = []
+  let probed = 0
+  const pc = createPartCache({
+    dir,
+    maxBytes: 1e9,
+    runFfmpeg: async (args) => {
+      runs.push(args)
+      await fs.writeFile(args.at(-1), 'converted')
+    },
+    probeAudio: async () => {
+      probed++
+      return null
+    },
+  })
+  await pc.getPart(job(0, { reencode: true, channels: 1 }))
+  assert.equal(runs.length, 1)
+  assert.equal(probed, 0, 'a converted part needs no check')
+  assert.ok(runs[0].includes('-ss') && runs[0].includes('-c:a') && runs[0].includes('64k'))
+  assert.ok(!runs[0].includes('copy'))
+})
+
+test(
+  'real ffmpeg: a one-pass converting cut over HTTP yields AAC-LC of the right length',
+  { skip: hasFfmpeg ? false : 'ffmpeg/ffprobe not installed' },
+  async () => {
+    const dir = await tmpDir()
+    const src = path.join(dir, 'src.m4a')
+    const made = spawnSync(FFMPEG, [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=duration=60',
+      '-c:a',
+      'aac',
+      '-f',
+      'mp4',
+      src,
+    ])
+    assert.equal(made.status, 0, String(made.stderr))
+    const server = http.createServer((req, res) => {
+      if (req.headers.authorization !== 'Bearer tok') {
+        res.writeHead(401)
+        return res.end()
+      }
+      sendFileWithRange(req, res, src, { contentType: 'audio/mp4' })
+    })
+    await new Promise((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const url = `http://127.0.0.1:${server.address().port}/f`
+      // The plan-time format check reads the source over HTTP with the token.
+      assert.equal((await spawnProbe(url, 'tok'))?.profile, 'LC')
+      const out = path.join(dir, 'out.m4a')
+      // Async: this process also serves the source, so a blocking spawn would deadlock.
+      await spawnFfmpeg(
+        transcodeArgs({
+          sourceUrl: url,
+          absToken: 'tok',
+          start: 10,
+          end: 40,
+          outPath: out,
+          channels: 1,
+        }),
+      )
+      const probe = await spawnProbe(out)
+      assert.equal(probe?.profile, 'LC')
+      assert.equal(probe?.channels, 1)
+      assert.ok(Math.abs(probeDuration(out) - 30) < 0.5)
     } finally {
       server.close()
     }

@@ -22,7 +22,14 @@
 // the item from ABS AS THE CALLER (briefly cached per user), so library
 // permissions apply to cached parts too.
 //
+// A single-file book whose audio not every browser can decode (xHE-AAC above all,
+// see lib/partCache.js needsReencode) is served as parts at ANY length, and
+// those parts are short and converted to AAC-LC - the way Plex transcodes in
+// chunks: the first part is ready in seconds and the next is always prepared
+// ahead. The format is read once per book with ffprobe (index only) and cached.
+//
 // Env: HS_PARTS_MIN_FRAMES, HS_PARTS_TARGET_SECONDS (lib/partPlan.js),
+//      HS_PARTS_REENCODE_SECONDS (default 180: part length when converting),
 //      HS_PARTS_CACHE_MB (default 20480), HS_PARTS_JOBS (default 2),
 //      HS_FFMPEG_PATH (default 'ffmpeg'), QG_DATA_DIR.
 
@@ -31,7 +38,13 @@ import { json, sendFileWithRange } from '../lib/http.js'
 import { resolveContext } from '../lib/context.js'
 import { appLog } from '../lib/appLog.js'
 import { includedAudioFiles, partSettings, partSource, planParts } from '../lib/partPlan.js'
-import { createPartCache, partCacheKey, PartError } from '../lib/partCache.js'
+import {
+  createPartCache,
+  needsReencode,
+  partCacheKey,
+  PartError,
+  spawnProbe,
+} from '../lib/partCache.js'
 
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,100}$/
 const PLAN_TTL_MS = 60 * 1000
@@ -41,6 +54,11 @@ const PLAN_CACHE_MAX = 500
 const WAIT_MS = 15 * 60 * 1000
 const DEFAULT_CACHE_MB = 20480
 const DEFAULT_JOBS = 2
+const DEFAULT_REENCODE_SECONDS = 180
+// How long a parts-list request waits for the format check on first open. The
+// check keeps running past this and its answer is cached for the next request.
+const PROBE_WAIT_MS = 6000
+const FORMAT_CACHE_MAX = 2000
 
 function positiveInt(raw, fallback) {
   const n = Math.floor(Number(raw))
@@ -59,6 +77,31 @@ function partCache() {
     })
   }
   return cache
+}
+
+// itemId|ino|size|mtime -> Promise<probe|null>. The file's format never changes
+// without its size or mtime changing, so this never expires; it is only bounded.
+const formatCache = new Map()
+
+function sourceFormat(ctx, itemId, source) {
+  const key = `${itemId}|${source.ino}|${source.size}|${source.mtimeMs}`
+  let p = formatCache.get(key)
+  if (!p) {
+    const url = `${ctx.absUrl}/api/items/${encodeURIComponent(itemId)}/file/${encodeURIComponent(source.ino)}`
+    p = spawnProbe(url, ctx.absToken).then((probe) => {
+      // A failed check is not cached, so a later open tries again.
+      if (!probe) formatCache.delete(key)
+      return probe
+    })
+    if (formatCache.size >= FORMAT_CACHE_MAX) formatCache.delete(formatCache.keys().next().value)
+    formatCache.set(key, p)
+  }
+  let timer
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(undefined), PROBE_WAIT_MS)
+    timer.unref?.()
+  })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
 }
 
 // userId|itemId -> { at, plan }. Players make many range requests per part;
@@ -93,7 +136,17 @@ async function loadPlan(ctx, itemId) {
   if (!item?.id) throw new RouteError(502, 'abs_error')
 
   const settings = partSettings()
-  const source = partSource(item, settings)
+  // Any single MP4-family file is a candidate when its audio needs converting;
+  // otherwise only very long ones get parts.
+  const anyLength = partSource(item, { ...settings, minFrames: 0 })
+  const format = anyLength ? await sourceFormat(ctx, itemId, anyLength) : null
+  const reencode = needsReencode(format)
+  const source = reencode ? anyLength : partSource(item, settings)
+  const formatName = format
+    ? `${format.codec}${format.profile ? ` ${format.profile}` : ''}`
+    : format === undefined
+      ? 'format check still running'
+      : 'format unknown'
   let plan = null
   if (!source) {
     // Leave a trace either way, so "the web player never asked for parts" can be
@@ -106,20 +159,31 @@ async function loadPlan(ctx, itemId) {
         (files.length === 1
           ? `, ${f?.mimeType || f?.metadata?.ext || 'unknown type'}, ${Math.round(Number(f?.duration) / 3600)}h`
           : '') +
+        (anyLength ? `, ${formatName}` : '') +
         ')',
     )
   }
   if (source) {
+    const targetSeconds = reencode
+      ? positiveInt(process.env.HS_PARTS_REENCODE_SECONDS, DEFAULT_REENCODE_SECONDS)
+      : settings.targetSeconds
     const parts = planParts({
       duration: source.duration,
       chapters: item.media?.chapters,
-      targetSeconds: settings.targetSeconds,
+      targetSeconds,
     })
-    plan = { source, parts, key: partCacheKey(itemId, source, parts) }
-    const codec = includedAudioFiles(item)[0]?.codec || 'unknown codec'
+    plan = {
+      source,
+      parts,
+      reencode,
+      channels: format?.channels || 2,
+      key: partCacheKey(itemId, source, parts, reencode ? 'aac-lc' : undefined),
+    }
     appLog.info(
       'parts',
-      `item ${itemId} uses ${parts.length} parts (${Math.round(source.duration / 3600)}h single file, ${codec})`,
+      `item ${itemId} uses ${parts.length} parts (${(source.duration / 3600).toFixed(1)}h single file, ${formatName}` +
+        (reencode ? ', converting to AAC-LC' : '') +
+        ')',
     )
   }
 
@@ -163,6 +227,8 @@ function partJob(ctx, itemId, plan, index) {
     end: Math.round((part.start + part.duration) * 1000) / 1000,
     sourceUrl: `${ctx.absUrl}/api/items/${encodeURIComponent(itemId)}/file/${encodeURIComponent(plan.source.ino)}`,
     absToken: ctx.absToken,
+    reencode: plan.reencode,
+    channels: plan.channels,
   }
 }
 

@@ -40,8 +40,11 @@ export class PartError extends Error {
 // Stable cache key for a source file + part plan. Any change to the file (inode,
 // size, mtime, duration) or to the cut points gives a new key, so stale parts
 // are never served; the old ones simply age out of the LRU.
-export function partCacheKey(itemId, source, parts) {
+// `variant` names how the audio is produced ('aac-lc' when converting); it is
+// left out of the basis when unset, so existing copied parts keep their keys.
+export function partCacheKey(itemId, source, parts, variant) {
   const basis = JSON.stringify({
+    ...(variant ? { variant } : {}),
     // v2: parts are written with the M4A brand (see ffmpegArgs).
     // v3: parts in a profile browsers can't all decode are re-encoded to
     // AAC-LC (see needsReencode); bumping re-cuts parts made before.
@@ -131,14 +134,49 @@ export function reencodeArgs({ inPath, outPath, channels }) {
   ]
 }
 
+// ffmpeg arguments to cut AND re-encode one part straight from the ABS source, in
+// one pass. Used for books whose audio needs converting (see needsReencode):
+// such books are planned in short parts, so each one is ready in seconds.
+export function transcodeArgs({ sourceUrl, absToken, start, end, outPath, channels }) {
+  const args = ['-hide_banner', '-nostdin', '-loglevel', 'error', '-y']
+  if (absToken) args.push('-headers', `Authorization: Bearer ${absToken}\r\n`)
+  const ch = Math.min(Math.max(Number(channels) || 2, 1), 2)
+  args.push(
+    '-ss',
+    String(start),
+    '-to',
+    String(end),
+    '-i',
+    sourceUrl,
+    '-map',
+    '0:a:0',
+    '-map_chapters',
+    '-1',
+    '-c:a',
+    'aac',
+    '-ac',
+    String(ch),
+    '-b:a',
+    `${64 * ch}k`,
+    '-movflags',
+    '+faststart',
+    '-f',
+    'ipod',
+    outPath,
+  )
+  return args
+}
+
 // The first audio stream's codec + profile, or null if ffprobe is missing or
-// fails. Only ever run on a local, already-cut part, so it is quick.
-export function spawnProbe(filePath) {
+// fails. Takes a local file or an ABS file URL (with its token, sent as a header
+// so it never appears in a URL). For a URL ffprobe only reads the file's index.
+export function spawnProbe(filePath, absToken = '') {
   return new Promise((resolve) => {
     let out = ''
     const child = spawn(
       process.env.HS_FFPROBE_PATH || 'ffprobe',
       [
+        ...(absToken ? ['-headers', `Authorization: Bearer ${absToken}\r\n`] : []),
         '-v',
         'error',
         '-select_streams',
@@ -310,25 +348,30 @@ export function createPartCache(opts) {
     const started = now()
     let reencodePath = null
     try {
+      const cut = {
+        sourceUrl: job.sourceUrl,
+        absToken: job.absToken,
+        start: job.start,
+        end: job.end,
+        outPath: tmpPath,
+      }
       await runFfmpeg(
-        ffmpegArgs({
-          sourceUrl: job.sourceUrl,
-          absToken: job.absToken,
-          start: job.start,
-          end: job.end,
-          outPath: tmpPath,
-        }),
+        job.reencode ? transcodeArgs({ ...cut, channels: job.channels }) : ffmpegArgs(cut),
       )
       let st = await fs.stat(tmpPath).catch(() => null)
       if (!st || st.size === 0) {
         throw new PartError('ffmpeg_failed', 'ffmpeg finished without writing the part')
       }
-      const probe = await probeAudio(tmpPath)
-      const audio = probe
-        ? `${probe.codec}${probe.profile ? ` ${probe.profile}` : ''}`
-        : 'audio unknown'
+      // A part planned for converting is already AAC-LC. A copied part is
+      // checked, as a safety net for audio the plan-time check missed.
+      const probe = job.reencode ? null : await probeAudio(tmpPath)
+      const audio = job.reencode
+        ? 'converted to AAC-LC'
+        : probe
+          ? `${probe.codec}${probe.profile ? ` ${probe.profile}` : ''}`
+          : 'audio unknown'
       let note = ''
-      if (needsReencode(probe)) {
+      if (!job.reencode && needsReencode(probe)) {
         // Copied audio some browsers cannot decode: re-encode this part.
         reencodePath = `${tmpPath}.aac${TMP_SUFFIX}`
         await runFfmpeg(
@@ -365,7 +408,8 @@ export function createPartCache(opts) {
 
   /**
    * Resolve the path of a ready part, generating it if needed.
-   * job: { itemId, key, index, start, end, sourceUrl, absToken, prefetch? }
+   * job: { itemId, key, index, start, end, sourceUrl, absToken, prefetch?,
+   *        reencode?, channels? }
    */
   async function getPart(job) {
     const finalPath = partPath(job.itemId, job.key, job.index)
