@@ -116,9 +116,10 @@ async function loadPlan(ctx, itemId) {
       targetSeconds: settings.targetSeconds,
     })
     plan = { source, parts, key: partCacheKey(itemId, source, parts) }
+    const codec = includedAudioFiles(item)[0]?.codec || 'unknown codec'
     appLog.info(
       'parts',
-      `item ${itemId} uses ${parts.length} parts (${Math.round(source.duration / 3600)}h single file)`,
+      `item ${itemId} uses ${parts.length} parts (${Math.round(source.duration / 3600)}h single file, ${codec})`,
     )
   }
 
