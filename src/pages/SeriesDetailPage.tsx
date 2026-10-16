@@ -20,7 +20,7 @@ import type { ABSLibraryItem, ABSSeries } from '@/api/types'
 import { Cover, tintFor } from '@/components/common/Cover'
 import { Icon } from '@/components/common/Icon'
 import { SeqNum } from '@/components/common/SeqNum'
-import { seriesSeqLabel, interleaveMissing } from '@/lib/seriesSeqLabel'
+import { seriesSeqLabel, seqLabel, interleaveMissing } from '@/lib/seriesSeqLabel'
 import { SectionHead } from '@/components/common/SectionHead'
 import { StarRating } from '@/components/common/StarRating'
 import { BookContextMenu } from '@/components/library/BookContextMenu'
@@ -217,7 +217,17 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
         </span>
       </div>
       <div className="sp-track">
-        {books.map((b, i) => {
+        {interleaveMissing(books, missingReleased).map((row, i) => {
+          if (row.kind === 'missing') {
+            return (
+              <div
+                key={row.book.asin}
+                className="sp-seg missing"
+                title={`Book ${seqLabel(row.book.sequence) || i + 1} · not in library`}
+              />
+            )
+          }
+          const b = row.book
           const p = progressById.get(b.id)
           const fin = p?.isFinished
           const part = !fin && (p?.progress ?? 0) > 0
@@ -230,19 +240,12 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
             <div
               key={b.id}
               className={'sp-seg' + (fin ? ' done' : '') + (part ? ' part' : '')}
-              title={`Book ${i + 1} · ${status}`}
+              title={`Book ${seriesSeqLabel(b) || i + 1} · ${status}`}
             >
               {part && <i style={{ width: (p?.progress ?? 0) * 100 + '%' }} />}
             </div>
           )
         })}
-        {missingReleased.map((b, i) => (
-          <div
-            key={b.asin}
-            className="sp-seg missing"
-            title={`Book ${books.length + i + 1} · not in library`}
-          />
-        ))}
       </div>
     </div>
   )

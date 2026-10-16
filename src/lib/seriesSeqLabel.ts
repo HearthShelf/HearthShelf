@@ -14,7 +14,8 @@ export function seqLabel(sequence: string | null | undefined): string {
   return (sequence ?? '').replace(/\s+/g, '')
 }
 
-export type SeriesListRow<M> = { kind: 'owned'; book: ABSLibraryItem } | { kind: 'missing'; book: M }
+export type SeriesListRow<M> =
+  { kind: 'owned'; book: ABSLibraryItem } | { kind: 'missing'; book: M }
 
 /**
  * Fold the books the library doesn't have into the owned reading order, each at
