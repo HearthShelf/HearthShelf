@@ -42,7 +42,9 @@ export class PartError extends Error {
 // are never served; the old ones simply age out of the LRU.
 export function partCacheKey(itemId, source, parts) {
   const basis = JSON.stringify({
-    v: 1,
+    // v2: parts are written with the M4A brand (see ffmpegArgs); bumping this
+    // re-cuts parts made before, which every browser but Tesla's played.
+    v: 2,
     itemId,
     ino: source.ino,
     size: source.size || 0,
@@ -75,8 +77,12 @@ export function ffmpegArgs({ sourceUrl, absToken, start, end, outPath }) {
     'copy',
     '-movflags',
     '+faststart',
+    // The iPod/M4A muxer, not plain mp4: same audio and layout, but the file
+    // header says "M4A" (audio) instead of ffmpeg's generic "isom" video brand.
+    // Tesla's browser refused isom parts outright (MediaError 4) while playing
+    // M4A/M4B files, and an audiobook part should look like one anyway.
     '-f',
-    'mp4',
+    'ipod',
     outPath,
   )
   return args
