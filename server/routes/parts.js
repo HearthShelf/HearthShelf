@@ -1,5 +1,7 @@
 // Ready-made parts for oversized single-file MP4 audiobooks.
 //
+//   ?convert=1 on either route: the client cannot play every AAC profile (see
+//   below). Without it a book is never converted.
 //   GET /hs/parts/:itemId         -> { parts: null } when the book plays fine as
 //                                    is, otherwise
 //                                    { parts: [{ index, start, duration, url }],
@@ -22,11 +24,11 @@
 // the item from ABS AS THE CALLER (briefly cached per user), so library
 // permissions apply to cached parts too.
 //
-// A single-file book whose audio not every browser can decode (xHE-AAC above all,
-// see lib/partCache.js needsReencode) is served as parts at ANY length, and
-// those parts are short and converted to AAC-LC - the way Plex transcodes in
-// chunks: the first part is ready in seconds and the next is always prepared
-// ahead. The format is read once per book with ffprobe (index only) and cached.
+// For a client that sends ?convert=1, a single-file book whose audio not every
+// browser can decode (xHE-AAC above all, see lib/partCache.js needsReencode) is
+// served as parts at ANY length, and those parts are short and converted to
+// AAC-LC - the way Plex transcodes in chunks: the first part is ready in seconds
+// and the next is always prepared ahead. The format is read once per book with ffprobe (index only) and cached.
 //
 // Env: HS_PARTS_MIN_FRAMES, HS_PARTS_TARGET_SECONDS (lib/partPlan.js),
 //      HS_PARTS_REENCODE_SECONDS (default 180: part length when converting),
@@ -116,8 +118,10 @@ class RouteError extends Error {
   }
 }
 
-async function loadPlan(ctx, itemId) {
-  const cacheKey = `${ctx.userId}|${itemId}`
+// `convert`: the client cannot play every AAC profile (it sent ?convert=1), so a
+// book in such a profile is served converted. Other clients get the book as is.
+async function loadPlan(ctx, itemId, convert) {
+  const cacheKey = `${ctx.userId}|${itemId}|${convert ? 'convert' : 'copy'}`
   const hit = planCache.get(cacheKey)
   if (hit && Date.now() - hit.at < PLAN_TTL_MS) return hit.plan
 
@@ -138,7 +142,7 @@ async function loadPlan(ctx, itemId) {
   const settings = partSettings()
   // Any single MP4-family file is a candidate when its audio needs converting;
   // otherwise only very long ones get parts.
-  const anyLength = partSource(item, { ...settings, minFrames: 0 })
+  const anyLength = convert ? partSource(item, { ...settings, minFrames: 0 }) : null
   const format = anyLength ? await sourceFormat(ctx, itemId, anyLength) : null
   const reencode = needsReencode(format)
   const source = reencode ? anyLength : partSource(item, settings)
@@ -146,7 +150,9 @@ async function loadPlan(ctx, itemId) {
     ? `${format.codec}${format.profile ? ` ${format.profile}` : ''}`
     : format === undefined
       ? 'format check still running'
-      : 'format unknown'
+      : convert
+        ? 'format unknown'
+        : 'not converting'
   let plan = null
   if (!source) {
     // Leave a trace either way, so "the web player never asked for parts" can be
@@ -259,7 +265,7 @@ export async function handleParts(req, res, url, rawCtx) {
 
   let plan
   try {
-    plan = await loadPlan(ctx, itemId)
+    plan = await loadPlan(ctx, itemId, url.searchParams.get('convert') === '1')
   } catch (err) {
     if (err instanceof RouteError) return (json(res, err.status, { error: err.code }), true)
     throw err
@@ -283,7 +289,8 @@ export async function handleParts(req, res, url, rawCtx) {
           index: part.index,
           start: part.start,
           duration: part.duration,
-          url: `/hs/parts/${encodeURIComponent(itemId)}/${part.index}`,
+          // A converted part's URL says so, so its requests resolve this plan.
+          url: `/hs/parts/${encodeURIComponent(itemId)}/${part.index}${plan.reencode ? '?convert=1' : ''}`,
         })),
         source: { ino: plan.source.ino, duration: plan.source.duration },
       }),

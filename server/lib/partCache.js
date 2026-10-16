@@ -46,9 +46,8 @@ export function partCacheKey(itemId, source, parts, variant) {
   const basis = JSON.stringify({
     ...(variant ? { variant } : {}),
     // v2: parts are written with the M4A brand (see ffmpegArgs).
-    // v3: parts in a profile browsers can't all decode are re-encoded to
-    // AAC-LC (see needsReencode); bumping re-cuts parts made before.
-    v: 3,
+    // v4: drops parts an earlier build converted under a copied part's key.
+    v: 4,
     itemId,
     ino: source.ino,
     size: source.size || 0,
@@ -95,43 +94,14 @@ export function ffmpegArgs({ sourceUrl, absToken, start, end, outPath }) {
 // AAC profiles every browser decodes. Anything else (xHE-AAC/USAC above all,
 // which Audible ships for some newer titles and older ffprobe builds label as
 // plain "aac") plays on Windows and Android but not in Linux Chrome - the Tesla
-// browser among them - so such parts are re-encoded to AAC-LC.
+// browser among them - so for a client that cannot play them, such books are
+// converted to AAC-LC part by part (see routes/parts.js).
 const BROWSER_SAFE_AAC_PROFILES = new Set(['LC', 'HE-AAC', 'HE-AACv2'])
 
 export function needsReencode(probe) {
   if (!probe) return false // unknown: keep the copy, as before
   if (probe.codec !== 'aac') return true
   return !BROWSER_SAFE_AAC_PROFILES.has(probe.profile)
-}
-
-// ffmpeg arguments to re-encode a cut part to AAC-LC (local file to local file).
-// ~64 kbit/s per channel, which is transparent for speech.
-export function reencodeArgs({ inPath, outPath, channels }) {
-  const ch = Math.min(Math.max(Number(channels) || 2, 1), 2)
-  return [
-    '-hide_banner',
-    '-nostdin',
-    '-loglevel',
-    'error',
-    '-y',
-    '-i',
-    inPath,
-    '-map',
-    '0:a:0',
-    '-map_chapters',
-    '-1',
-    '-c:a',
-    'aac',
-    '-ac',
-    String(ch),
-    '-b:a',
-    `${64 * ch}k`,
-    '-movflags',
-    '+faststart',
-    '-f',
-    'ipod',
-    outPath,
-  ]
 }
 
 // ffmpeg arguments to cut AND re-encode one part straight from the ABS source, in
@@ -279,8 +249,6 @@ export function createPartCache(opts) {
   const maxBytes = opts.maxBytes
   const maxJobs = Math.max(1, opts.maxJobs ?? 2)
   const runFfmpeg = opts.runFfmpeg ?? ((args) => spawnFfmpeg(args))
-  // A test that fakes ffmpeg writes fake parts; probing those is pointless.
-  const probeAudio = opts.probeAudio ?? (opts.runFfmpeg ? async () => null : spawnProbe)
   const log = opts.log ?? (() => {})
   const now = opts.now ?? (() => Date.now())
 
@@ -346,7 +314,6 @@ export function createPartCache(opts) {
     await fs.mkdir(partDir, { recursive: true })
     const tmpPath = `${finalPath}.${crypto.randomBytes(4).toString('hex')}${TMP_SUFFIX}`
     const started = now()
-    let reencodePath = null
     try {
       const cut = {
         sourceUrl: job.sourceUrl,
@@ -358,45 +325,19 @@ export function createPartCache(opts) {
       await runFfmpeg(
         job.reencode ? transcodeArgs({ ...cut, channels: job.channels }) : ffmpegArgs(cut),
       )
-      let st = await fs.stat(tmpPath).catch(() => null)
+      const st = await fs.stat(tmpPath).catch(() => null)
       if (!st || st.size === 0) {
         throw new PartError('ffmpeg_failed', 'ffmpeg finished without writing the part')
       }
-      // A part planned for converting is already AAC-LC. A copied part is
-      // checked, as a safety net for audio the plan-time check missed.
-      const probe = job.reencode ? null : await probeAudio(tmpPath)
-      const audio = job.reencode
-        ? 'converted to AAC-LC'
-        : probe
-          ? `${probe.codec}${probe.profile ? ` ${probe.profile}` : ''}`
-          : 'audio unknown'
-      let note = ''
-      if (!job.reencode && needsReencode(probe)) {
-        // Copied audio some browsers cannot decode: re-encode this part.
-        reencodePath = `${tmpPath}.aac${TMP_SUFFIX}`
-        await runFfmpeg(
-          reencodeArgs({ inPath: tmpPath, outPath: reencodePath, channels: probe.channels }),
-        )
-        st = await fs.stat(reencodePath).catch(() => null)
-        if (!st || st.size === 0) {
-          throw new PartError('ffmpeg_failed', 'ffmpeg finished without re-encoding the part')
-        }
-        await fs.rm(tmpPath, { force: true })
-        await fs.rename(reencodePath, finalPath)
-        reencodePath = null
-        note = ', re-encoded to AAC-LC'
-      } else {
-        await fs.rename(tmpPath, finalPath)
-      }
+      await fs.rename(tmpPath, finalPath)
       const secs = ((now() - started) / 1000).toFixed(1)
       const mb = (st.size / (1024 * 1024)).toFixed(1)
       log(
         'info',
-        `item ${job.itemId} part ${job.index} ready in ${secs}s (${mb} MB, ${audio}${note}${job.prefetch ? ', prepared ahead' : ''})`,
+        `item ${job.itemId} part ${job.index} ready in ${secs}s (${mb} MB${job.reencode ? ', converted to AAC-LC' : ''}${job.prefetch ? ', prepared ahead' : ''})`,
       )
     } catch (err) {
       await fs.rm(tmpPath, { force: true }).catch(() => {})
-      if (reencodePath) await fs.rm(reencodePath, { force: true }).catch(() => {})
       log('warn', `item ${job.itemId} part ${job.index} failed: ${err?.message || err}`)
       throw err instanceof PartError
         ? err
