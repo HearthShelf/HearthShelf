@@ -18,6 +18,8 @@ import {
   partCacheKey,
   ffmpegArgs,
   spawnFfmpeg,
+  spawnProbe,
+  needsReencode,
   PartError,
 } from '../lib/partCache.js'
 import { parseRange, sendFileWithRange } from '../lib/http.js'
@@ -623,6 +625,108 @@ test(
       assert.ok(Math.abs(partsTotal - total) < 0.3, `parts sum ${partsTotal}s vs source ${total}s`)
     } finally {
       await new Promise((r) => server.close(r))
+    }
+  },
+)
+
+// --- re-encoding parts browsers can't all decode ----------------------------
+
+test('only browser-safe AAC profiles are kept as a straight copy', () => {
+  assert.equal(needsReencode(null), false)
+  assert.equal(needsReencode({ codec: 'aac', profile: 'LC' }), false)
+  assert.equal(needsReencode({ codec: 'aac', profile: 'HE-AAC' }), false)
+  assert.equal(needsReencode({ codec: 'aac', profile: 'HE-AACv2' }), false)
+  assert.equal(needsReencode({ codec: 'aac', profile: 'xHE-AAC' }), true)
+  assert.equal(needsReencode({ codec: 'aac', profile: '' }), true)
+  assert.equal(needsReencode({ codec: 'usac', profile: '' }), true)
+  assert.equal(needsReencode({ codec: 'eac3', profile: '' }), true)
+})
+
+test('a part the probe flags is re-encoded before it is served', async () => {
+  const dir = await tmpDir()
+  const runs = []
+  const pc = createPartCache({
+    dir,
+    maxBytes: 1e9,
+    runFfmpeg: async (args) => {
+      runs.push(args)
+      await fs.writeFile(args.at(-1), runs.length === 1 ? 'copied' : 'reencoded')
+    },
+    probeAudio: async () => ({ codec: 'aac', profile: 'xHE-AAC', channels: 1 }),
+  })
+  const p = await pc.getPart(job(0))
+  assert.equal(await fs.readFile(p, 'utf8'), 'reencoded')
+  assert.equal(runs.length, 2)
+  assert.ok(runs[1].includes('-c:a') && runs[1].includes('64k'), 'mono re-encode at 64k')
+  // No temp files left behind.
+  assert.deepEqual(await fs.readdir(path.dirname(p)), ['0.m4a'])
+})
+
+test('a browser-safe part is not re-encoded', async () => {
+  const dir = await tmpDir()
+  let n = 0
+  const pc = createPartCache({
+    dir,
+    maxBytes: 1e9,
+    runFfmpeg: async (args) => {
+      n++
+      await fs.writeFile(args.at(-1), 'copied')
+    },
+    probeAudio: async () => ({ codec: 'aac', profile: 'LC', channels: 2 }),
+  })
+  await pc.getPart(job(0))
+  assert.equal(n, 1)
+})
+
+test(
+  'real ffmpeg: probing reads the profile, and a re-encode yields AAC-LC',
+  { skip: hasFfmpeg ? false : 'ffmpeg/ffprobe not installed' },
+  async () => {
+    const dir = await tmpDir()
+    const src = path.join(dir, 'src.m4a')
+    const made = spawnSync(FFMPEG, [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=duration=30',
+      '-c:a',
+      'aac',
+      '-f',
+      'ipod',
+      src,
+    ])
+    assert.equal(made.status, 0, String(made.stderr))
+    assert.equal((await spawnProbe(src))?.profile, 'LC')
+
+    const server = http.createServer((req, res) =>
+      sendFileWithRange(req, res, src, { contentType: 'audio/mp4' }),
+    )
+    await new Promise((r) => server.listen(0, '127.0.0.1', r))
+    try {
+      const pc = createPartCache({
+        dir: path.join(dir, 'cache'),
+        maxBytes: 1e9,
+        // Pretend the source is xHE-AAC so the re-encode path runs for real.
+        probeAudio: async (f) => ({ ...(await spawnProbe(f)), profile: 'xHE-AAC' }),
+      })
+      const out = await pc.getPart({
+        itemId: 'li_x',
+        key: 'kx',
+        index: 0,
+        start: 5,
+        end: 20,
+        sourceUrl: `http://127.0.0.1:${server.address().port}/f`,
+        absToken: '',
+      })
+      const probe = await spawnProbe(out)
+      assert.equal(probe?.codec, 'aac')
+      assert.equal(probe?.profile, 'LC')
+      assert.ok(Math.abs(probeDuration(out) - 15) < 0.5)
+    } finally {
+      server.close()
     }
   },
 )
