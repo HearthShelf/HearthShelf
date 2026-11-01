@@ -4,6 +4,7 @@ import { Modal } from '@/components/common/Modal'
 import { Icon } from '@/components/common/Icon'
 import { useSubmitRequest, useRmabEnabled } from '@/hooks/useRmab'
 import { audibleStoreUrl } from '@/api/audible'
+import { RMAB_REJECTION_COPY } from '@hearthshelf/core'
 import { RmabRequestError, type RmabRequest } from '@/api/requests'
 import type { CatalogResult } from '@/components/requests/RequestTile'
 
@@ -24,14 +25,6 @@ interface RequestConfirmModalProps {
 // approval), so we branch the success copy on the returned request status.
 function isAwaitingApproval(req?: RmabRequest): boolean {
   return req?.status === 'awaiting_approval'
-}
-
-const ERROR_COPY: Record<string, string> = {
-  AlreadyAvailable: 'That title is already in your library.',
-  BeingProcessed: 'That title is already being processed.',
-  DuplicateRequest: "You've already requested that title.",
-  Ignored: 'That title is on your ignore list.',
-  UserNotFound: "Couldn't find the requesting account on ReadMeABook.",
 }
 
 export function RequestConfirmModal({
@@ -62,12 +55,12 @@ export function RequestConfirmModal({
       {
         onSuccess: (res) => {
           if (res.success && res.request) setResult(res.request)
-          else setError(ERROR_COPY[res.error ?? ''] ?? 'Request failed. Please try again.')
+          else setError(RMAB_REJECTION_COPY[res.error ?? ''] ?? 'Request failed. Please try again.')
         },
         onError: (e) => {
           if (e instanceof RmabRequestError) {
             setError(
-              ERROR_COPY[e.code] ??
+              RMAB_REJECTION_COPY[e.code] ??
                 (e.detail && !e.detail.startsWith('rmab_') ? e.detail : undefined) ??
                 `ReadMeABook request failed (${e.status}). Check Admin > Logs for details.`,
             )
