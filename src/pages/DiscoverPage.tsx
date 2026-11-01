@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { ownedIndexFromLibraryItems } from '@hearthshelf/core'
 import { useQuery } from '@tanstack/react-query'
 import { getAllLibraryItems, libraryKeys } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
@@ -35,16 +36,10 @@ export function DiscoverPage() {
 
   const items = useMemo(() => data?.results ?? [], [data])
   const byId = useMemo(() => new Map(items.map((it) => [it.id, it])), [items])
-  const ownedKeys = useMemo(
-    () =>
-      new Set(
-        items.map((it) => {
-          const m = it.media.metadata
-          return ((m.title ?? '') + '|' + (m.authorName ?? '')).toLowerCase()
-        }),
-      ),
-    [items],
-  )
+  // Already library-wide here; the shared matcher adds ASIN identity and
+  // normalization, so a differing ", Book 1" or "J.K." no longer reports an owned
+  // book as unowned. See core's lib/ownedMatch.ts.
+  const ownedIndex = useMemo(() => ownedIndexFromLibraryItems(items), [items])
   // Books in series the user ignored. Ignore means "no interest", so they drop
   // out of every row here while staying in the library and in search.
   const ignoredIds = useIgnoredItemIds()
@@ -123,7 +118,7 @@ export function DiscoverPage() {
         </p>
       </div>
 
-      <DiscoverSearch ownedKeys={ownedKeys} />
+      <DiscoverSearch ownedIndex={ownedIndex} />
 
       {qgEnabled && <QuestGiverEntry totalFinished={profile.totalFin} />}
 

@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { searchLibrary } from '@/api/libraries'
+import { EMPTY_OWNED_INDEX, ownedIndexFromLibraryItems } from '@hearthshelf/core'
+import { getAllLibraryItems, libraryKeys, searchLibrary } from '@/api/libraries'
 import { useActiveLibrary } from '@/hooks/useActiveLibrary'
 import { useMediaProgress } from '@/hooks/useMediaProgress'
 import { Cover, tintFor } from '@/components/common/Cover'
@@ -36,6 +38,14 @@ export function SearchPage() {
     staleTime: 60 * 1000,
   })
 
+  // The whole library, for the ownership check below. Shares react-query's cache
+  // with Discover and the QuestGiver assessment, so it is usually already warm.
+  const { data: allItems } = useQuery({
+    queryKey: libraryKeys.allItems(activeId ?? ''),
+    queryFn: () => getAllLibraryItems(activeId as string),
+    enabled: activeId !== null && q.length >= 2,
+  })
+
   const books = data?.book ?? []
   const series = data?.series ?? []
   const authors = data?.authors ?? []
@@ -43,12 +53,14 @@ export function SearchPage() {
   const hasResults =
     books.length > 0 || series.length > 0 || authors.length > 0 || narrators.length > 0
 
-  // Owned-title keys so the requestable lane never lists books we already have.
-  const ownedKeys = new Set(
-    books.map(({ libraryItem }) => {
-      const m = libraryItem.media.metadata
-      return ((m.title ?? '') + '|' + (m.authorName ?? '')).toLowerCase()
-    }),
+  // Ownership for the requestable lane is decided against the WHOLE library, not
+  // against this query's hits. ABS's search is a substring match while Audible's
+  // absorbs typos, so a misspelled query found nothing here and the right book
+  // there - leaving the owned set empty and offering a Request for a book already
+  // on the shelf. See core's lib/ownedMatch.ts.
+  const ownedIndex = useMemo(
+    () => (allItems ? ownedIndexFromLibraryItems(allItems.results) : EMPTY_OWNED_INDEX),
+    [allItems],
   )
 
   return (
@@ -171,7 +183,7 @@ export function SearchPage() {
         </div>
       )}
 
-      {q.length >= 2 && <ExternalSearchLane query={q} ownedKeys={ownedKeys} />}
+      {q.length >= 2 && <ExternalSearchLane query={q} ownedIndex={ownedIndex} />}
     </div>
   )
 }

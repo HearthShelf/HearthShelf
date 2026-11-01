@@ -6,16 +6,18 @@ import { RequestTile, type CatalogResult } from '@/components/requests/RequestTi
 import { RequestConfirmModal } from '@/components/requests/RequestConfirmModal'
 import { searchAudible, audibleKeys } from '@/api/audible'
 import { useRmabEnabled } from '@/hooks/useRmab'
+import { isOwnedExternalResult, type OwnedIndex } from '@hearthshelf/core'
 
 interface DiscoverSearchProps {
-  // Owned-title keys ("title|author" lowercased) so we never list what's owned.
-  ownedKeys: Set<string>
+  // Ownership lookup over the whole library - ASIN first, then normalized
+  // title+author. See core's lib/ownedMatch.ts.
+  ownedIndex: OwnedIndex
 }
 
 // Audible catalog search on Discover. HearthShelf owns this search (our own
 // backend), independent of any connector. Each result is Requestable when RMAB
 // is connected; otherwise it links out to buy on Audible (always available).
-export function DiscoverSearch({ ownedKeys }: DiscoverSearchProps) {
+export function DiscoverSearch({ ownedIndex }: DiscoverSearchProps) {
   const [q, setQ] = useState('')
   const [confirm, setConfirm] = useState<CatalogResult | null>(null)
   const canRequest = useRmabEnabled()
@@ -29,9 +31,7 @@ export function DiscoverSearch({ ownedKeys }: DiscoverSearchProps) {
     retry: false,
   })
 
-  const results = (data?.results ?? []).filter(
-    (r) => !ownedKeys.has((r.title + '|' + r.author).toLowerCase()),
-  )
+  const results = (data?.results ?? []).filter((r) => !isOwnedExternalResult(ownedIndex, r))
 
   return (
     <div className="section">
