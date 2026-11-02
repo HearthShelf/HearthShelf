@@ -17,7 +17,7 @@
     "@libsql/client": "^0.18.0",
     "adm-zip": "^0.6.1",
     "jose": "^6.2.12",
-    "mailparser": "^3.9.33",
-    "smtp-server": "^3.19.16"
+    "mailparser": "^3.14.1",
+    "smtp-server": "^3.21.3"
   }
 }
