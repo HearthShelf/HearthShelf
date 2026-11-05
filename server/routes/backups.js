@@ -10,6 +10,9 @@
 //   POST   /hs/backups/upload          -> upload a .hsbackup (raw body) into the
 //                                         backups dir (manifest validated)
 //   POST   /hs/backups/:id/restore     -> restore from a backup (replace)
+//   POST   /hs/archive/builds          -> start building an archive (202, one at a time)
+//   GET    /hs/archive/builds/:id      -> how that build is going
+//   GET    /hs/archive/builds/:id/download -> stream the finished archive, then delete it
 //
 // The ABS half of the Backups page is served by ABS's own /api/backups; this
 // module is only HearthShelf's data. See docs/data-lifecycle/backups.md.
@@ -28,7 +31,15 @@ import {
   BACKUP_DIR,
 } from '../lib/backup.js'
 import { runJob, isJobRunning } from '../jobs/runner.js'
-import { createArchive, estimateArchive, restoreArchive } from '../lib/archive.js'
+import {
+  createArchive,
+  estimateArchive,
+  restoreArchive,
+  startArchiveBuild,
+  getArchiveBuild,
+  archiveBuildFile,
+  finishArchiveBuild,
+} from '../lib/archive.js'
 import { runReconcile, reprovisionServiceRoot } from '../lib/reconcile.js'
 import { setHostedConfig } from '../lib/hosted.js'
 
@@ -108,6 +119,39 @@ export async function handleBackups(req, res, url, ctx) {
     } catch (err) {
       return (json(res, 500, { error: 'archive_failed', detail: String(err?.message ?? err) }), true)
     }
+  }
+
+  // POST /hs/archive/builds - start a build for clients that can't hold a request
+  // open until it is done. Answers with the running build if there is one.
+  if (p === '/hs/archive/builds' && req.method === 'POST') {
+    return (json(res, 202, await startArchiveBuild(ctx.absToken)), true)
+  }
+
+  // GET /hs/archive/builds/:id/download - stream the file, then delete it.
+  const buildDl = p.match(/^\/hs\/archive\/builds\/([^/]+)\/download$/)
+  if (buildDl && req.method === 'GET') {
+    const id = decodeURIComponent(buildDl[1])
+    const file = archiveBuildFile(id)
+    if (!file) return (json(res, 404, { error: 'not_found' }), true)
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Length': file.size,
+      'Content-Disposition': `attachment; filename="${file.filename}"`,
+    })
+    res.once('finish', () => void finishArchiveBuild(id))
+    const stream = fs.createReadStream(file.path)
+    // An unhandled stream error would take the whole server down. The expiry timer
+    // can delete the file just as a download starts.
+    stream.on('error', () => res.destroy())
+    stream.pipe(res)
+    return true
+  }
+
+  // GET /hs/archive/builds/:id - build status.
+  const buildStatus = p.match(/^\/hs\/archive\/builds\/([^/]+)$/)
+  if (buildStatus && req.method === 'GET') {
+    const build = getArchiveBuild(decodeURIComponent(buildStatus[1]))
+    return (json(res, build ? 200 : 404, build ?? { error: 'not_found' }), true)
   }
 
   // POST /hs/archive/restore - restore/replace from an uploaded archive.

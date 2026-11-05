@@ -155,6 +155,109 @@ export async function createArchive(absToken, logger) {
   return { buffer: zip.toBuffer(), filename, manifest }
 }
 
+// --- Build-then-download ----------------------------------------------------
+//
+// POST /hs/archive sends nothing until the whole archive exists, and a proxy or
+// phone drops a request that stays quiet that long. So a client can instead start
+// a build, ask how it is going, and fetch the finished file with a plain GET.
+//
+// The file holds server secrets, so it lives only until it is downloaded or
+// ARCHIVE_BUILD_TTL_MS passes. Its path is never built from a client's id: the id
+// is only compared with the one current build.
+
+export const ARCHIVE_BUILD_TTL_MS = 30 * 60 * 1000
+const BUILD_FILE_PREFIX = '.archive-build-'
+
+let currentBuild = null // { id, status, path, filename, size, error, timer }
+
+function publicBuild(build) {
+  return {
+    id: build.id,
+    status: build.status,
+    filename: build.filename,
+    size: build.size,
+    error: build.error,
+  }
+}
+
+async function discardBuild(build) {
+  if (build.timer) clearTimeout(build.timer)
+  if (currentBuild === build) currentBuild = null
+  if (build.path) await fs.rm(build.path, { force: true }).catch(() => {})
+}
+
+// Files left by a process that died before it could clean up.
+async function removeStrayBuildFiles(dir) {
+  const files = await fs.readdir(dir).catch(() => [])
+  await Promise.all(
+    files
+      .filter((f) => f.startsWith(BUILD_FILE_PREFIX))
+      .map((f) => fs.rm(path.join(dir, f), { force: true }).catch(() => {})),
+  )
+}
+
+// Start a build, or hand back the one already running: one at a time. A finished
+// build nobody fetched is replaced. `create`, `dir` and `ttlMs` are seams for tests.
+export async function startArchiveBuild(
+  absToken,
+  logger,
+  { create = createArchive, dir = BACKUP_DIR, ttlMs = ARCHIVE_BUILD_TTL_MS } = {},
+) {
+  if (currentBuild?.status === 'building') return publicBuild(currentBuild)
+  // No await between here and claiming currentBuild, so two calls can't both build.
+  const stale = currentBuild
+  const build = {
+    id: crypto.randomUUID(),
+    status: 'building',
+    path: null,
+    filename: null,
+    size: null,
+    error: null,
+    timer: null,
+  }
+  currentBuild = build
+
+  void (async () => {
+    try {
+      if (stale) await discardBuild(stale)
+      await fs.mkdir(dir, { recursive: true })
+      await removeStrayBuildFiles(dir)
+      const { buffer, filename } = await create(absToken, logger)
+      build.path = path.join(dir, `${BUILD_FILE_PREFIX}${build.id}${ARCHIVE_EXT}`)
+      await fs.writeFile(build.path, buffer)
+      build.filename = filename
+      build.size = buffer.length
+      build.status = 'ready'
+    } catch (err) {
+      if (build.path) await fs.rm(build.path, { force: true }).catch(() => {})
+      build.path = null
+      build.status = 'error'
+      build.error = String(err?.message ?? err)
+    }
+    build.timer = setTimeout(() => void discardBuild(build), ttlMs)
+    build.timer.unref?.()
+  })()
+
+  return publicBuild(build)
+}
+
+// The public view of a build, or null when the id is not the current build.
+export function getArchiveBuild(id) {
+  return currentBuild?.id === id ? publicBuild(currentBuild) : null
+}
+
+// What the download route needs, or null unless that build's file is ready.
+export function archiveBuildFile(id) {
+  if (currentBuild?.id !== id || currentBuild.status !== 'ready') return null
+  return { path: currentBuild.path, filename: currentBuild.filename, size: currentBuild.size }
+}
+
+// Called once the whole file has gone out. An interrupted download keeps the file
+// so it can be tried again until the timeout.
+export async function finishArchiveBuild(id) {
+  if (currentBuild?.id === id) await discardBuild(currentBuild)
+}
+
 // Size estimate shown before a download (GET /hs/archive/estimate). ABS size is
 // unknown until produced, so it's null; HS size is the last backup's size if one
 // exists, else null (the UI shows "~" / "unknown").
