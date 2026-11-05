@@ -39,13 +39,34 @@ import { getBackupConfig } from '../backupConfig.js'
 export const BACKUP_MANIFEST_VERSION = 1
 export const BACKUP_EXT = '.hsbackup'
 const BACKUP_DIR = path.join(DB_DIR, 'backups')
+export const TRANSIENT_BACKUP_PREFIX = '.archive-part-'
 
 // A single in-process gate. Only one backup/restore touches the DB file at a
 // time; a restore also holds it while it swaps the file out from under the
 // connection. The backend is the single writer, so an in-process flag suffices.
 let busy = false
+let restoring = false
 export function isBackupBusy() {
   return busy
+}
+
+// True while a HearthShelf or archive restore holds the gate. Plain memory on
+// purpose: the database may be closed when an admin asks.
+export function isRestoring() {
+  return restoring
+}
+
+// Claim the gate for a restore. An archive claims it before touching ABS, so a
+// busy box refuses the whole restore rather than half of it.
+export function beginRestore() {
+  if (busy) throw new Error('A backup or restore is already in progress.')
+  busy = true
+  restoring = true
+}
+
+export function endRestore() {
+  busy = false
+  restoring = false
 }
 
 async function ensureDir(dir) {
@@ -152,7 +173,10 @@ class BackupCancelled extends Error {
 // optional) lets a Kill bail out at a phase boundary, before anything durable is
 // written. The heavy single operations (VACUUM INTO, zip write) can't be
 // interrupted midway, so cancellation lands between phases, not inside them.
-export async function createBackup(logger, signal) {
+// `transient` is for a backup that only exists to go inside an archive: it is not
+// listed, not mirrored, and doesn't push a real backup out through retention. The
+// caller deletes the file.
+export async function createBackup(logger, signal, { transient = false } = {}) {
   if (busy) throw new Error('A backup or restore is already in progress.')
   busy = true
   const tmpSnap = path.join(BACKUP_DIR, `.snapshot-${crypto.randomUUID()}.db`)
@@ -194,11 +218,15 @@ export async function createBackup(logger, signal) {
     for (const root of fileRoots) addTreeToZip(zip, path.join(DB_DIR, root), root)
 
     const filename = `hearthshelf-${slug(serverName)}-${stamp(createdAt)}${BACKUP_EXT}`
-    const outPath = path.join(BACKUP_DIR, filename)
+    const outPath = path.join(
+      BACKUP_DIR,
+      transient ? `${TRANSIENT_BACKUP_PREFIX}${crypto.randomUUID()}` : filename,
+    )
     checkCancelled()
     zip.writeZip(outPath)
     const size = (await fs.stat(outPath)).size
     logger?.info?.(`Wrote ${filename} (${size} bytes)`)
+    if (transient) return { filename, size, path: outPath }
 
     // Off-box mirror (HS_BACKUP_PATH or the configured off_box_path). Best-effort.
     const cfg = await getBackupConfig()
@@ -353,31 +381,40 @@ const DB_SIDECARS = ['-wal', '-shm']
 //   5. reopenDb() - fresh connection, re-run migrations.
 //
 // Returns { crossServer, backupServerId } so the caller can warn on a migration.
-export async function restoreBackup(zipPath, logger) {
-  if (busy) throw new Error('A backup or restore is already in progress.')
-  busy = true
+// Everything that can be checked about a backup without changing anything. Throws
+// with a reason an admin can read.
+export function inspectBackup(zipPath) {
+  let zip
+  try {
+    zip = new AdmZip(zipPath)
+  } catch {
+    throw new Error('That backup file is not a valid archive.')
+  }
+  const manifestEntry = zip.getEntry('manifest.json')
+  const dbEntry = zip.getEntry('hearthshelf.db')
+  let manifest = null
+  if (manifestEntry) {
+    try {
+      manifest = JSON.parse(zip.readAsText(manifestEntry))
+    } catch {
+      manifest = null
+    }
+  }
+  const check = validateBackupManifest(manifest)
+  if (!check.ok) throw new Error(check.reason || 'This backup cannot be restored.')
+  if (!dbEntry) throw new Error('That backup is missing its database - cannot restore.')
+  return { zip, manifest, dbEntry }
+}
+
+// `gateHeld` means the caller already ran beginRestore and will run endRestore. An
+// error thrown once live data has been moved carries `partial: true`.
+export async function restoreBackup(zipPath, logger, { gateHeld = false } = {}) {
+  if (!gateHeld) beginRestore()
   let closed = false // did we close the DB (must reopen even on failure)?
+  let touched = false // has live data been moved?
   try {
     await initDb()
-    let zip
-    try {
-      zip = new AdmZip(zipPath)
-    } catch {
-      throw new Error('That backup file is not a valid archive.')
-    }
-    const manifestEntry = zip.getEntry('manifest.json')
-    const dbEntry = zip.getEntry('hearthshelf.db')
-    let manifest = null
-    if (manifestEntry) {
-      try {
-        manifest = JSON.parse(zip.readAsText(manifestEntry))
-      } catch {
-        manifest = null
-      }
-    }
-    const check = validateBackupManifest(manifest)
-    if (!check.ok) throw new Error(check.reason || 'This backup cannot be restored.')
-    if (!dbEntry) throw new Error('That backup is missing its database - cannot restore.')
+    const { zip, manifest, dbEntry } = inspectBackup(zipPath)
 
     const thisServerId = await getServerId()
     const backupServerId = String(manifest.serverId)
@@ -401,6 +438,7 @@ export async function restoreBackup(zipPath, logger) {
     const fileRoots = Array.isArray(manifest.fileRoots) ? manifest.fileRoots : backupFileRoots()
 
     // Move the live db + sidecars aside.
+    touched = true
     for (const suffix of ['', ...DB_SIDECARS]) {
       const src = DB_FILE + suffix
       if (fsSync.existsSync(src)) {
@@ -449,6 +487,9 @@ export async function restoreBackup(zipPath, logger) {
 
     logger?.info?.(crossServer ? 'Restored (from a different server)' : 'Restored')
     return { crossServer, backupServerId, escapeDir: path.basename(escapeDir) }
+  } catch (err) {
+    if (touched) err.partial = true
+    throw err
   } finally {
     // If we closed the DB but failed before the normal reopen (a mid-restore
     // error), reconnect so the box isn't left with a dead connection. The file
@@ -461,7 +502,7 @@ export async function restoreBackup(zipPath, logger) {
         // nothing more we can do here; boot will retry on next process start
       }
     }
-    busy = false
+    if (!gateHeld) endRestore()
   }
 }
 

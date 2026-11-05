@@ -41,6 +41,7 @@ import http from 'node:http'
 import { json } from './lib/http.js'
 import { resolveContext } from './lib/context.js'
 import { initDb, getServerId } from './db.js'
+import { sweepArchiveTempFiles } from './lib/archive.js'
 import { isProviderConfigured } from './providers.js'
 import { handleQuestGiver } from './routes/questgiver.js'
 import { handleDiscover } from './routes/discover.js'
@@ -234,6 +235,7 @@ const server = http.createServer(async (req, res) => {
 // table creation.
 initDb()
   .then(async () => {
+    void sweepArchiveTempFiles()
     const serverId = await getServerId()
     const configured = await isProviderConfigured()
     // All-in-one image: detect the bundled ABS's setup state on boot (is it

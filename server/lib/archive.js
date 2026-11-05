@@ -18,7 +18,16 @@ import AdmZip from 'adm-zip'
 import { getServerId, getServerName, DB_DIR } from '../db.js'
 import { getMode } from './context.js'
 import { HS_VERSION } from './hsVersion.js'
-import { createBackup, restoreBackup, readManifestFromZip, BACKUP_DIR } from './backup.js'
+import {
+  createBackup,
+  restoreBackup,
+  inspectBackup,
+  beginRestore,
+  endRestore,
+  readManifestFromZip,
+  BACKUP_DIR,
+  TRANSIENT_BACKUP_PREFIX,
+} from './backup.js'
 import { validateArchiveManifest } from '@hearthshelf/core'
 
 export const ARCHIVE_FORMAT_VERSION = 1
@@ -96,9 +105,15 @@ export async function createArchive(absToken, logger) {
 
   // HS half (always).
   logger?.info?.('Backing up HearthShelf data')
-  const hs = await createBackup(logger)
-  const hsBytes = await fs.readFile(hs.path)
-  const hsManifest = readManifestFromZip(hs.path)
+  const hs = await createBackup(logger, undefined, { transient: true })
+  let hsBytes
+  let hsManifest
+  try {
+    hsBytes = await fs.readFile(hs.path)
+    hsManifest = readManifestFromZip(hs.path)
+  } finally {
+    await fs.rm(hs.path, { force: true }).catch(() => {})
+  }
 
   // ABS half (best-effort).
   const abs = await fetchAbsBackup(absToken, logger)
@@ -168,7 +183,7 @@ export async function createArchive(absToken, logger) {
 export const ARCHIVE_BUILD_TTL_MS = 30 * 60 * 1000
 const BUILD_FILE_PREFIX = '.archive-build-'
 
-let currentBuild = null // { id, status, path, filename, size, error, timer }
+let currentBuild = null // { id, status, path, filename, size, absPresent, error, timer }
 
 function publicBuild(build) {
   return {
@@ -176,6 +191,9 @@ function publicBuild(build) {
     status: build.status,
     filename: build.filename,
     size: build.size,
+    // False on a ready build means the ABS step failed and the archive holds
+    // HearthShelf data only.
+    absPresent: build.absPresent,
     error: build.error,
   }
 }
@@ -186,14 +204,19 @@ async function discardBuild(build) {
   if (build.path) await fs.rm(build.path, { force: true }).catch(() => {})
 }
 
-// Files left by a process that died before it could clean up.
-async function removeStrayBuildFiles(dir) {
+async function removeFilesStartingWith(dir, prefixes) {
   const files = await fs.readdir(dir).catch(() => [])
   await Promise.all(
     files
-      .filter((f) => f.startsWith(BUILD_FILE_PREFIX))
+      .filter((f) => prefixes.some((prefix) => f.startsWith(prefix)))
       .map((f) => fs.rm(path.join(dir, f), { force: true }).catch(() => {})),
   )
+}
+
+// At boot nothing can be using these, so anything here was left by a process that
+// died. They hold server secrets.
+export function sweepArchiveTempFiles(dir = BACKUP_DIR) {
+  return removeFilesStartingWith(dir, [BUILD_FILE_PREFIX, TRANSIENT_BACKUP_PREFIX])
 }
 
 // Start a build, or hand back the one already running: one at a time. A finished
@@ -212,6 +235,7 @@ export async function startArchiveBuild(
     path: null,
     filename: null,
     size: null,
+    absPresent: null,
     error: null,
     timer: null,
   }
@@ -221,12 +245,13 @@ export async function startArchiveBuild(
     try {
       if (stale) await discardBuild(stale)
       await fs.mkdir(dir, { recursive: true })
-      await removeStrayBuildFiles(dir)
-      const { buffer, filename } = await create(absToken, logger)
+      await removeFilesStartingWith(dir, [BUILD_FILE_PREFIX])
+      const { buffer, filename, manifest } = await create(absToken, logger)
       build.path = path.join(dir, `${BUILD_FILE_PREFIX}${build.id}${ARCHIVE_EXT}`)
       await fs.writeFile(build.path, buffer)
       build.filename = filename
       build.size = buffer.length
+      build.absPresent = Boolean(manifest?.contents?.abs?.present)
       build.status = 'ready'
     } catch (err) {
       if (build.path) await fs.rm(build.path, { force: true }).catch(() => {})
@@ -301,9 +326,16 @@ export async function applyAbsHalf(absToken, absBytes, logger) {
   if (!newest) throw new Error('AudiobookShelf did not report the uploaded backup.')
 
   logger?.info?.('Applying the AudiobookShelf backup')
-  const apply = await fetch(`${base}/api/backups/${encodeURIComponent(newest.id)}/apply`, {
-    headers: auth,
-  })
+  let apply
+  try {
+    apply = await fetch(`${base}/api/backups/${encodeURIComponent(newest.id)}/apply`, {
+      headers: auth,
+    })
+  } catch (err) {
+    // No answer, so ABS may have replaced its data anyway.
+    err.partial = true
+    throw err
+  }
   if (!apply.ok) throw new Error(`AudiobookShelf could not apply the backup (${apply.status}).`)
   return true
 }
@@ -315,7 +347,17 @@ export async function applyAbsHalf(absToken, absBytes, logger) {
 //                consistent. The full-server restore.
 //   'hs-only'  - restore only the HS half (Thin -> AIO variants).
 // ('import' is the merge engine's job - Phase 4 - and is rejected here.)
-export async function restoreArchive(buffer, mode, absToken, logger) {
+//
+// Everything that can fail cheaply is checked, and the gate claimed, before ABS is
+// touched: ABS has no undo. An error after that point carries `partial: true`.
+// `applyAbs` and `restoreHs` are seams for tests.
+export async function restoreArchive(
+  buffer,
+  mode,
+  absToken,
+  logger,
+  { applyAbs = applyAbsHalf, restoreHs = restoreBackup } = {},
+) {
   if (mode === 'import') throw new Error('Import mode is handled by the merge engine, not archive restore.')
   let zip
   try {
@@ -338,24 +380,36 @@ export async function restoreArchive(buffer, mode, absToken, logger) {
   const absEntry = zip.getEntry(ABS_INNER)
   const hsEntry = zip.getEntry(HS_INNER)
 
-  // ABS FIRST (replace mode, ABS half present).
-  if (mode === 'replace' && absEntry) {
-    await applyAbsHalf(absToken, absEntry.getData(), logger)
-  }
+  // An ABS-only archive in hs-only mode has nothing to do.
+  if (!hsEntry && mode === 'hs-only') throw new Error('This archive has no HearthShelf data to restore.')
+  const restoreAbs = mode === 'replace' && Boolean(absEntry)
 
-  // HS half. Write it to the backups dir then reuse the Phase 1 restore.
-  if (!hsEntry) {
-    // An ABS-only archive in hs-only mode has nothing to do.
-    if (mode === 'hs-only') throw new Error('This archive has no HearthShelf data to restore.')
-    return { absRestored: Boolean(absEntry), hsRestored: false }
-  }
   const tmp = path.join(BACKUP_DIR, `.archive-hs-${crypto.randomUUID()}.hsbackup`)
-  await fs.mkdir(BACKUP_DIR, { recursive: true })
-  await fs.writeFile(tmp, hsEntry.getData())
+  beginRestore()
+  let absChanged = false
   try {
-    const hsResult = await restoreBackup(tmp, logger)
-    return { absRestored: mode === 'replace' && Boolean(absEntry), hsRestored: true, ...hsResult }
+    if (hsEntry) {
+      await fs.mkdir(BACKUP_DIR, { recursive: true })
+      await fs.writeFile(tmp, hsEntry.getData())
+      inspectBackup(tmp)
+    }
+    const absBytes = restoreAbs ? absEntry.getData() : null
+
+    // ABS first: its restore replaces every user id with the archive's ids, and the
+    // HS half is keyed to exactly those ids, so the pair stays consistent.
+    if (restoreAbs) {
+      await applyAbs(absToken, absBytes, logger)
+      absChanged = true
+    }
+    if (!hsEntry) return { absRestored: restoreAbs, hsRestored: false }
+
+    const hsResult = await restoreHs(tmp, logger, { gateHeld: true })
+    return { absRestored: restoreAbs, hsRestored: true, ...hsResult }
+  } catch (err) {
+    if (absChanged) err.partial = true
+    throw err
   } finally {
     await fs.rm(tmp, { force: true }).catch(() => {})
+    endRestore()
   }
 }

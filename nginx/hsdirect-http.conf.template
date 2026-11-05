@@ -67,6 +67,24 @@ server {
         proxy_send_timeout 1200s;
     }
 
+    # --- Full-server archive download ---
+    # Unbuffered, so the backend only sees the download finish once the client has
+    # taken the last byte: it deletes the file at that point. Large and possibly slow
+    # over a phone connection, so the timeouts are long.
+    location /hs/archive/builds/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     # HearthShelf backend. Host is the LAN address the client used; $scheme=http.
     location /hs/ {
         proxy_pass http://127.0.0.1:8080;

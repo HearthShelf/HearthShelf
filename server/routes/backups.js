@@ -13,6 +13,7 @@
 //   POST   /hs/archive/builds          -> start building an archive (202, one at a time)
 //   GET    /hs/archive/builds/:id      -> how that build is going
 //   GET    /hs/archive/builds/:id/download -> stream the finished archive, then delete it
+//   GET    /hs/backups/restore-status  -> { restoring }, answered without the database
 //
 // The ABS half of the Backups page is served by ABS's own /api/backups; this
 // module is only HearthShelf's data. See docs/data-lifecycle/backups.md.
@@ -26,6 +27,7 @@ import {
   listBackups,
   deleteBackup,
   backupPathForId,
+  isRestoring,
   saveUploadedBackup,
   restoreBackup,
   BACKUP_DIR,
@@ -45,6 +47,17 @@ import { setHostedConfig } from '../lib/hosted.js'
 
 // A .hsbackup is small (the DB + a few avatars), but give generous headroom.
 const MAX_BACKUP_UPLOAD_BYTES = 512 * 1024 * 1024
+
+// A failed restore. `partial_restore` means live data was changed before it failed,
+// so a client must not say that nothing was replaced.
+function restoreFailed(res, err) {
+  const partial = err?.partial === true
+  json(res, partial ? 500 : 400, {
+    error: partial ? 'partial_restore' : 'restore_failed',
+    detail: String(err?.message ?? err),
+  })
+  return true
+}
 
 // The most recent hs-backup job run, for the lastRun field.
 async function lastBackupRun(serverId) {
@@ -72,6 +85,11 @@ export async function handleBackups(req, res, url, ctx) {
   if (!p.startsWith('/hs/backups') && !p.startsWith('/hs/archive')) return false
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
   if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
+
+  // Before anything that reads the database, which a restore has closed.
+  if (p === '/hs/backups/restore-status' && req.method === 'GET') {
+    return (json(res, 200, { restoring: isRestoring() }), true)
+  }
 
   const serverId = await getServerId()
 
@@ -143,6 +161,7 @@ export async function handleBackups(req, res, url, ctx) {
     // An unhandled stream error would take the whole server down. The expiry timer
     // can delete the file just as a download starts.
     stream.on('error', () => res.destroy())
+    res.once('close', () => stream.destroy())
     stream.pipe(res)
     return true
   }
@@ -170,7 +189,7 @@ export async function handleBackups(req, res, url, ctx) {
       const result = await restoreArchive(buf, mode, ctx.absToken)
       return (json(res, 200, { ok: true, ...result }), true)
     } catch (err) {
-      return (json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }), true)
+      return restoreFailed(res, err)
     }
   }
 
@@ -246,7 +265,7 @@ export async function handleBackups(req, res, url, ctx) {
       const result = await restoreBackup(full)
       return (json(res, 200, { ok: true, ...result }), true)
     } catch (err) {
-      return (json(res, 400, { error: 'restore_failed', detail: String(err?.message ?? err) }), true)
+      return restoreFailed(res, err)
     }
   }
 
