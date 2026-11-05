@@ -10,6 +10,10 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    # epubjs 0.4.x is a side branch with an async API that blanks the reader.
+    ignore:
+      - dependency-name: epubjs
+        versions: ['>=0.4.0']
     # Group low-risk updates into single PRs to cut noise; majors stay separate.
     groups:
       dev-dependencies:
