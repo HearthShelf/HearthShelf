@@ -1,5 +1,6 @@
 import { absRequest } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
+import { encodeNamePathParam } from '@hearthshelf/core'
 import type {
   ABSUsersResponse,
   ABSAdminUser,
@@ -267,11 +268,8 @@ export function renameTag(tag: string, newTag: string): Promise<void> {
 }
 // ABS decodes the path param as base64 (Buffer.from(decoded, 'base64')), so the
 // tag/genre name must be base64-encoded then URL-encoded.
-function b64Param(value: string): string {
-  return encodeURIComponent(btoa(unescape(encodeURIComponent(value))))
-}
 export function deleteTag(tag: string): Promise<void> {
-  return absRequest<void>(`/api/tags/${b64Param(tag)}`, { method: 'DELETE' })
+  return absRequest<void>(`/api/tags/${encodeNamePathParam(tag)}`, { method: 'DELETE' })
 }
 export function renameGenre(genre: string, newGenre: string): Promise<void> {
   return absRequest<void>('/api/genres/rename', {
@@ -280,7 +278,7 @@ export function renameGenre(genre: string, newGenre: string): Promise<void> {
   })
 }
 export function deleteGenre(genre: string): Promise<void> {
-  return absRequest<void>(`/api/genres/${b64Param(genre)}`, { method: 'DELETE' })
+  return absRequest<void>(`/api/genres/${encodeNamePathParam(genre)}`, { method: 'DELETE' })
 }
 
 // --- Notifications (admin) ---

@@ -29,13 +29,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useToast } from '@/hooks/useToast'
 import { SelectField } from '@/components/common/SelectField'
-
-function fmtBytes(b: number): string {
-  const mb = b / (1024 * 1024)
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  if (mb >= 1) return `${mb.toFixed(0)} MB`
-  return `${Math.max(1, Math.round(b / 1024))} KB`
-}
+import { fmtBytes } from '@hearthshelf/core'
 
 function fmtDate(ms: number): string {
   if (!ms) return '-'
@@ -96,7 +90,9 @@ function ScheduleField({
           onBlur={(e) => onChange(e.target.value.trim())}
         />
       )}
-      {locked && <p className="field-hint">Set by environment - edit the env var to change this.</p>}
+      {locked && (
+        <p className="field-hint">Set by environment - edit the env var to change this.</p>
+      )}
     </div>
   )
 }
@@ -151,36 +147,56 @@ export function ConfigBackups() {
 
   // ABS actions
   const patchAbsSchedule = (backupSchedule: string) =>
-    withBusy('abs-sched', async () => {
-      await updateServerSettings({ backupSchedule })
-      await settingsQ.refetch()
-    }, 'Schedule saved')
+    withBusy(
+      'abs-sched',
+      async () => {
+        await updateServerSettings({ backupSchedule })
+        await settingsQ.refetch()
+      },
+      'Schedule saved',
+    )
 
   const patchAbsKeep = (backupsToKeep: number) =>
-    withBusy('abs-keep', async () => {
-      await updateServerSettings({ backupsToKeep })
-      await settingsQ.refetch()
-    }, 'Saved')
+    withBusy(
+      'abs-keep',
+      async () => {
+        await updateServerSettings({ backupsToKeep })
+        await settingsQ.refetch()
+      },
+      'Saved',
+    )
 
   // HS actions
   const patchHsConfig = (patch: { schedule?: string; keep?: number }) =>
-    withBusy('hs-cfg', async () => {
-      await setHsBackupConfig(patch)
-      await hsQ.refetch()
-    }, 'Saved')
+    withBusy(
+      'hs-cfg',
+      async () => {
+        await setHsBackupConfig(patch)
+        await hsQ.refetch()
+      },
+      'Saved',
+    )
 
   const runHs = () =>
-    withBusy('hs-run', async () => {
-      await runHsBackup()
-      // The job runs in the background; poll once shortly after.
-      setTimeout(() => qc.invalidateQueries({ queryKey: backupKeys.list }), 1500)
-    }, 'Backup started')
+    withBusy(
+      'hs-run',
+      async () => {
+        await runHsBackup()
+        // The job runs in the background; poll once shortly after.
+        setTimeout(() => qc.invalidateQueries({ queryKey: backupKeys.list }), 1500)
+      },
+      'Backup started',
+    )
 
   const runAbs = () =>
-    withBusy('abs-run', async () => {
-      await runBackup()
-      await absQ.refetch()
-    }, 'Backup created')
+    withBusy(
+      'abs-run',
+      async () => {
+        await runBackup()
+        await absQ.refetch()
+      },
+      'Backup created',
+    )
 
   return (
     <>
@@ -227,10 +243,7 @@ export function ConfigBackups() {
 
       {settings && (
         <div className="cfg-card">
-          <ScheduleField
-            value={absSchedule || ''}
-            onChange={patchAbsSchedule}
-          />
+          <ScheduleField value={absSchedule || ''} onChange={patchAbsSchedule} />
           <div className="field full" style={{ marginTop: 'var(--s4)' }}>
             <label>How many backups to keep</label>
             <input
@@ -332,9 +345,13 @@ export function ConfigBackups() {
                           danger: true,
                           confirmLabel: 'Restore',
                           run: () =>
-                            withBusy('', async () => {
-                              await applyBackup(b.id)
-                            }, 'AudiobookShelf is restoring...'),
+                            withBusy(
+                              '',
+                              async () => {
+                                await applyBackup(b.id)
+                              },
+                              'AudiobookShelf is restoring...',
+                            ),
                         })
                       }
                     >
@@ -350,10 +367,14 @@ export function ConfigBackups() {
                           danger: true,
                           confirmLabel: 'Delete',
                           run: () =>
-                            withBusy('', async () => {
-                              await deleteBackup(b.id)
-                              await absQ.refetch()
-                            }, 'Deleted'),
+                            withBusy(
+                              '',
+                              async () => {
+                                await deleteBackup(b.id)
+                                await absQ.refetch()
+                              },
+                              'Deleted',
+                            ),
                         })
                       }
                     >
@@ -378,7 +399,9 @@ export function ConfigBackups() {
       </p>
       <div className="banner info" style={{ marginBottom: 'var(--s4)' }}>
         <Icon name="lock" />
-        <span>Contains server secrets (API keys, tokens). Store a downloaded copy like a password.</span>
+        <span>
+          Contains server secrets (API keys, tokens). Store a downloaded copy like a password.
+        </span>
       </div>
 
       {hsConfig && (
@@ -498,12 +521,18 @@ export function ConfigBackups() {
                           danger: true,
                           confirmLabel: 'Restore',
                           run: () =>
-                            withBusy('', async () => {
-                              const r = await restoreHsBackup(b.id)
-                              await hsQ.refetch()
-                              if (r.crossServer)
-                                show('Restored from a different server - some links may need attention')
-                            }, 'HearthShelf data restored'),
+                            withBusy(
+                              '',
+                              async () => {
+                                const r = await restoreHsBackup(b.id)
+                                await hsQ.refetch()
+                                if (r.crossServer)
+                                  show(
+                                    'Restored from a different server - some links may need attention',
+                                  )
+                              },
+                              'HearthShelf data restored',
+                            ),
                         })
                       }
                     >
@@ -519,10 +548,14 @@ export function ConfigBackups() {
                           danger: true,
                           confirmLabel: 'Delete',
                           run: () =>
-                            withBusy('', async () => {
-                              await deleteHsBackup(b.id)
-                              await hsQ.refetch()
-                            }, 'Deleted'),
+                            withBusy(
+                              '',
+                              async () => {
+                                await deleteHsBackup(b.id)
+                                await hsQ.refetch()
+                              },
+                              'Deleted',
+                            ),
                         })
                       }
                     >
@@ -561,7 +594,8 @@ export function ConfigBackups() {
               )
             }
           >
-            <Icon name="archive" /> {busy === 'archive-dl' ? 'Building...' : 'Download full archive'}
+            <Icon name="archive" />{' '}
+            {busy === 'archive-dl' ? 'Building...' : 'Download full archive'}
           </button>
           <input
             ref={archiveFileRef}
@@ -578,12 +612,16 @@ export function ConfigBackups() {
                   danger: true,
                   confirmLabel: 'Restore everything',
                   run: () =>
-                    withBusy('', async () => {
-                      const r = await restoreArchive(f, 'replace')
-                      await Promise.all([absQ.refetch(), hsQ.refetch()])
-                      if (r.crossServer)
-                        show('Restored from a different server - some links may need attention')
-                    }, 'Archive restored'),
+                    withBusy(
+                      '',
+                      async () => {
+                        const r = await restoreArchive(f, 'replace')
+                        await Promise.all([absQ.refetch(), hsQ.refetch()])
+                        if (r.crossServer)
+                          show('Restored from a different server - some links may need attention')
+                      },
+                      'Archive restored',
+                    ),
                 })
               e.target.value = ''
             }}
