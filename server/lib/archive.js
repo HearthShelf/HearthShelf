@@ -308,36 +308,62 @@ export async function estimateArchive(absToken) {
 // Apply the ABS half: upload it to ABS then trigger apply. ABS's apply
 // (GET /api/backups/:id/apply) replaces its sqlite + metadata and reconnects
 // with no process restart. Returns true on success. Best-effort logging.
-export async function applyAbsHalf(absToken, absBytes, logger) {
+//
+// An error with `partial: true` and `uncertain: true` means ABS may or may not have
+// replaced its data. `request` is a seam for tests.
+export async function applyAbsHalf(absToken, absBytes, logger, { request = fetch } = {}) {
   const base = absBase()
   if (!base || !absToken) throw new Error('AudiobookShelf is not reachable to restore its half.')
   const auth = { Authorization: `Bearer ${absToken}` }
+  const backupId = absBackupId(absBytes)
 
   logger?.info?.('Uploading the AudiobookShelf backup')
   // ABS's upload is multipart/form-data with a `file` field.
   const form = new FormData()
   form.append('file', new Blob([absBytes], { type: 'application/zip' }), 'restore.audiobookshelf')
-  const up = await fetch(`${base}/api/backups/upload`, { method: 'POST', headers: auth, body: form })
+  const up = await request(`${base}/api/backups/upload`, { method: 'POST', headers: auth, body: form })
   if (!up.ok) throw new Error(`AudiobookShelf rejected the backup upload (${up.status}).`)
   const upData = await up.json().catch(() => ({}))
   const backups = Array.isArray(upData?.backups) ? upData.backups : []
-  // The uploaded backup is the newest one now.
-  const newest = backups.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0]
-  if (!newest) throw new Error('AudiobookShelf did not report the uploaded backup.')
+  if (!backups.some((b) => b.id === backupId)) {
+    throw new Error('AudiobookShelf did not report the uploaded backup.')
+  }
 
   logger?.info?.('Applying the AudiobookShelf backup')
   let apply
   try {
-    apply = await fetch(`${base}/api/backups/${encodeURIComponent(newest.id)}/apply`, {
+    apply = await request(`${base}/api/backups/${encodeURIComponent(backupId)}/apply`, {
       headers: auth,
     })
   } catch (err) {
-    // No answer, so ABS may have replaced its data anyway.
-    err.partial = true
-    throw err
+    throw markUncertain(err)
+  }
+  if (apply.status >= 502) {
+    // That is a proxy talking, not ABS, which may have carried on.
+    throw markUncertain(new Error(`No answer from AudiobookShelf (${apply.status}).`))
   }
   if (!apply.ok) throw new Error(`AudiobookShelf could not apply the backup (${apply.status}).`)
   return true
+}
+
+function markUncertain(err) {
+  err.partial = true
+  err.uncertain = true
+  return err
+}
+
+// A backup's id, from the `details` file ABS writes into it (id on the first line).
+// An uploaded backup keeps its original date, so "newest" can be a different backup.
+function absBackupId(absBytes) {
+  let id = ''
+  try {
+    const details = new AdmZip(absBytes).getEntry('details')
+    id = details?.getData().toString('utf8').split('\n')[0].trim() ?? ''
+  } catch {
+    id = ''
+  }
+  if (!id) throw new Error('The AudiobookShelf backup in this archive is damaged.')
+  return id
 }
 
 // Restore from an archive buffer. Modes:
@@ -380,6 +406,11 @@ export async function restoreArchive(
   const absEntry = zip.getEntry(ABS_INNER)
   const hsEntry = zip.getEntry(HS_INNER)
 
+  const missingAbs = mode === 'replace' && manifest.contents.abs?.present && !absEntry
+  if (missingAbs || (manifest.contents.hs?.present && !hsEntry)) {
+    throw new Error('This archive is missing part of its data, so nothing was restored.')
+  }
+
   // An ABS-only archive in hs-only mode has nothing to do.
   if (!hsEntry && mode === 'hs-only') throw new Error('This archive has no HearthShelf data to restore.')
   const restoreAbs = mode === 'replace' && Boolean(absEntry)
@@ -406,7 +437,10 @@ export async function restoreArchive(
     const hsResult = await restoreHs(tmp, logger, { gateHeld: true })
     return { absRestored: restoreAbs, hsRestored: true, ...hsResult }
   } catch (err) {
-    if (absChanged) err.partial = true
+    if (absChanged) {
+      err.partial = true
+      err.uncertain = false
+    }
     throw err
   } finally {
     await fs.rm(tmp, { force: true }).catch(() => {})

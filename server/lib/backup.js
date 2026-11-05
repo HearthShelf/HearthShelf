@@ -420,11 +420,13 @@ export async function restoreBackup(zipPath, logger, { gateHeld = false } = {}) 
     const backupServerId = String(manifest.serverId)
     const crossServer = backupServerId !== thisServerId
 
-    // Escape hatch: move the current state aside (kept once). A prior
-    // pre-restore dir is overwritten so we don't accrete them.
-    const escapeDir = path.join(DB_DIR, `pre-restore-${stamp(Date.now())}`)
+    // Escape hatch: move the current state aside. The name is unique because a
+    // retry within the same minute must not touch the copy the last try saved.
+    const escapeDir = path.join(
+      DB_DIR,
+      `pre-restore-${stamp(Date.now())}-${crypto.randomUUID().slice(0, 8)}`,
+    )
     logger?.info?.(`Saving current data to ${path.basename(escapeDir)}/`)
-    await fs.rm(escapeDir, { recursive: true, force: true }).catch(() => {})
     await ensureDir(escapeDir)
 
     // Checkpoint so the main db file is complete, then CLOSE the connection so

@@ -49,11 +49,12 @@ import { setHostedConfig } from '../lib/hosted.js'
 const MAX_BACKUP_UPLOAD_BYTES = 512 * 1024 * 1024
 
 // A failed restore. `partial_restore` means live data was changed before it failed,
-// so a client must not say that nothing was replaced.
+// or, with `uncertain`, may have been, so a client must not say nothing was replaced.
 function restoreFailed(res, err) {
   const partial = err?.partial === true
   json(res, partial ? 500 : 400, {
     error: partial ? 'partial_restore' : 'restore_failed',
+    uncertain: partial && err?.uncertain === true,
     detail: String(err?.message ?? err),
   })
   return true
@@ -83,6 +84,11 @@ async function lastBackupRun(serverId) {
 export async function handleBackups(req, res, url, ctx) {
   const p = url.pathname
   if (!p.startsWith('/hs/backups') && !p.startsWith('/hs/archive')) return false
+  // Mid-restore ABS can't vouch for anyone, so a 401 here would read as a lost sign-in.
+  // Saying only that a restore is running lets a client tell the two apart.
+  if (!ctx && p === '/hs/backups/restore-status' && isRestoring()) {
+    return (json(res, 503, { error: 'restoring' }), true)
+  }
   if (!ctx) return (json(res, 401, { error: 'unauthorized' }), true)
   if (!isAdmin(ctx)) return (json(res, 403, { error: 'forbidden' }), true)
 

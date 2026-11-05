@@ -1182,7 +1182,6 @@ export function closeDb() {
     // best-effort
   }
   ready = null
-  serverIdReady = null
 }
 
 // Reconnect to hearthshelf.db (after a restore replaced the file). Opens a fresh
@@ -1194,6 +1193,9 @@ export async function reopenDb() {
   closeDb()
   client = createClient(clientConfig)
   await initDb()
+  // Only now: every signed-in request needs the id, including the ones asking how a
+  // restore is going, and the restored file may carry a different one.
+  serverIdReady = null
 }
 
 // Checkpoint the WAL so the main db file is complete before it's copied/moved

@@ -9,7 +9,7 @@ import AdmZip from 'adm-zip'
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hs-archive-restore-'))
 process.env.QG_DATA_DIR ??= dir
-const { restoreArchive, ARCHIVE_FORMAT_VERSION } = await import('../lib/archive.js')
+const { restoreArchive, applyAbsHalf, ARCHIVE_FORMAT_VERSION } = await import('../lib/archive.js')
 const { beginRestore, endRestore, isRestoring, BACKUP_MANIFEST_VERSION } = await import('../lib/backup.js')
 
 function hsBackup({ manifest = {}, withDb = true } = {}) {
@@ -118,4 +118,81 @@ test('a good restore holds the gate across both halves and releases it', async (
   assert.equal(calls.restoringDuringAbs, true)
   assert.equal(calls.hsGateHeld, true)
   assert.equal(isRestoring(), false)
+})
+
+// --- Applying the ABS half --------------------------------------------------
+
+function absBackup(id) {
+  const zip = new AdmZip()
+  zip.addFile('details', Buffer.from(`${id}\nkey\n1\n2.0.0`))
+  return zip.toBuffer()
+}
+
+function fakeAbs({ backups, applyStatus = 200, applyThrows = false }) {
+  const applied = []
+  const request = async (url) => {
+    if (url.endsWith('/api/backups/upload')) {
+      return { ok: true, status: 200, json: async () => ({ backups }) }
+    }
+    applied.push(url)
+    if (applyThrows) throw new Error('socket hang up')
+    return { ok: applyStatus < 400, status: applyStatus }
+  }
+  return { applied, request }
+}
+
+process.env.ABS_SERVER_URL = 'http://abs.test'
+
+test('the uploaded backup is applied even when another one is newer', async () => {
+  const { applied, request } = fakeAbs({
+    backups: [
+      { id: 'newer', createdAt: 999 },
+      { id: 'wanted', createdAt: 1 },
+    ],
+  })
+  await applyAbsHalf('t', absBackup('wanted'), null, { request })
+  assert.deepEqual(applied, ['http://abs.test/api/backups/wanted/apply'])
+})
+
+test('nothing is applied when ABS does not list the uploaded backup', async () => {
+  const { applied, request } = fakeAbs({ backups: [{ id: 'newer', createdAt: 999 }] })
+  await assert.rejects(applyAbsHalf('t', absBackup('wanted'), null, { request }), (err) => {
+    assert.notEqual(err.partial, true)
+    return true
+  })
+  assert.deepEqual(applied, [])
+})
+
+test('a backup with no readable id is refused before it is uploaded', async () => {
+  const { applied, request } = fakeAbs({ backups: [] })
+  await assert.rejects(applyAbsHalf('t', Buffer.from('not a zip'), null, { request }))
+  assert.deepEqual(applied, [])
+})
+
+test('ABS refusing the apply leaves nothing partial', async () => {
+  const { request } = fakeAbs({ backups: [{ id: 'wanted' }], applyStatus: 500 })
+  await assert.rejects(applyAbsHalf('t', absBackup('wanted'), null, { request }), (err) => {
+    assert.notEqual(err.partial, true)
+    return true
+  })
+})
+
+test('a proxy error or a dropped connection on apply is uncertain, not refused', async () => {
+  for (const options of [{ applyStatus: 502 }, { applyStatus: 504 }, { applyThrows: true }]) {
+    const { request } = fakeAbs({ backups: [{ id: 'wanted' }], ...options })
+    await assert.rejects(applyAbsHalf('t', absBackup('wanted'), null, { request }), (err) => {
+      assert.equal(err.partial, true)
+      assert.equal(err.uncertain, true)
+      return true
+    })
+  }
+})
+
+test('an archive that lists a half it does not hold changes nothing', async () => {
+  const { calls, seams } = spies()
+  const zip = new AdmZip(archive(hsBackup()))
+  zip.deleteFile('abs/backup.audiobookshelf')
+  await assert.rejects(restoreArchive(zip.toBuffer(), 'replace', 't', null, seams))
+  assert.equal(calls.abs, 0)
+  assert.equal(calls.hs, 0)
 })
