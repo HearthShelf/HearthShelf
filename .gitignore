@@ -31,3 +31,4 @@ server/.devdata/
 
 # Local-only agent notes
 CLAUDE.local.md
+__pycache__/
