@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './icon-font.css';
 @import './design.css';
 
 @custom-variant dark (&:is(.dark *));
@@ -21,13 +22,7 @@
   font-display: swap;
   src: url('./assets/fonts/LibreBaskerville-VariableFont_wght.ttf') format('truetype-variations');
 }
-@font-face {
-  font-family: 'Material Symbols Rounded';
-  font-style: normal;
-  font-weight: 100 700;
-  font-display: block;
-  src: url('./assets/fonts/MaterialSymbolsRounded.woff2') format('woff2');
-}
+/* The icon font is embedded in icon-font.css (generated, see scripts/icon-font). */
 
 /* =====================================================================
    HearthShelf design tokens. Dark is "home" - v0.1 ships dark only, so the
