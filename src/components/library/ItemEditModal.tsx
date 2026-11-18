@@ -7,6 +7,7 @@ import {
   itemFileDownloadUrl,
   itemDownloadUrl,
   deleteLibraryFile,
+  removeLibraryItem,
   reorderItemTracks,
   embedItemMetadata,
   type ItemMetadataPatch,
@@ -34,13 +35,16 @@ function Field({ label, full, children }: { label: string; full?: boolean; child
 interface ItemEditModalProps {
   item: ABSLibraryItemDetail
   onClose: () => void
+  // Called after the book is removed from the library, instead of onClose.
+  onRemoved?: () => void
 }
 
 // Editing modal. Details saves metadata via PATCH /api/items/:id/media; Cover and
 // Match find/apply artwork and provider matches; Chapters opens the chapter editor
 // (POST /api/items/:id/chapters); Files downloads/deletes individual files; Tools
-// embeds metadata back into the audio (POST /api/tools/item/:id/embed-metadata).
-export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
+// embeds metadata back into the audio (POST /api/tools/item/:id/embed-metadata)
+// and removes the book from the library (DELETE /api/items/:id).
+export function ItemEditModal({ item, onClose, onRemoved }: ItemEditModalProps) {
   const qc = useQueryClient()
   const m = item.media.metadata
   const authorName = m.authors?.[0]?.name ?? ''
@@ -144,7 +148,7 @@ export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
       <Modal
         title={`Edit · ${title}`}
         onClose={onClose}
-        tabs={['Details', 'Cover', ...(hasAudio ? ['Chapters', 'Files', 'Tools'] : []), 'Match']}
+        tabs={['Details', 'Cover', ...(hasAudio ? ['Chapters', 'Files'] : []), 'Tools', 'Match']}
         tab={tab}
         setTab={setTab}
         foot={tab === 'Details' ? foot : undefined}
@@ -177,7 +181,18 @@ export function ItemEditModal({ item, onClose }: ItemEditModalProps) {
             onDeleted={() => qc.invalidateQueries({ queryKey: libraryKeys.item(item.id) })}
           />
         )}
-        {tab === 'Tools' && <ToolsTab itemId={item.id} />}
+        {tab === 'Tools' && (
+          <ToolsTab
+            item={item}
+            hasAudio={hasAudio}
+            onRemoved={() => {
+              // The book is gone from every list it was on (series, shelves,
+              // search), so refetch whatever is on screen.
+              void qc.invalidateQueries()
+              ;(onRemoved ?? onClose)()
+            }}
+          />
+        )}
         {tab === 'Details' && (
           <div className="form-grid">
             {appliedNote && (
@@ -444,7 +459,16 @@ function FilesTab({ item, onDeleted }: { item: ABSLibraryItemDetail; onDeleted: 
   )
 }
 
-function ToolsTab({ itemId }: { itemId: string }) {
+function ToolsTab({
+  item,
+  hasAudio,
+  onRemoved,
+}: {
+  item: ABSLibraryItemDetail
+  hasAudio: boolean
+  onRemoved: () => void
+}) {
+  const itemId = item.id
   const [chapters, setChapters] = useState(false)
   const [backup, setBackup] = useState(true)
   const [running, setRunning] = useState(false)
@@ -465,33 +489,101 @@ function ToolsTab({ itemId }: { itemId: string }) {
 
   return (
     <div style={{ padding: '8px 2px' }}>
+      {hasAudio && (
+        <>
+          <div className="section-head">
+            <Icon name="save_as" />
+            <h2>Embed metadata</h2>
+          </div>
+          <p style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            Write the current title, author, and cover back into the audio files so other players
+            read them too. Runs as a background task.
+          </p>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 14 }}
+          >
+            <input
+              type="checkbox"
+              checked={chapters}
+              onChange={(e) => setChapters(e.target.checked)}
+            />
+            Also embed chapter markers
+          </label>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 14 }}
+          >
+            <input type="checkbox" checked={backup} onChange={(e) => setBackup(e.target.checked)} />
+            Keep a backup of the original files
+          </label>
+          <button
+            className="btn-sm btn-green"
+            style={{ marginTop: 16 }}
+            disabled={running}
+            onClick={() => void embed()}
+          >
+            <Icon name="save_as" /> {running ? 'Starting...' : 'Embed metadata'}
+          </button>
+          {msg && <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>{msg}</p>}
+        </>
+      )}
+      <RemoveSection item={item} onRemoved={onRemoved} />
+    </div>
+  )
+}
+
+function RemoveSection({ item, onRemoved }: { item: ABSLibraryItemDetail; onRemoved: () => void }) {
+  const missing = Boolean(item.isMissing || item.isInvalid)
+  const [deleteFiles, setDeleteFiles] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const title = item.media.metadata.title ?? 'this book'
+
+  const remove = async () => {
+    const what = deleteFiles
+      ? `Remove "${title}" and delete its files from disk? This cannot be undone.`
+      : `Remove "${title}" from the library? Its files stay on disk, and listening progress for it is lost.`
+    if (!window.confirm(what)) return
+    setRunning(true)
+    setMsg(null)
+    try {
+      await removeLibraryItem(item.id, deleteFiles && !missing)
+      onRemoved()
+    } catch {
+      setMsg('Could not remove it. Your account may not have permission to delete books.')
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
       <div className="section-head">
-        <Icon name="save_as" />
-        <h2>Embed metadata</h2>
+        <Icon name="delete" />
+        <h2>Remove from library</h2>
       </div>
       <p style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-        Write the current title, author, and cover back into the audio files so other players read
-        them too. Runs as a background task.
+        {missing
+          ? "AudiobookShelf can't find this book's files any more. Remove it to clear it from your library and series."
+          : 'Take this book out of the library. Use this for leftover copies after you replace a book.'}
       </p>
-      <label
-        style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 14 }}
-      >
-        <input type="checkbox" checked={chapters} onChange={(e) => setChapters(e.target.checked)} />
-        Also embed chapter markers
-      </label>
-      <label
-        style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: 14 }}
-      >
-        <input type="checkbox" checked={backup} onChange={(e) => setBackup(e.target.checked)} />
-        Keep a backup of the original files
-      </label>
+      {!missing && (
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 14 }}
+        >
+          <input
+            type="checkbox"
+            checked={deleteFiles}
+            onChange={(e) => setDeleteFiles(e.target.checked)}
+          />
+          Also delete the files from disk
+        </label>
+      )}
       <button
-        className="btn-sm btn-green"
-        style={{ marginTop: 16 }}
+        className="btn-sm btn-ghost"
+        style={{ marginTop: 16, color: '#e07a6a' }}
         disabled={running}
-        onClick={() => void embed()}
+        onClick={() => void remove()}
       >
-        <Icon name="save_as" /> {running ? 'Starting...' : 'Embed metadata'}
+        <Icon name="delete" /> {running ? 'Removing...' : 'Remove from library'}
       </button>
       {msg && <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>{msg}</p>}
     </div>

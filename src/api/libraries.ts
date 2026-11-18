@@ -191,6 +191,13 @@ export function deleteLibraryFile(itemId: string, fileId: string): Promise<void>
     method: 'DELETE',
   })
 }
+// Remove a book from the library. ABS keeps the files on disk unless hard is set
+// (DELETE /api/items/:id?hard=1). Needs the ABS "can delete" permission.
+export function removeLibraryItem(itemId: string, deleteFiles: boolean): Promise<void> {
+  return absRequest<void>(`/api/items/${itemId}${deleteFiles ? '?hard=1' : ''}`, {
+    method: 'DELETE',
+  })
+}
 // Reorder a book's audio files. ABS wants the full ordered list of file inos.
 export function reorderItemTracks(itemId: string, orderedInos: string[]): Promise<void> {
   return absRequest<void>(`/api/items/${itemId}/tracks`, {

@@ -460,6 +460,9 @@ function SeriesDetail({ series }: { series: ABSSeries }) {
                     </div>
                     <div className="sl-sub">
                       {[m.narratorName, hours > 0 && `${hours}h`].filter(Boolean).join(' · ')}
+                      {b.isMissing && (
+                        <span style={{ color: '#e07a6a', marginLeft: 8 }}>· Files missing</span>
+                      )}
                     </div>
                     {part && (
                       <div className="prog-line" style={{ marginTop: 8, maxWidth: 280 }}>

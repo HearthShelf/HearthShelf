@@ -639,7 +639,13 @@ export function BookDetailPage() {
           onClose={() => setZoomCover(false)}
         />
       )}
-      {editing && <ItemEditModal item={data} onClose={() => setEditing(false)} />}
+      {editing && (
+        <ItemEditModal
+          item={data}
+          onClose={() => setEditing(false)}
+          onRemoved={() => navigate(-1)}
+        />
+      )}
       {editingChapters && (
         <ChapterEditorModal
           itemId={data.id}
