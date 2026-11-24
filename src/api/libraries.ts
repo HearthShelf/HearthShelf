@@ -147,10 +147,12 @@ export function matchItem(
   })
 }
 
-// Set the item cover from an external image URL.
+// Set the item cover from an external image URL. POST (upload) is the route that
+// downloads a url; PATCH only accepts a file path already in the book's folder
+// and answers 400 "no cover path" for a url.
 export function updateItemCover(itemId: string, url: string): Promise<void> {
   return absRequest<void>(`/api/items/${itemId}/cover`, {
-    method: 'PATCH',
+    method: 'POST',
     body: JSON.stringify({ url }),
   })
 }
