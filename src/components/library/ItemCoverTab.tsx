@@ -28,12 +28,16 @@ export function ItemCoverTab({
   const [searching, setSearching] = useState(false)
   const [applying, setApplying] = useState<string | null>(null)
   const [urlInput, setUrlInput] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const run = async () => {
     setSearching(true)
+    setError(null)
     try {
       const res = await searchCovers(provider, title, defaultAuthor)
       setCovers(res.results)
+    } catch {
+      setError("Couldn't search for covers. Try again.")
     } finally {
       setSearching(false)
     }
@@ -41,10 +45,13 @@ export function ItemCoverTab({
 
   const apply = async (url: string) => {
     setApplying(url)
+    setError(null)
     try {
       await updateItemCover(itemId, url)
       qc.invalidateQueries({ queryKey: libraryKeys.item(itemId) })
       onApplied('Cover updated')
+    } catch {
+      setError("Couldn't set that cover. Try another picture or link.")
     } finally {
       setApplying(null)
     }
@@ -107,6 +114,11 @@ export function ItemCoverTab({
           </button>
         </div>
 
+        {error && (
+          <div style={{ fontSize: 13, color: 'var(--danger, #e5484d)', marginBottom: 10 }}>
+            {error}
+          </div>
+        )}
         {searching && <LoadingSpinner className="py-8" label="Searching..." />}
         {covers && covers.length === 0 && <div className="pop-empty">No covers found.</div>}
         {covers && covers.length > 0 && (
