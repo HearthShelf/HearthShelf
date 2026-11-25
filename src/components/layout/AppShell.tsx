@@ -10,6 +10,7 @@ import { ServerHealthWatcher } from '@/components/hosted/ServerHealthWatcher'
 import { useApplySettings } from '@/hooks/useApplySettings'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useQueueSync } from '@/hooks/useQueueSync'
+import { useDuplicateCarryOver } from '@/hooks/useDuplicateCarryOver'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 
@@ -32,6 +33,7 @@ export function AppShell() {
   useApplySettings()
   useSettingsSync()
   useQueueSync()
+  useDuplicateCarryOver()
 
   return (
     <div

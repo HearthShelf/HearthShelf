@@ -1,4 +1,5 @@
 import { absRequest, ABSRequestError } from '@/api/client'
+import { dedupeItems } from '@/api/libraries'
 import type {
   ABSItemsInProgressResponse,
   ABSUser,
@@ -67,8 +68,11 @@ export function progressFraction(p: {
   return Math.min(1, Math.max(0, p.progress ?? 0))
 }
 
-export function getItemsInProgress(): Promise<ABSItemsInProgressResponse> {
-  return absRequest<ABSItemsInProgressResponse>('/api/me/items-in-progress')
+export async function getItemsInProgress(): Promise<ABSItemsInProgressResponse> {
+  const res = await absRequest<ABSItemsInProgressResponse>('/api/me/items-in-progress')
+  // A duplicate entry and its keeper can both carry progress until the carry-
+  // over runs; show the book once.
+  return { ...res, libraryItems: dedupeItems(res.libraryItems ?? []) }
 }
 
 // Mark an item finished / not finished. PATCH /api/me/progress/:id.

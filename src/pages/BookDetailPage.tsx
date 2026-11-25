@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getItem, libraryKeys } from '@/api/libraries'
+import { useKeeperRedirect } from '@/hooks/useKeeperRedirect'
+import { useDuplicateIndex } from '@/store/duplicatesStore'
 import { getFinishedBy, getListeningNow, socialKeys } from '@/api/social'
 import { getMe, meKeys } from '@/api/me'
 import { NotesSection } from '@/components/social/NotesSection'
@@ -82,9 +84,14 @@ function externalLinks(
   return links
 }
 
+const bookPath = (id: string) => `/book/${id}`
+
 export function BookDetailPage() {
   const { itemId } = useParams()
   const navigate = useNavigate()
+  const redirecting = useKeeperRedirect(itemId, bookPath)
+  const duplicateIndex = useDuplicateIndex()
+  const hasDuplicates = Boolean(itemId) && Object.values(duplicateIndex).includes(itemId as string)
   const { playItem, seek } = usePlayer()
   const progressById = useMediaProgress()
   const { markFinished, isPending: marking } = useMarkFinished()
@@ -105,7 +112,7 @@ export function BookDetailPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: libraryKeys.item(itemId ?? ''),
     queryFn: () => getItem(itemId as string),
-    enabled: Boolean(itemId),
+    enabled: Boolean(itemId) && !redirecting,
     staleTime: 10 * 60 * 1000,
   })
 
@@ -211,6 +218,22 @@ export function BookDetailPage() {
         <Icon name="chevron_right" />
         {title}
       </div>
+
+      {hasDuplicates && me?.permissions?.delete === true && (
+        <div className="banner info">
+          <Icon name="content_copy" />
+          <span>
+            Your server lists this book twice. HearthShelf shows it once and keeps your place.{' '}
+            {me.type === 'admin' || me.type === 'root' ? (
+              <Link className="lnk" to="/config/libraries">
+                Clean up duplicate entries
+              </Link>
+            ) : (
+              'A server admin can clean up the extra entry.'
+            )}
+          </span>
+        </div>
+      )}
 
       <div className="detail-top">
         <div className="detail-cover" data-cv={cv}>

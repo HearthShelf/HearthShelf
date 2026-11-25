@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
 import { usePlayerStore } from '@/store/playerStore'
 import { startPlayBook, startPlayEpisode } from '@/api/playback'
+import { getMe } from '@/api/me'
+import { carryOverDuplicates, knownDuplicateGroups, resolveItemId } from '@/lib/duplicates'
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2]
 
@@ -14,7 +16,19 @@ export function usePlayer() {
   // which openSession applies as the initial seek. Pass startAt to override
   // that and jump to a specific second (e.g. replay a session from its start).
   const playItem = useCallback(
-    async (itemId: string, startAt?: number) => {
+    async (requestedId: string, startAt?: number) => {
+      // A duplicate entry (one folder ABS recorded twice) plays as the copy that
+      // stays. Move the listener's place there first, or ABS would resume the
+      // kept copy from wherever it was.
+      const itemId = resolveItemId(requestedId)
+      if (itemId !== requestedId) {
+        try {
+          const groups = knownDuplicateGroups().filter((g) => g.keeper.id === itemId)
+          await carryOverDuplicates(groups, await getMe())
+        } catch {
+          // Best effort - playback still starts.
+        }
+      }
       const session = await startPlayBook(itemId)
       openSession(session)
       if (startAt !== undefined) seek(startAt)

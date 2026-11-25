@@ -20,6 +20,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { LibraryEditModal } from '@/components/config/LibraryEditModal'
 import { Modal } from '@/components/common/Modal'
 import { SelectField } from '@/components/common/SelectField'
+import { DuplicateEntriesNotice } from '@/components/config/DuplicateEntriesNotice'
 
 export function ConfigLibraries() {
   const qc = useQueryClient()
@@ -198,6 +199,8 @@ export function ConfigLibraries() {
           <span style={{ fontSize: 13.5 }}>{toast}</span>
         </div>
       )}
+
+      {!isLoading && <DuplicateEntriesNotice libraries={order} />}
 
       {isLoading ? (
         <LoadingSpinner className="py-12" label="Loading libraries..." />

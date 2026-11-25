@@ -19,6 +19,7 @@ import { Icon } from '@/components/common/Icon'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorState } from '@/components/common/ErrorState'
 import { ReaderSettingsPanel } from '@/components/reader/ReaderSettingsPanel'
+import { useKeeperRedirect } from '@/hooks/useKeeperRedirect'
 
 interface ReaderPageProps {
   // When set, the reader renders as an inline "read along" panel (e.g. beside
@@ -30,10 +31,13 @@ interface ReaderPageProps {
   onClose?: () => void
 }
 
+const readerPath = (id: string) => `/reader/${id}`
+
 export function ReaderPage({ itemId: itemIdProp, inline, onClose }: ReaderPageProps = {}) {
   const params = useParams()
   const itemId = itemIdProp ?? params.itemId
   const navigate = useNavigate()
+  useKeeperRedirect(itemIdProp ? undefined : params.itemId, readerPath)
   const prefs = useReaderPrefs()
   const theme = READER_THEMES[prefs.theme]
 

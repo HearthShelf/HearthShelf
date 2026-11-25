@@ -2,15 +2,19 @@ import {
   ABS_ENDPOINTS,
   normalizeSeriesPatch,
   normalizeAuthorsPatch,
+  findDuplicateItems,
+  hideDuplicateItems,
   type ABSItemMetadataPatch,
   type ABSItemSeriesPatch,
   type ABSItemAuthorPatch,
 } from '@hearthshelf/core'
 import { absRequest } from '@/api/client'
 import { useAuthStore } from '@/store/authStore'
+import { getDuplicateIndex, useDuplicatesStore } from '@/store/duplicatesStore'
 import type {
   ABSLibrariesResponse,
   ABSLibraryItemsResponse,
+  ABSLibraryItem,
   ABSLibraryItemDetail,
   ABSShelf,
   ABSSeriesResponse,
@@ -256,17 +260,41 @@ export function batchUpdateItems(
   })
 }
 
-export function getPersonalized(libraryId: string): Promise<ABSShelf[]> {
-  return absRequest<ABSShelf[]>(`/api/libraries/${libraryId}/personalized`)
+// A book ABS recorded twice for one folder shows as one tile everywhere: every
+// list below drops a duplicate whose keeper is in the same list (core
+// hideDuplicateItems, using the index the full library list builds plus the
+// list's own paths). Opening a duplicate resolves to its keeper separately.
+export function dedupeItems<T extends { id: string }>(items: T[]): T[] {
+  return hideDuplicateItems(items, getDuplicateIndex())
 }
 
-export function getSeries(libraryId: string, page = 0, limit = 100): Promise<ABSSeriesResponse> {
+function dedupeSeries(series: ABSSeries): ABSSeries {
+  return { ...series, books: dedupeItems(series.books ?? []) }
+}
+
+export async function getPersonalized(libraryId: string): Promise<ABSShelf[]> {
+  const shelves = await absRequest<ABSShelf[]>(`/api/libraries/${libraryId}/personalized`)
+  return shelves.map((shelf) => {
+    if (shelf.type === 'book') return { ...shelf, entities: dedupeItems(shelf.entities) }
+    if (shelf.type === 'series') return { ...shelf, entities: shelf.entities.map(dedupeSeries) }
+    return shelf
+  })
+}
+
+export async function getSeries(
+  libraryId: string,
+  page = 0,
+  limit = 100,
+): Promise<ABSSeriesResponse> {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(limit),
     sort: 'name',
   })
-  return absRequest<ABSSeriesResponse>(`/api/libraries/${libraryId}/series?${params.toString()}`)
+  const res = await absRequest<ABSSeriesResponse>(
+    `/api/libraries/${libraryId}/series?${params.toString()}`,
+  )
+  return { ...res, results: res.results.map(dedupeSeries) }
 }
 
 // ABS doesn't expose a single-series-by-id endpoint cleanly; filter the list.
@@ -283,10 +311,12 @@ export function getLibraries(): Promise<ABSLibrariesResponse> {
   return absRequest<ABSLibrariesResponse>('/api/libraries')
 }
 
-export function searchLibrary(libraryId: string, query: string): Promise<ABSSearchResponse> {
-  return absRequest<ABSSearchResponse>(
+export async function searchLibrary(libraryId: string, query: string): Promise<ABSSearchResponse> {
+  const res = await absRequest<ABSSearchResponse>(
     `/api/libraries/${libraryId}/search?q=${encodeURIComponent(query)}`,
   )
+  const keep = new Set(dedupeItems((res.book ?? []).map((b) => b.libraryItem)).map((i) => i.id))
+  return { ...res, book: (res.book ?? []).filter((b) => keep.has(b.libraryItem.id)) }
 }
 
 /**
@@ -485,8 +515,9 @@ export function getAuthors(libraryId: string): Promise<ABSAuthorsResponse> {
   return absRequest<ABSAuthorsResponse>(`/api/libraries/${libraryId}/authors`)
 }
 
-export function getAuthor(authorId: string): Promise<ABSAuthorDetail> {
-  return absRequest<ABSAuthorDetail>(`/api/authors/${authorId}?include=items`)
+export async function getAuthor(authorId: string): Promise<ABSAuthorDetail> {
+  const author = await absRequest<ABSAuthorDetail>(`/api/authors/${authorId}?include=items`)
+  return { ...author, libraryItems: dedupeItems(author.libraryItems ?? []) }
 }
 
 export function getNarrators(libraryId: string): Promise<ABSNarratorsResponse> {
@@ -547,6 +578,26 @@ export function getLibraryItems(
 
 // Fetch the entire library in one request (ABS treats limit=0 as "no limit").
 // The Library page filters/sorts/derives client-side over the full set.
-export function getAllLibraryItems(libraryId: string): Promise<ABSLibraryItemsResponse> {
-  return absRequest<ABSLibraryItemsResponse>(`/api/libraries/${libraryId}/items?limit=0`)
+//
+// The full list includes missing/invalid items, so it is where duplicate
+// entries (one folder ABS recorded twice) are found: the groups go to the
+// duplicates store (admin cleanup, keeper resolution, progress carry-over) and
+// the list comes back with each book once.
+export async function getAllLibraryItems(libraryId: string): Promise<ABSLibraryItemsResponse> {
+  const res = await getRawLibraryItems(libraryId)
+  const results = dedupeItems(res.results)
+  return { ...res, results, total: Math.max(0, res.total - (res.results.length - results.length)) }
+}
+
+// The full list as ABS returns it, duplicates included. Records this library's
+// duplicate groups as a side effect.
+export async function getRawLibraryItems(libraryId: string): Promise<ABSLibraryItemsResponse> {
+  const res = await absRequest<ABSLibraryItemsResponse>(`/api/libraries/${libraryId}/items?limit=0`)
+  recordDuplicates(libraryId, res.results)
+  return res
+}
+
+function recordDuplicates(libraryId: string, items: ABSLibraryItem[]): void {
+  const groups = findDuplicateItems(items.filter((item) => item.libraryId === libraryId))
+  useDuplicatesStore.getState().setLibraryGroups(libraryId, groups)
 }
