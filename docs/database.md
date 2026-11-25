@@ -45,6 +45,12 @@ change is a one-file fix.
   (`abs-sqlite-busy-timeout.cjs`, `HS_ABS_SQLITE_BUSY_TIMEOUT_MS`, default 15s),
   so any brief lock makes it wait instead of crash, and the entrypoint restarts
   ABS in place if it exits (giving up after 5 exits in 2 minutes).
+- Also on the AIO image, `abs-no-duplicate-items.cjs` stops ABS adding one
+  folder twice. A full library scan (often requested by a download tool right
+  after it drops a book in) adds folders from a list read minutes earlier, so a
+  folder the watcher added meanwhile was added again. The guard re-checks the
+  database right before each add. The slim image runs stock ABS, so clients
+  also hide and clean up duplicates themselves.
 - Path comes from `HS_ABS_DB_PATH` (default `/config/absdatabase.sqlite`). On the
   all-in-one image ABS's `/config` is already mounted in-container, so the default
   works with no extra config. On the slim image, mount ABS's config dir read-only

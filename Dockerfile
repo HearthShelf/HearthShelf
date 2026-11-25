@@ -130,6 +130,9 @@ COPY --from=abs /usr/local/lib/nusqlite3 /usr/local/lib/nusqlite3
 # Preloaded into the ABS process by the entrypoint: lets ABS wait out a lock on
 # its database instead of crashing on SQLITE_BUSY (see the file's header).
 COPY abs-sqlite-busy-timeout.cjs /usr/local/lib/hearthshelf/abs-sqlite-busy-timeout.cjs
+# Also preloaded: stops a full library scan from adding a folder the watcher
+# already added while the scan ran (see the file's header).
+COPY abs-no-duplicate-items.cjs /usr/local/lib/hearthshelf/abs-no-duplicate-items.cjs
 
 # ABS runtime config. It listens on an in-container port only (nginx is the sole
 # ingress on 80); config + metadata live on the data volume.
